@@ -989,6 +989,8 @@
     // --- P2P STATE ---
     const NET = {
     ws: null,
+    players: [],
+    aceChoice: null,
     room: null,
     isHost: false,
     mySeatIndex: -1,
@@ -1210,7 +1212,7 @@
         deck.unshift(start);
       }
 
-      sortHand(gamePlayers[0].hand);
+      sortHand(gamePlayers[(gameMode === "online") ? mySeatIndex : 0].hand);
       updateFeed("Cards are in play!");
 
       if (gameMode === "pass_play" && isPassAndPlay) triggerPassScreen();
@@ -1315,7 +1317,7 @@
           _humanPickupLocal();
           p2pBroadcastState();
         } else {
-          p2pSend({ type: "pickup" });
+          netSendActionToHost({ type: "pickup", seat: NET.mySeatIndex });
         }
         return;
       }
@@ -1365,7 +1367,7 @@
           updateControls();
           p2pBroadcastState();
         } else {
-          p2pSend({ type: "declare_last" });
+          netSendActionToHost({ type: "declare_last", seat: NET.mySeatIndex });
         }
         return;
       }
@@ -1399,7 +1401,7 @@
           attemptPlay(turnIndex, [...selectionOrder]);
           p2pBroadcastState();
         } else {
-          p2pSend({ type: "play", indices: [...selectionOrder] });
+          netSendActionToHost({ type: "play", seat: NET.mySeatIndex, indices: [...selectionOrder] });
           // clear local selection immediately (host will echo full snapshot)
           selectionOrder = [];
           renderHandUI();
@@ -1558,12 +1560,43 @@
     function applyPower(c, pidx, isLast) {
       let r = c.rank;
       if (r === "A" && isLast) {
+        // Online: host should not open suit modal for remote players.
+        if (gameMode === "online" && NET && NET.isHost) {
+          if (pidx === mySeatIndex) {
+            // host's own move can use the modal
+            if (gamePlayers[pidx].isBot) {
+              let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
+              gamePlayers[pidx].hand.forEach((x) => counts[x.suit]++);
+              activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
+              updateFeed(`Suit is ${activeSuit}`);
+            } else {
+              acePending = true;
+            }
+          } else {
+            // remote seat: use chosen suit if provided, else auto-pick by hand majority
+            if (NET.aceChoice) {
+              activeSuit = NET.aceChoice;
+              NET.aceChoice = null;
+              updateFeed(`Suit is ${activeSuit}`);
+            } else {
+              let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
+              gamePlayers[pidx].hand.forEach((x) => counts[x.suit]++);
+              activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
+              updateFeed(`Suit is ${activeSuit}`);
+            }
+          }
+          return;
+        }
+
+        // Offline: bots auto-pick, humans use the modal
         if (gamePlayers[pidx].isBot) {
           let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
           gamePlayers[pidx].hand.forEach((x) => counts[x.suit]++);
           activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
           updateFeed(`Suit is ${activeSuit}`);
-        } else acePending = true;
+        } else {
+          acePending = true;
+        }
       } else if (r === "2") pendingDraw2 += 2;
       else if (r === "8") pendingSkip++;
       else if (r === "Q") { direction *= -1; updateFeed("Direction Reversed!"); }
@@ -1894,13 +1927,7 @@
     // =========================
     // P2P IMPLEMENTATION
     // =========================
-    function p2pResetUI(){
-      document.getElementById("p2p-status").innerText = "Not connected.";
-      document.getElementById("p2p-my-code").innerText = "...";
-      document.getElementById("p2p-deal-btn").disabled = true;
-      document.getElementById("p2p-join-code").value = "";
-      document.getElementById("p2p-mode-pill").innerText = (NET.signalMode === "lan") ? "Signal: LAN" : "Signal: Cloud";
-    }
+    function p2pResetUI(){ /* deprecated */ }
 
     
 // ===============================
@@ -1925,6 +1952,7 @@ function netSetStatus(msg) {
 function netRenderPlayers(list) {
   const ul = document.getElementById("onlinePlayersList");
   if (!ul) return;
+  NET.players = Array.isArray(list) ? list : [];
   ul.innerHTML = "";
   list.forEach(p => {
     const li = document.createElement("li");
@@ -2031,8 +2059,8 @@ function netSend(obj) {
   NET.ws.send(JSON.stringify(obj));
 }
 
-function netCreateRoom(name) {
-  netConnect(() => netSend({ type: "create_room", name }));
+function netCreateRoom(name, room) {
+  netConnect(() => netSend({ type: "create_room", name, room }));
 }
 
 function netJoinRoom(name, room) {
@@ -2080,8 +2108,13 @@ function bindOnlineUI() {
   };
 
   if (btnQuick) btnQuick.onclick = () => {
-    // If you want quick-join later, implement server-side matchmaking.
-    netSetStatus("Quick Join not enabled. Use a room code.");
+    const name = (nameEl?.value || "Player").trim().slice(0,16) || "Player";
+    let code = prompt("Choose a room code (4-8 letters/numbers):", "");
+    if (!code) return;
+    code = code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{4,8}$/.test(code)) return netSetStatus("Code must be 4-8 A-Z/0-9.");
+    // Create room with your chosen code (server will fall back if already taken)
+    netCreateRoom(name, code);
   };
 
   if (btnLeave) btnLeave.onclick = () => netLeaveRoom();
@@ -2089,92 +2122,107 @@ function bindOnlineUI() {
   if (btnStart) btnStart.onclick = () => {
     if (!NET.isHost) return netSetStatus("Only host can start/deal.");
     // Host starts game locally then broadcasts.
-    startGameFromLobby();
+    startOnlineGameAsHost();
     netBroadcastState();
   };
 }
 
 // Boot wiring for online lobby
-try { bindOnlineUI(); } catch (e) { console.error('bindOnlineUI failed', e); }
+window.addEventListener("DOMContentLoaded", () => {
+  try { bindOnlineUI(); } catch (e) { console.error("bindOnlineUI failed", e); }
+});
 
 
 // ===============================
-// Snapshot + remote actions
+// Snapshot + remote actions (ONLINE WS)
+// Uses the *existing* game engine variables: gamePlayers/deck/discard/etc.
 // ===============================
 
 function getSnapshot() {
-  // Keep this minimal but complete for deterministic rendering
   return {
-    players: players.map(p => ({
-      name: p.name,
-      hand: p.hand,
-      saidLast: !!p.saidLast,
-      isOut: !!p.isOut,
-    })),
+    inGame: document.getElementById("game-screen")?.classList.contains("active") || discard.length > 0,
+    gamePlayers,
     deck,
     discard,
     activeSuit,
     turnIndex,
     direction,
-    pendingPickup,
-    lastMove,
-    gameOver,
-    themeName,
+    pendingDraw2,
+    pendingDrawJ,
+    pendingSkip,
+    extraTurn,
+    // keep client UI consistent
+    sortByRank,
   };
 }
 
 function applySnapshot(snap) {
   if (!snap) return;
-  players = snap.players;
-  deck = snap.deck;
-  discard = snap.discard;
-  activeSuit = snap.activeSuit;
-  turnIndex = snap.turnIndex;
-  direction = snap.direction;
-  pendingPickup = snap.pendingPickup;
-  lastMove = snap.lastMove;
-  gameOver = snap.gameOver;
-  themeName = snap.themeName;
 
-  // If your UI relies on derived values, recompute and re-render:
-  updateAllUI();
+  gamePlayers = snap.gamePlayers || gamePlayers;
+  deck = snap.deck || deck;
+  discard = snap.discard || discard;
+  activeSuit = snap.activeSuit || activeSuit;
+  turnIndex = (typeof snap.turnIndex === "number") ? snap.turnIndex : turnIndex;
+  direction = (typeof snap.direction === "number") ? snap.direction : direction;
+  pendingDraw2 = snap.pendingDraw2 || 0;
+  pendingDrawJ = snap.pendingDrawJ || 0;
+  pendingSkip = snap.pendingSkip || 0;
+  extraTurn = !!snap.extraTurn;
+  sortByRank = !!snap.sortByRank;
+
+  // Ensure we're in online mode locally
+  gameMode = "online";
+  mySeatIndex = NET.mySeatIndex;
+
+  // If host started the match, jump to table
+  if (snap.inGame) {
+    showScreen("game-screen");
+    selectionOrder = [];
+    isProcessing = false;
+    updateGameUI();
+    gameLoop();
+  }
 }
 
 function handleRemoteAction(action) {
-  // Host receives actions from other players.
-  // Apply them using the same local rule functions, then broadcast state.
+  // Host receives actions from other players via server.
+  if (!NET.isHost) return;
   if (!action || typeof action !== "object") return;
 
-  // Make sure it's actually that player's turn (basic guard)
-  if (typeof action.seat === "number" && action.seat !== turnIndex) {
-    // Ignore out-of-turn actions
-    return;
-  }
+  const seat = action.seat;
+  if (typeof seat !== "number") return;
+
+  // Only accept actions on that player's actual turn.
+  if (seat !== turnIndex) return;
 
   try {
-    if (action.type === "play") {
-      // {seat, cardIndex, chosenSuit?}
-      const p = players[action.seat];
-      if (!p) return;
-      const card = p.hand[action.cardIndex];
-      if (!card) return;
-      attemptPlayCard(action.seat, card, action.chosenSuit);
-    } else if (action.type === "pickup") {
-      humanPickup(action.seat);
-    } else if (action.type === "say_last") {
-      players[action.seat].saidLast = true;
-      lastMove = `${players[action.seat].name} called LAST`;
-      // No turn advance, it's just a flag
-    } else if (action.type === "end_turn") {
-      endTurn();
+    if (action.type === "pickup") {
+      // run using current turnIndex
+      _humanPickupLocal();
+    } else if (action.type === "declare_last") {
+      gamePlayers[seat].lastDeclared = true;
+      updateFeed(`${gamePlayers[seat].name} called LAST!`);
+    } else if (action.type === "play") {
+      // indices: array of card indexes in that player's hand
+      if (action.chosenSuit && SUIT_MAP[action.chosenSuit]) {
+        NET.aceChoice = SUIT_MAP[action.chosenSuit];
+      } else {
+        NET.aceChoice = null;
+      }
+      attemptPlay(seat, Array.isArray(action.indices) ? action.indices : []);
+      NET.aceChoice = null;
     }
-  } catch(e) {
+  } catch (e) {
     console.error(e);
   }
 
   netBroadcastState();
 }
 
+// ===============================
+// Integrations into existing code paths
+// ===============================
 // ===============================
 // Integrations into existing code paths
 // ===============================
