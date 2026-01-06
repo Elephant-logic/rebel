@@ -59,7 +59,14 @@ wss.on("connection", (ws) => {
       if (ws._room) leaveRoom(ws);
 
       let code;
-      do { code = makeCode(6); } while (rooms.has(code));
+      // Host may request a specific room code (4-8 chars A-Z0-9)
+      let requested = (msg.room || "").toString().trim().toUpperCase();
+      if (!/^[A-Z0-9]{4,8}$/.test(requested)) requested = "";
+      if (requested && !rooms.has(requested)) {
+        code = requested;
+      } else {
+        do { code = makeCode(6); } while (rooms.has(code));
+      }
       const room = {
         code,
         host: ws._id,
