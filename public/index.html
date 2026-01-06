@@ -2094,6 +2094,10 @@ function bindOnlineUI() {
   };
 }
 
+// Boot wiring for online lobby
+try { bindOnlineUI(); } catch (e) { console.error('bindOnlineUI failed', e); }
+
+
 // ===============================
 // Snapshot + remote actions
 // ===============================
