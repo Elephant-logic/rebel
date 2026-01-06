@@ -252,7 +252,7 @@
       box-shadow: 3px 3px 0 #ccc;
     }
 
-    /* WSROOM */
+    /* P2P */
     .p2p-box{
       width:90%;
       max-width:520px;
@@ -719,7 +719,7 @@
       >🎲 Local Table<small>Pass & Play • Same Device</small></button
     >
     <button class="menu-btn btn-league" onclick="goToP2P()"
-      >🌐 Online Table<small>Server • Host / Join</small></button
+      >📡 Online Table<small>P2P • Host / Join</small></button
     >
     <button class="menu-btn" onclick="cycleCardBack()" style="background: white"
       >🎴 Card Backs<small>Unlock more by win streaks</small></button
@@ -924,7 +924,12 @@
         OKAY!
       </button>
     </div>
-  </div><script>
+  </div>
+
+  <!-- PeerJS (P2P) -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+  <script>
     // --- AUDIO ENGINE ---
     const AudioEngine = {
       ctx: null,
@@ -990,16 +995,19 @@
     let isLeagueMode = false;
     let sortByRank = false;
 
-    // --- ONLINE (WebSocket) STATE ---
-const WSROOM = {
-  socket: null,
-  roomCode: null,
-  isHost: false,
-  seat: 0,
-  players: [],
-  connected: false,
-};
-
+    // --- P2P STATE ---
+    const P2P = {
+      peer: null,
+      conn: null,
+      isHost: false,
+      signalMode: "cloud", // cloud | lan
+      lanHost: "",
+      lanPort: 9000,
+      myId: "",
+      connectedName: null,
+      roomState: null, // last JSON snapshot
+      lastSeq: 0,
+    };
 
     // --- SETUP ---
     function loadData() {
@@ -1176,7 +1184,7 @@ const WSROOM = {
 
     // gameMode: offline | pass_play | p2p
     let gameMode = "offline";
-    let mySeat = 0; // 0 host, 1 joiner (for 2-player p2p)
+    let myP2PIndex = 0; // 0 host, 1 joiner (for 2-player p2p)
 
     function initGame(config) {
       deck = createDeck();
@@ -1257,9 +1265,9 @@ const WSROOM = {
       let statusDiv = document.getElementById("turn-status");
       let atkDiv = document.getElementById("attack-status");
 
-      // WSROOM: lock controls if it's not your turn
-      if (gameMode === "ws") {
-        const myTurn = (turnIndex === mySeat);
+      // P2P: lock controls if it's not your turn
+      if (gameMode === "p2p") {
+        const myTurn = (turnIndex === myP2PIndex);
         statusDiv.innerText = myTurn ? "YOUR TURN" : "WAITING...";
         statusDiv.style.color = myTurn ? "white" : "#ccc";
       } else {
@@ -1267,7 +1275,7 @@ const WSROOM = {
         statusDiv.style.color = p.isBot ? "#ccc" : "white";
       }
 
-      if (gameMode !== "ws" && p.isBot) {
+      if (gameMode !== "p2p" && p.isBot) {
         setTimeout(cpuTurn, 1000);
       } else {
         isProcessing = false;
@@ -1288,13 +1296,16 @@ const WSROOM = {
         return;
       }
 
-      gameLoop();}
+      gameLoop();
+      // P2P host sends snapshot after turn changes too
+      if (gameMode === "p2p" && P2P.isHost) p2pBroadcastState();
+    }
 
     // --- ACTIONS ---
     function toggleSelect(i) {
       if (isProcessing) return;
-      if (gameMode === "ws" && turnIndex !== mySeat) return;
-      if (gameMode !== "ws" && gamePlayers[turnIndex].isBot) return;
+      if (gameMode === "p2p" && turnIndex !== myP2PIndex) return;
+      if (gameMode !== "p2p" && gamePlayers[turnIndex].isBot) return;
 
       const existingIdx = selectionOrder.indexOf(i);
       if (existingIdx !== -1) selectionOrder.splice(existingIdx, 1);
@@ -1308,9 +1319,9 @@ const WSROOM = {
 
     function humanPickup() {
       if (isProcessing) return;
-      if (gameMode === "ws") {
-        if (turnIndex !== mySeat) return;
-        if (WSROOM.isHost) {
+      if (gameMode === "p2p") {
+        if (turnIndex !== myP2PIndex) return;
+        if (P2P.isHost) {
           isProcessing = true;
           _humanPickupLocal();
           p2pBroadcastState();
@@ -1356,9 +1367,9 @@ const WSROOM = {
     }
 
     function humanDeclareLast() {
-      if (gameMode === "ws") {
-        if (turnIndex !== mySeat) return;
-        if (WSROOM.isHost) {
+      if (gameMode === "p2p") {
+        if (turnIndex !== myP2PIndex) return;
+        if (P2P.isHost) {
           gamePlayers[turnIndex].lastDeclared = true;
           AudioEngine.playCall();
           document.getElementById("turn-status").innerText = "CALLED LAST!";
@@ -1378,7 +1389,7 @@ const WSROOM = {
 
     function humanPlay() {
       if (isProcessing || !selectionOrder.length) return;
-      if (gameMode === "ws" && turnIndex !== mySeat) return;
+      if (gameMode === "p2p" && turnIndex !== myP2PIndex) return;
 
       let p = gamePlayers[turnIndex];
 
@@ -1394,8 +1405,8 @@ const WSROOM = {
         return;
       }
 
-      if (gameMode === "ws") {
-        if (WSROOM.isHost) {
+      if (gameMode === "p2p") {
+        if (P2P.isHost) {
           attemptPlay(turnIndex, [...selectionOrder]);
           p2pBroadcastState();
         } else {
@@ -1428,13 +1439,13 @@ const WSROOM = {
       }
 
       if (err) {
-        if (gameMode !== "ws") {
+        if (gameMode !== "p2p") {
           showToast(err);
           AudioEngine.playError();
           shakeCards(indices);
         } else {
           // host can notify client
-          if (WSROOM.isHost) p2pSendToClient({ type:"toast", msg: err });
+          if (P2P.isHost) p2pSendToClient({ type:"toast", msg: err });
         }
         isProcessing = false;
         return;
@@ -1477,7 +1488,7 @@ const WSROOM = {
         updateGameUI();
 
         // If Ace was last, still resolve suit (optional)
-        if (lastCard.rank === "A" && gameMode !== "ws") {
+        if (lastCard.rank === "A" && gameMode !== "p2p") {
           acePending = true;
           document.getElementById("suit-modal").style.display = "flex";
           isProcessing = false;
@@ -1502,16 +1513,16 @@ const WSROOM = {
         // IMPORTANT FIX: refresh UI so selection doesn't get weird after king
         updateGameUI();
 
-        if (gameMode !== "ws" && p.isBot) setTimeout(cpuTurn, 1000);
+        if (gameMode !== "p2p" && p.isBot) setTimeout(cpuTurn, 1000);
         else {
           isProcessing = false;
-          document.getElementById("turn-status").innerText = (gameMode === "ws") ? "PLAY AGAIN!" : "PLAY AGAIN!";
+          document.getElementById("turn-status").innerText = (gameMode === "p2p") ? "PLAY AGAIN!" : "PLAY AGAIN!";
           updateControls();
         }
         return;
       }
 
-      if (acePending && gameMode !== "ws" && !p.isBot) {
+      if (acePending && gameMode !== "p2p" && !p.isBot) {
         document.getElementById("suit-modal").style.display = "flex";
         isProcessing = false;
         return;
@@ -1736,9 +1747,9 @@ const WSROOM = {
       if (gameMode === "pass_play" && isPassAndPlay) {
         bottomP = activeP;
         opponents = gamePlayers.filter((p) => p !== activeP);
-      } else if (gameMode === "ws") {
-        bottomP = gamePlayers[mySeat];
-        opponents = gamePlayers.filter((p, i) => i !== mySeat);
+      } else if (gameMode === "p2p") {
+        bottomP = gamePlayers[myP2PIndex];
+        opponents = gamePlayers.filter((p, i) => i !== myP2PIndex);
       } else {
         bottomP = gamePlayers[0];
         opponents = gamePlayers.filter((p, i) => i !== 0);
@@ -1750,7 +1761,7 @@ const WSROOM = {
         const degreesPerCard = 3;
 
         bottomP.hand.forEach((c, i) => {
-          let isMyTurn = bottomP === activeP && (gameMode !== "ws" || turnIndex === mySeat);
+          let isMyTurn = bottomP === activeP && (gameMode !== "p2p" || turnIndex === myP2PIndex);
           let cardDiv = createCardDiv(c, i, isMyTurn);
 
           let centerIdx = (totalCards - 1) / 2;
@@ -1821,10 +1832,10 @@ const WSROOM = {
 
     function updateControls() {
       let btnPlay = document.getElementById("btn-play");
-      btnPlay.disabled = selectionOrder.length === 0 || (gameMode === "ws" && turnIndex !== mySeat);
+      btnPlay.disabled = selectionOrder.length === 0 || (gameMode === "p2p" && turnIndex !== myP2PIndex);
 
-      let p = (gameMode === "ws") ? gamePlayers[mySeat] : gamePlayers[turnIndex];
-      let effectiveHandLen = (gameMode === "ws") ? gamePlayers[mySeat].hand.length : gamePlayers[turnIndex].hand.length;
+      let p = (gameMode === "p2p") ? gamePlayers[myP2PIndex] : gamePlayers[turnIndex];
+      let effectiveHandLen = (gameMode === "p2p") ? gamePlayers[myP2PIndex].hand.length : gamePlayers[turnIndex].hand.length;
       let willFinish = effectiveHandLen === selectionOrder.length && selectionOrder.length > 0;
       if (willFinish && p.lastDeclared) {
         btnPlay.classList.add("winning-btn");
@@ -1843,7 +1854,7 @@ const WSROOM = {
         btnLast.innerText = "LAST!";
       }
 
-      const canAct = !(gameMode === "ws" && turnIndex !== mySeat);
+      const canAct = !(gameMode === "p2p" && turnIndex !== myP2PIndex);
       document.getElementById("btn-pickup").disabled = !canAct;
       btnLast.disabled = !canAct;
       document.getElementById("btn-sort").disabled = !canAct;
@@ -1852,12 +1863,12 @@ const WSROOM = {
 
     // --- SORT ---
     function toggleSort() {
-      if (gameMode === "ws" && turnIndex !== mySeat) return;
+      if (gameMode === "p2p" && turnIndex !== myP2PIndex) return;
 
       sortByRank = !sortByRank;
       updateSortUI();
 
-      let p = (gameMode === "ws") ? gamePlayers[mySeat] : gamePlayers[turnIndex];
+      let p = (gameMode === "p2p") ? gamePlayers[myP2PIndex] : gamePlayers[turnIndex];
       let selectedCards = selectionOrder.map((idx) => p.hand[idx]).filter(Boolean);
 
       sortHand(p.hand);
@@ -1890,203 +1901,273 @@ const WSROOM = {
         }
       });
     }
-    // =========================
-    // ONLINE MULTIPLAYER (SERVER AUTHORITATIVE - WEBSOCKET)
-    // =========================
 
+    // =========================
+    // P2P IMPLEMENTATION
+    // =========================
     function p2pResetUI(){
       document.getElementById("p2p-status").innerText = "Not connected.";
       document.getElementById("p2p-my-code").innerText = "...";
       document.getElementById("p2p-deal-btn").disabled = true;
       document.getElementById("p2p-join-code").value = "";
-      document.getElementById("p2p-mode-pill").innerText = "Signal: Server";
+      document.getElementById("p2p-mode-pill").innerText = (P2P.signalMode === "lan") ? "Signal: LAN" : "Signal: Cloud";
     }
 
-    function p2pSetStatus(msg){ document.getElementById("p2p-status").innerText = msg; }
+    function p2pSetStatus(msg){
+      document.getElementById("p2p-status").innerText = msg;
+    }
 
-    function wsUrl(){
-      const proto = (location.protocol === "https:") ? "wss" : "ws";
-      return `${proto}://${location.host}/ws`;
+    function p2pUseCloud(){
+      P2P.signalMode = "cloud";
+      p2pLeave(true);
+      p2pResetUI();
+      p2pEnsurePeer();
+      document.getElementById("p2p-mode-pill").innerText = "Signal: Cloud";
+      showToast("Signal: Cloud");
+    }
+
+    function p2pUseLan(){
+      const host = (document.getElementById("p2p-signal-host").value || "").trim();
+      const portStr = (document.getElementById("p2p-signal-port").value || "9000").trim();
+      const port = parseInt(portStr || "9000", 10);
+      if (!host) return showToast("Enter LAN signal host IP");
+      if (!port || port < 1) return showToast("Invalid port");
+      P2P.signalMode = "lan";
+      P2P.lanHost = host;
+      P2P.lanPort = port;
+      p2pLeave(true);
+      p2pResetUI();
+      p2pEnsurePeer();
+      document.getElementById("p2p-mode-pill").innerText = "Signal: LAN";
+      showToast("Signal: LAN");
     }
 
     function p2pEnsurePeer(){
-      if (WSROOM.socket && (WSROOM.socket.readyState === 0 || WSROOM.socket.readyState === 1)) return;
-      const sock = new WebSocket(wsUrl());
-      WSROOM.socket = sock;
+      try {
+        if (P2P.peer && !P2P.peer.destroyed) return;
 
-      sock.addEventListener("open", () => {
-        WSROOM.connected = true;
-        p2pSetStatus("Connected to server.");
-      });
-
-      sock.addEventListener("close", () => {
-        WSROOM.connected = false;
-        p2pSetStatus("Disconnected.");
-        document.getElementById("p2p-deal-btn").disabled = true;
-      });
-
-      sock.addEventListener("message", (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch { return; }
-
-        if (msg.type === "error") { showToast(msg.message || "Server error"); return; }
-
-        if (msg.type === "created") {
-          WSROOM.isHost = true;
-          WSROOM.roomCode = msg.roomCode;
-          WSROOM.seat = msg.seat || 0;
-          WSROOM.players = msg.players || [];
-          document.getElementById("p2p-my-code").innerText = WSROOM.roomCode;
-          p2pSetStatus("Room created. Share code. Wait for join.");
-          showToast("Room created!");
-          document.getElementById("p2p-deal-btn").disabled = (WSROOM.players.length < 2);
-          return;
+        if (P2P.signalMode === "lan") {
+          P2P.peer = new Peer(undefined, {
+            host: P2P.lanHost,
+            port: P2P.lanPort,
+            path: "/peerjs",
+            secure: false,
+            debug: 2
+          });
+        } else {
+          // Cloud signaling (may be unreliable).
+          P2P.peer = new Peer(undefined, {
+            debug: 2,
+            // Force secure in https contexts; browsers will choose ws/wss accordingly
+            secure: (location.protocol === "https:"),
+          });
         }
 
-        if (msg.type === "joined") {
-          WSROOM.isHost = false;
-          WSROOM.roomCode = msg.roomCode;
-          WSROOM.seat = msg.seat || 1;
-          WSROOM.players = msg.players || [];
-          document.getElementById("p2p-my-code").innerText = WSROOM.roomCode;
-          p2pSetStatus("Joined room. Waiting for host to DEAL.");
-          showToast("Joined!");
-          document.getElementById("p2p-deal-btn").disabled = true;
-          return;
-        }
+        P2P.peer.on("open", (id) => {
+          P2P.myId = id;
+          document.getElementById("p2p-my-code").innerText = id;
+          p2pSetStatus("Ready. Host or Join.");
+        });
 
-        if (msg.type === "room") {
-          WSROOM.players = msg.players || WSROOM.players;
-          if (WSROOM.isHost) {
-            document.getElementById("p2p-deal-btn").disabled = (WSROOM.players.length < 2);
-            p2pSetStatus(`Players: ${WSROOM.players.map(p=>p.name).join(", ")} • Host can DEAL`);
-          } else {
-            p2pSetStatus(`Players: ${WSROOM.players.map(p=>p.name).join(", ")} • Waiting...`);
+        P2P.peer.on("connection", (conn) => {
+          // incoming connection (host side)
+          if (P2P.conn && P2P.conn.open) {
+            conn.close();
+            return;
           }
-          return;
-        }
+          P2P.isHost = true;
+          P2P.conn = conn;
+          p2pWireConn(conn);
+          p2pSetStatus("Client connected. Host can DEAL!");
+          document.getElementById("p2p-deal-btn").disabled = false;
+          showToast("Player joined!");
+        });
 
-        if (msg.type === "toast") {
-          if (msg.message) showToast(msg.message);
-          return;
-        }
-
-        if (msg.type === "state") {
-          if (msg.state) applyState(msg.state);
-          return;
-        }
-      });
+        P2P.peer.on("error", (err) => {
+          console.error("Peer error", err);
+          p2pSetStatus("Peer error: " + (err && err.type ? err.type : "unknown"));
+          const detail = (err && (err.type || err.message)) ? (err.type || err.message) : String(err || "unknown");
+          showToast("Peer error: " + detail);
+          // Hint: cloud signaling may fail when opened from content:// or file://
+          try {
+            if (location.protocol === "file:" || String(location.href||"").startsWith("content:")) {
+              p2pSetStatus("Peer error (" + detail + ") — Open via http (Termux/PC) OR use LAN Signal server.");
+            }
+          } catch(e) {}
+        });
+      } catch (e) {
+        console.error(e);
+        p2pSetStatus("P2P init failed");
+        showToast("P2P init failed");
+      }
     }
 
-    function wsSend(obj){
-      if (!WSROOM.socket || WSROOM.socket.readyState !== 1) { showToast("No server connection"); return; }
-      WSROOM.socket.send(JSON.stringify(obj));
+    function p2pWireConn(conn){
+      conn.on("open", () => {
+        p2pSetStatus("Connected. Waiting...");
+      });
+      conn.on("data", (data) => {
+        p2pOnMessage(data);
+      });
+      conn.on("close", () => {
+        p2pSetStatus("Disconnected.");
+        showToast("Disconnected");
+        document.getElementById("p2p-deal-btn").disabled = true;
+        P2P.conn = null;
+      });
+      conn.on("error", () => {
+        p2pSetStatus("Connection error.");
+      });
     }
 
     function p2pHost(){
-      p2pEnsurePeer();
-      wsSend({ type:"create", name: leagueData.player.name || "Host" });
-      p2pSetStatus("Creating room...");
+      P2P.isHost = true;
+      p2pSetStatus("Hosting... share your code. Wait for join.");
       document.getElementById("p2p-deal-btn").disabled = true;
+      showToast("Hosting...");
     }
 
     function p2pJoin(){
-      const code = (document.getElementById("p2p-join-code").value || "").trim().toUpperCase();
+      const code = (document.getElementById("p2p-join-code").value || "").trim();
       if (!code) return showToast("Paste host code");
-      p2pEnsurePeer();
-      wsSend({ type:"join", roomCode: code, name: leagueData.player.name || "Guest" });
+      if (!P2P.peer) p2pEnsurePeer();
+      P2P.isHost = false;
+
+      const conn = P2P.peer.connect(code, { reliable: true });
+      P2P.conn = conn;
+      p2pWireConn(conn);
       p2pSetStatus("Joining...");
-      document.getElementById("p2p-deal-btn").disabled = true;
+
+      conn.on("open", () => {
+        p2pSend({ type: "hello", name: leagueData.player.name });
+        p2pSetStatus("Connected. Waiting for host to DEAL.");
+        document.getElementById("p2p-deal-btn").disabled = true;
+        showToast("Connected");
+      });
     }
 
     function p2pDeal(){
-      if (!WSROOM.isHost) return showToast("Only host can deal");
-      if (!WSROOM.roomCode) return showToast("No room");
-      wsSend({ type:"deal", roomCode: WSROOM.roomCode });
+      if (!P2P.isHost) return showToast("Only host can deal");
+      if (!P2P.conn || !P2P.conn.open) return showToast("No one joined yet");
+
+      // Start a 2-player P2P game (host = index 0)
+      gameMode = "p2p";
+      myP2PIndex = 0;
+
+      const hostName = leagueData.player.name || "Host";
+      const joinName = P2P.connectedName || "Guest";
+
+      isLeagueMode = false;
+
+      initGame([
+        { name: hostName, isBot: false },
+        { name: joinName, isBot: false },
+      ]);
+
+      p2pBroadcastState();
+      showToast("Dealt!");
     }
 
-    // Override client actions in online mode -> send to server
-    function wsAction(payload){
-      if (!WSROOM.roomCode) return showToast("Not in a room");
-      wsSend({ type:"action", roomCode: WSROOM.roomCode, action: payload });
+    function p2pOnMessage(msg){
+      if (!msg || typeof msg !== "object") return;
+
+      // Joiner receiving state
+      if (msg.type === "state") {
+        if (!msg.state) return;
+        applyState(msg.state);
+        return;
+      }
+
+      // Host receiving hello / actions
+      if (P2P.isHost) {
+        if (msg.type === "hello") {
+          P2P.connectedName = msg.name || "Guest";
+          p2pSetStatus("Client: " + P2P.connectedName + ". Host can DEAL!");
+          document.getElementById("p2p-deal-btn").disabled = false;
+          return;
+        }
+        if (msg.type === "pickup") {
+          if (gameMode !== "p2p") return;
+          if (turnIndex !== 1) return;
+          myP2PIndex = 0;
+          isProcessing = true;
+          _humanPickupLocal();
+          p2pBroadcastState();
+          return;
+        }
+        if (msg.type === "declare_last") {
+          if (gameMode !== "p2p") return;
+          if (turnIndex !== 1) return;
+          gamePlayers[1].lastDeclared = true;
+          updateFeed(gamePlayers[1].name + " called LAST!");
+          updateGameUI();
+          p2pBroadcastState();
+          return;
+        }
+        if (msg.type === "play") {
+          if (gameMode !== "p2p") return;
+          if (turnIndex !== 1) return;
+          const indices = Array.isArray(msg.indices) ? msg.indices : [];
+          // Safety: clamp indices
+          const safe = indices.filter(i => Number.isInteger(i) && i >= 0 && i < gamePlayers[1].hand.length);
+          attemptPlay(1, safe);
+          p2pBroadcastState();
+          return;
+        }
+      } else {
+        // client toasts
+        if (msg.type === "toast" && msg.msg) showToast(msg.msg);
+      }
     }
 
-    // Patch a few hooks so online uses server authority
-    const _humanPickupLocalRef = _humanPickupLocal;
-    _humanPickupLocal = function(){
-      if (gameMode === "ws") {
-        if (turnIndex !== mySeat) return;
-        wsAction({ kind:"pickup" });
-        return;
-      }
-      return _humanPickupLocalRef();
-    };
+    function p2pSend(payload){
+      if (!P2P.conn || !P2P.conn.open) return showToast("Not connected");
+      try { P2P.conn.send(payload); } catch (e) { console.error(e); }
+    }
 
-    const _humanDeclareLastRef = humanDeclareLast;
-    humanDeclareLast = function(){
-      if (gameMode === "ws") {
-        if (turnIndex !== mySeat) return;
-        wsAction({ kind:"declare_last" });
-        return;
-      }
-      return _humanDeclareLastRef();
-    };
+    function p2pSendToClient(payload){
+      if (!P2P.conn || !P2P.conn.open) return;
+      try { P2P.conn.send(payload); } catch (e) {}
+    }
 
-    const _humanPlayRef = humanPlay;
-    humanPlay = function(){
-      if (gameMode === "ws") {
-        if (isProcessing || !selectionOrder.length) return;
-        if (turnIndex !== mySeat) return;
-        // send selected indices (server validates)
-        wsAction({ kind:"play", indices: [...selectionOrder] });
-        // clear local selection (server will echo state)
-        selectionOrder = [];
-        renderHandUI();
-        updateControls();
-        return;
-      }
-      return _humanPlayRef();
-    };
+    function serializeState(){
+      return {
+        v: 1,
+        ts: Date.now(),
+        mode: "p2p",
+        deck,
+        discard,
+        gamePlayers,
+        turnIndex,
+        direction,
+        activeSuit,
+        pendingDraw2,
+        pendingDrawJ,
+        pendingSkip,
+        extraTurn,
+        sortByRank,
+      };
+    }
 
-    const _resolveAceRef = resolveAce;
-    resolveAce = function(char){
-      if (gameMode === "ws") {
-        if (turnIndex !== mySeat) return;
-        wsAction({ kind:"resolve_ace", suitChar: char });
-        // keep modal open until server snapshot arrives (it will close it)
-        document.getElementById("suit-modal").style.display = "none";
-        return;
-      }
-      return _resolveAceRef(char);
-    };
-
-    // Apply authoritative snapshot (server)
     function applyState(st){
+      // client side: accept authoritative snapshot
       deck = st.deck || [];
       discard = st.discard || [];
       gamePlayers = st.gamePlayers || [];
-      turnIndex = st.turnIndex ?? 0;
-      direction = st.direction ?? 1;
-      activeSuit = st.activeSuit ?? null;
-      pendingDraw2 = st.pendingDraw2 ?? 0;
-      pendingDrawJ = st.pendingDrawJ ?? 0;
-      pendingSkip = st.pendingSkip ?? 0;
+      turnIndex = st.turnIndex || 0;
+      direction = st.direction || 1;
+      activeSuit = st.activeSuit || null;
+      pendingDraw2 = st.pendingDraw2 || 0;
+      pendingDrawJ = st.pendingDrawJ || 0;
+      pendingSkip = st.pendingSkip || 0;
       extraTurn = !!st.extraTurn;
       sortByRank = !!st.sortByRank;
-      acePending = !!st.acePending;
 
-      gameMode = "ws";
-      mySeat = WSROOM.seat || 0;
+      // client is always index 1 in this two-player build
+      gameMode = "p2p";
+      myP2PIndex = 1;
       isLeagueMode = false;
       isPassAndPlay = false;
-
-      // server can request suit pick for the active player
-      const awaiting = st.awaitingSuitBy;
-      if (awaiting === mySeat) {
-        document.getElementById("suit-modal").style.display = "flex";
-      } else {
-        document.getElementById("suit-modal").style.display = "none";
-      }
 
       showScreen("game-screen");
       selectionOrder = [];
@@ -2095,23 +2176,189 @@ const WSROOM = {
       gameLoop();
     }
 
+    function p2pBroadcastState(){
+      if (!P2P.isHost) return;
+      if (!P2P.conn || !P2P.conn.open) return;
+      const state = serializeState();
+      P2P.roomState = state;
+      try { P2P.conn.send({ type:"state", state }); } catch (e) { console.error(e); }
+    }
+
     function p2pDump(){
-      console.log("ROOM", WSROOM);
+      const box = document.getElementById("p2p-status");
+      const snap = (gameMode === "p2p") ? serializeState() : (P2P.roomState || { v:1, mode: P2P.isHost ? "p2p_host":"p2p_join", hostName: leagueData.player.name, players:[{name:leagueData.player.name}], started:false, ts: Date.now()});
+      // simple modal-like toast: show in console too
+      console.log("P2P SNAPSHOT", snap);
       showToast("Dumped to console");
+      // also show quick summary in status line
+      box.innerText = `Players: ${(snap.gamePlayers? snap.gamePlayers.length : 1)} • Turn: ${snap.turnIndex ?? "-"} • Mode: ${P2P.isHost ? "HOST" : "JOIN"}`;
     }
 
     function p2pLeave(silent){
-      try { if (WSROOM.socket) WSROOM.socket.close(); } catch(e){}
-      WSROOM.socket = null;
-      WSROOM.roomCode = null;
-      WSROOM.isHost = false;
-      WSROOM.players = [];
-      WSROOM.seat = 0;
-      WSROOM.connected = false;
+      // return to menu and teardown connection (optional)
+      try {
+        if (P2P.conn) { try { P2P.conn.close(); } catch(e){} }
+        P2P.conn = null;
+        P2P.isHost = false;
+        P2P.connectedName = null;
+        P2P.roomState = null;
+      } catch(e){}
       if (!silent) showScreen("menu-screen");
     }
 
     loadData();
+  
+/* ============================================================
+   SERVER-AUTHORITY ONLINE PATCH (WebSocket)
+   - Keeps the original game + UI exactly as-is
+   - Replaces P2P/PeerJS networking with WebSocket room server
+   - Server stores & re-broadcasts the latest canonical snapshot
+   ============================================================ */
+(function(){
+  // guard: if already patched
+  if (window.__WS_PATCHED__) return;
+  window.__WS_PATCHED__ = true;
+
+  // If the game created a PeerJS-based P2P object, keep it but swap internals.
+  if (!window.P2P) window.P2P = {};
+  const P2P = window.P2P;
+
+  // Preserve any existing flags the UI relies on
+  P2P.ws = null;
+  P2P.connected = false;
+  P2P.roomCode = null;
+  P2P.myId = null;
+  P2P.myIndex = null;
+  P2P.isHost = false;
+  P2P.players = [];
+  P2P.lastV = 0;
+
+  function wsURL(){
+    const proto = (location.protocol === "https:") ? "wss://" : "ws://";
+    return proto + location.host;
+  }
+
+  function setStatus(msg){
+    const el = document.getElementById("p2p-status") || document.getElementById("online-status");
+    if (el) el.textContent = msg;
+  }
+
+  function send(obj){
+    if (!P2P.ws || P2P.ws.readyState !== WebSocket.OPEN) return;
+    P2P.ws.send(JSON.stringify(obj));
+  }
+
+  function connect(cb){
+    if (P2P.ws && (P2P.ws.readyState === WebSocket.OPEN || P2P.ws.readyState === WebSocket.CONNECTING)){
+      cb && cb();
+      return;
+    }
+    try{
+      P2P.ws = new WebSocket(wsURL());
+    }catch(e){
+      setStatus("WS failed: " + e.message);
+      return;
+    }
+
+    P2P.ws.onopen = () => {
+      P2P.connected = true;
+      setStatus("Connected ✅");
+      cb && cb();
+    };
+
+    P2P.ws.onclose = () => {
+      P2P.connected = false;
+      setStatus("Disconnected ❌");
+    };
+
+    P2P.ws.onerror = () => setStatus("Connection error ❌");
+
+    P2P.ws.onmessage = (ev) => {
+      let msg;
+      try{ msg = JSON.parse(ev.data); }catch{ return; }
+
+      if (msg.t === "room"){
+        P2P.roomCode = msg.code;
+        P2P.myId = msg.you && msg.you.id;
+        P2P.myIndex = msg.you && msg.you.index;
+        P2P.isHost = !!(msg.you && msg.you.isHost);
+        P2P.players = msg.players || [];
+        if (typeof window.renderP2PPlayers === "function") window.renderP2PPlayers();
+        const codeEl = document.getElementById("p2p-room-code");
+        if (codeEl) codeEl.textContent = P2P.roomCode;
+        setStatus("Room " + P2P.roomCode + " • You: P" + ((P2P.myIndex||0)+1) + (P2P.isHost ? " (Host)" : ""));
+        // Apply server snapshot if present
+        if (msg.state && typeof window.applySerializedGameState === "function"){
+          try{
+            window.applySerializedGameState(msg.state);
+            window.renderAll && window.renderAll();
+            P2P.lastV = msg.v || P2P.lastV;
+          }catch(e){ console.warn(e); }
+        }
+        return;
+      }
+
+      if (msg.t === "players"){
+        P2P.players = msg.players || [];
+        if (typeof window.renderP2PPlayers === "function") window.renderP2PPlayers();
+        return;
+      }
+
+      if (msg.t === "state"){
+        const v = msg.v || 0;
+        if (v && v <= P2P.lastV) return;
+        P2P.lastV = v || (P2P.lastV + 1);
+        if (msg.state && typeof window.applySerializedGameState === "function"){
+          try{
+            window.applySerializedGameState(msg.state);
+            window.renderAll && window.renderAll();
+          }catch(e){ console.warn(e); }
+        }
+        return;
+      }
+
+      if (msg.t === "error"){
+        setStatus("Error: " + (msg.message || "unknown"));
+        return;
+      }
+    };
+  }
+
+  // Override the key P2P functions the original game calls
+  window.p2pEnsurePeer = function(cb){ connect(cb); };
+  window.p2pHostRoom = function(name){
+    connect(()=>send({t:"create", name: name||"Player"}));
+  };
+  window.p2pJoinRoom = function(code, name){
+    connect(()=>send({t:"join", code: String(code||"").trim().toUpperCase(), name: name||"Player"}));
+  };
+
+  // This is the important bit: whenever the game changes state it already calls p2pBroadcastState().
+  // We intercept that and push the canonical snapshot to the server, then everyone mirrors server truth.
+  window.p2pBroadcastState = function(){
+    if (!P2P.roomCode) return;
+    if (typeof window.serializeGameState !== "function") return;
+    try{
+      const state = window.serializeGameState();
+      send({t:"state", code: P2P.roomCode, state});
+    }catch(e){
+      console.warn("broadcast failed", e);
+    }
+  };
+
+  window.p2pLeave = function(){
+    try{ send({t:"leave", code: P2P.roomCode}); }catch{}
+    P2P.roomCode = null;
+    P2P.isHost = false;
+    P2P.myIndex = null;
+    P2P.players = [];
+    setStatus("Left room");
+  };
+
+  // If the old code tries to use PeerJS directly, disable it.
+  window.Peer = undefined;
+})();
+
 </script>
 </body>
 </html>
