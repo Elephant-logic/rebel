@@ -1,171 +1,177 @@
-// Old Skool Blackjack - WebSocket Room Server (Render-ready)
 const path = require("path");
 const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
-const crypto = require("crypto");
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
+
 const app = express();
 app.use(express.static(path.join(__dirname, "public")));
 
-app.get("/health", (_req, res) => res.status(200).send("ok"));
+app.get("/health", (req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-function makeCode(len=4){
+function makeCode(len = 6) {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let out = "";
-  for (let i=0;i<len;i++) out += chars[Math.floor(Math.random()*chars.length)];
+  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
 }
-function makeId(){
-  return crypto.randomBytes(8).toString("hex");
+
+const rooms = new Map(); // code -> {host, clients: Map(ws -> {name, seat}), state, version}
+
+function roomPlayers(room) {
+  const arr = [];
+  for (const [, info] of room.clients) {
+    arr.push({ name: info.name, seat: info.seat, isHost: room.host === info.wsId });
+  }
+  arr.sort((a,b)=>a.seat-b.seat);
+  return arr;
 }
 
-const rooms = new Map(); // code -> {code, players:[{id,name,ws,index}], state, v, createdAt}
-
-function roomPublicPlayers(room){
-  return room.players.map(p => ({ id: p.id, name: p.name, index: p.index }));
-}
-function wsSend(ws, obj){
-  try{ ws.send(JSON.stringify(obj)); }catch{}
-}
-function broadcast(room, obj){
+function broadcast(room, obj) {
   const msg = JSON.stringify(obj);
-  room.players.forEach(p => { try{ p.ws.send(msg); }catch{} });
+  for (const [ws] of room.clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+  }
 }
-function cleanupRoomIfEmpty(code){
-  const room = rooms.get(code);
-  if (!room) return;
-  room.players = room.players.filter(p => p.ws.readyState === WebSocket.OPEN);
-  if (room.players.length === 0) rooms.delete(code);
+
+function send(ws, obj) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
+
+let wsCounter = 1;
 
 wss.on("connection", (ws) => {
-  ws._id = makeId();
+  ws._id = wsCounter++;
   ws._room = null;
+  ws._seat = null;
 
   ws.on("message", (data) => {
     let msg;
-    try{ msg = JSON.parse(data.toString("utf-8")); }catch{ return; }
-    const t = msg.t;
+    try { msg = JSON.parse(data.toString()); } catch { return; }
+    if (!msg || !msg.type) return;
 
-    if (t === "create"){
-      // Create a new room
+    if (msg.type === "create_room") {
+      // leave previous
+      if (ws._room) leaveRoom(ws);
+
       let code;
-      do { code = makeCode(4); } while (rooms.has(code));
-
+      do { code = makeCode(6); } while (rooms.has(code));
       const room = {
         code,
-        players: [],
+        host: ws._id,
+        clients: new Map(),
         state: null,
-        v: 0,
-        createdAt: Date.now(),
+        version: 0,
+        nextSeat: 0,
       };
-
-      const name = String(msg.name || "Player").slice(0, 24);
-      const player = { id: ws._id, name, ws, index: 0, isHost: true };
-      room.players.push(player);
       rooms.set(code, room);
+
+      const name = (msg.name || "Host").toString().slice(0,16);
       ws._room = code;
+      ws._seat = 0;
 
-      wsSend(ws, { t:"room", code, you:{id:player.id, index:0, isHost:true}, players: roomPublicPlayers(room), state: room.state, v: room.v });
-      broadcast(room, { t:"players", code, players: roomPublicPlayers(room) });
+      room.clients.set(ws, { wsId: ws._id, name, seat: 0 });
+
+      send(ws, { type: "room_created", room: code, seat: 0, hostSeat: 0, players: roomPlayers(room) });
+      broadcast(room, { type: "players", hostSeat: 0, players: roomPlayers(room) });
       return;
     }
 
-    if (t === "join"){
-      const code = String(msg.code || "").trim().toUpperCase();
+    if (msg.type === "join_room") {
+      if (ws._room) leaveRoom(ws);
+
+      const code = (msg.room || "").toString().trim().toUpperCase();
       const room = rooms.get(code);
-      if (!room){
-        wsSend(ws, { t:"error", message:"Room not found" });
-        return;
-      }
-      if (room.players.length >= 4){
-        wsSend(ws, { t:"error", message:"Room full" });
-        return;
-      }
+      if (!room) return send(ws, { type: "toast", message: "Room not found." });
 
-      const name = String(msg.name || "Player").slice(0, 24);
-      // assign lowest free index 0..3
-      const used = new Set(room.players.map(p=>p.index));
-      let idx = 0; while (used.has(idx) && idx < 4) idx++;
+      // assign smallest free seat
+      const used = new Set([...room.clients.values()].map(v => v.seat));
+      let seat = 0;
+      while (used.has(seat)) seat++;
 
-      const player = { id: ws._id, name, ws, index: idx, isHost: false };
-      room.players.push(player);
+      const name = (msg.name || "Player").toString().slice(0,16);
       ws._room = code;
+      ws._seat = seat;
 
-      wsSend(ws, { t:"room", code, you:{id:player.id, index:idx, isHost:false}, players: roomPublicPlayers(room), state: room.state, v: room.v });
-      broadcast(room, { t:"players", code, players: roomPublicPlayers(room) });
+      room.clients.set(ws, { wsId: ws._id, name, seat });
+
+      const hostSeat = [...room.clients.values()].find(v => v.wsId === room.host)?.seat ?? 0;
+
+      send(ws, { type: "joined", room: code, seat, hostSeat, players: roomPlayers(room) });
+      broadcast(room, { type: "players", hostSeat, players: roomPlayers(room) });
+
+      // send latest state if exists
+      if (room.state) send(ws, { type: "state", version: room.version, snap: room.state });
       return;
     }
 
-    if (t === "state"){
-      const code = ws._room || String(msg.code || "").trim().toUpperCase();
-      const room = rooms.get(code);
-      if (!room){
-        wsSend(ws, { t:"error", message:"Not in a room" });
-        return;
-      }
-      // Only accept state updates from connected room members
-      const sender = room.players.find(p => p.id === ws._id);
-      if (!sender){
-        wsSend(ws, { t:"error", message:"Not a room member" });
-        return;
-      }
-
-      // First state must come from host, after that accept from anyone (simple & robust).
-      // If you want to harden later: only accept from current-turn player.
-      if (!room.state && !sender.isHost){
-        wsSend(ws, { t:"error", message:"Waiting for host to start the game" });
-        return;
-      }
-
-      room.state = msg.state;
-      room.v = (room.v || 0) + 1;
-      broadcast(room, { t:"state", code, state: room.state, v: room.v });
+    if (msg.type === "leave_room") {
+      leaveRoom(ws);
       return;
     }
 
-    if (t === "leave"){
-      const code = ws._room || String(msg.code || "").trim().toUpperCase();
-      const room = rooms.get(code);
-      if (!room) return;
+    // Must be in a room for the rest
+    const code = ws._room;
+    if (!code) return send(ws, { type: "toast", message: "Not in a room." });
+    const room = rooms.get(code);
+    if (!room) { ws._room = null; ws._seat = null; return; }
 
-      room.players = room.players.filter(p => p.id !== ws._id);
-      ws._room = null;
+    if (msg.type === "state") {
+      // only host can push authoritative state
+      if (ws._id !== room.host) return;
 
-      // If host left, promote next player to host
-      if (!room.players.some(p=>p.isHost) && room.players.length){
-        room.players[0].isHost = true;
-      }
+      room.version = Number(msg.version || (room.version + 1));
+      room.state = msg.snap;
+      broadcast(room, { type: "state", version: room.version, snap: room.state });
+      return;
+    }
 
-      broadcast(room, { t:"players", code, players: roomPublicPlayers(room) });
-      cleanupRoomIfEmpty(code);
+    if (msg.type === "action") {
+      // forward to host
+      const hostWs = [...room.clients.keys()].find(w => w._id === room.host);
+      if (!hostWs) return send(ws, { type: "toast", message: "Host disconnected." });
+
+      const action = msg.action || {};
+      // Ensure seat is attached
+      action.seat = ws._seat;
+      send(hostWs, { type: "to_host_action", action });
       return;
     }
   });
 
   ws.on("close", () => {
-    const code = ws._room;
-    if (!code) return;
-    const room = rooms.get(code);
-    if (!room) return;
-
-    room.players = room.players.filter(p => p.id !== ws._id);
-
-    // promote host if needed
-    if (!room.players.some(p=>p.isHost) && room.players.length){
-      room.players[0].isHost = true;
-    }
-
-    broadcast(room, { t:"players", code, players: roomPublicPlayers(room) });
-    cleanupRoomIfEmpty(code);
+    leaveRoom(ws, true);
   });
 });
 
-server.listen(PORT, () => {
-  console.log("Server listening on", PORT);
-});
+function leaveRoom(ws, silent=false) {
+  const code = ws._room;
+  if (!code) return;
+  const room = rooms.get(code);
+  ws._room = null;
+  ws._seat = null;
+
+  if (!room) return;
+  room.clients.delete(ws);
+
+  // if host left, pick a new host (lowest seat)
+  if (room.host === ws._id) {
+    const remaining = [...room.clients.values()].sort((a,b)=>a.seat-b.seat);
+    if (remaining.length) room.host = remaining[0].wsId;
+  }
+
+  if (room.clients.size === 0) {
+    rooms.delete(code);
+    return;
+  }
+
+  const hostSeat = [...room.clients.values()].find(v => v.wsId === room.host)?.seat ?? 0;
+  if (!silent) broadcast(room, { type: "toast", message: "A player left." });
+  broadcast(room, { type: "players", hostSeat, players: roomPlayers(room) });
+}
+
+server.listen(PORT, () => console.log("Listening on", PORT));
