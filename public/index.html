@@ -47,7 +47,29 @@
         font-size: 0.8rem !important;
         padding: 4px !important;
       }
+    
+    #turn-status { min-width: 130px; text-align: left; }
+    #top-mid { display:flex; flex-direction:column; align-items:center; gap:4px; flex:1; }
+    #discard-history { display:flex; gap:6px; align-items:center; justify-content:center; }
+    .mini-card {
+      width: 34px;
+      height: 46px;
+      background: white;
+      border: 2px solid #111;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 14px;
+      line-height: 1;
+      box-shadow: 2px 2px 0 rgba(0,0,0,0.25);
     }
+    .mini-card .s { font-size: 16px; margin-top: -2px; }
+    .mini-card.red { color: #b71c1c; }
+    .mini-card.top { box-shadow: 0 0 0 3px var(--sticker-yellow), 2px 2px 0 rgba(0,0,0,0.25); }
+}
 
     /* --- ANIMATIONS --- */
     @keyframes shake {
@@ -872,7 +894,8 @@
     <div id="status-feed">Cards are in play!</div>
     <div id="game-info-bar">
       <div id="turn-status"></div>
-      <div
+      <div id="top-mid">
+        <div
         id="attack-status"
         style="
           color: var(--sticker-yellow);
@@ -881,6 +904,8 @@
           text-shadow: 1px 1px 0 #000;
         "
       ></div>
+        <div id="discard-history" aria-label="Recent cards"></div>
+      </div>
       <button class="help-btn" onclick="openHelp()">?</button>
     </div>
     <div id="cpu-area"></div>
@@ -1352,6 +1377,7 @@
         selectionOrder.push(i);
         AudioEngine.playTone(300, "sine", 0.05, 0.05);
       }
+      renderDiscardHistory();
       renderHandUI();
       updateControls();
     }
@@ -1829,6 +1855,23 @@
     }
 
     // --- RENDER ---
+
+    function renderDiscardHistory(){
+      const box = document.getElementById("discard-history");
+      if (!box) return;
+      box.innerHTML = "";
+      const N = 4;
+      const slice = discard.slice(-N);
+      slice.forEach((c, idx) => {
+        const d = document.createElement("div");
+        d.className = "mini-card " + ((c.suit === "♥" || c.suit === "♦") ? "red" : "");
+        if (idx === slice.length - 1) d.classList.add("top");
+        d.innerHTML = `<div class="r">${c.rank}</div><div class="s">${c.suit}</div>`;
+        box.appendChild(d);
+      });
+    }
+
+
     function updateGameUI() {
       
       let dp = document.getElementById("discard-pile");
