@@ -137,7 +137,18 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    if (msg.type === "action") {
+    
+    if (msg.type === "ace_prompt") {
+      // Host asks a specific seat to pick suit for an Ace. Forward to room.
+      if (!ws.room) return;
+      const roomId = ws.room;
+      const room = rooms.get(roomId);
+      if (!room) return;
+      broadcastRoom(roomId, { type: "ace_prompt", seat: msg.seat });
+      return;
+    }
+
+if (msg.type === "action") {
       // forward to host
       const hostWs = [...room.clients.keys()].find(w => w._id === room.host);
       if (!hostWs) return send(ws, { type: "toast", message: "Host disconnected." });
