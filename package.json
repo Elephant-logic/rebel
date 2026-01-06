@@ -1,14 +1,14 @@
 {
-  "name": "oldskool-blackjack-server-authority",
+  "name": "oldskool-blackjack-ws",
   "version": "1.0.0",
+  "private": true,
   "main": "server.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "ws": "^8.17.1"
+    "ws": "^8.17.0"
   },
   "engines": {
     "node": ">=18"
