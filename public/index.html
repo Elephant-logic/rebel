@@ -993,7 +993,7 @@
     aceChoice: null,
     room: null,
     isHost: false,
-    mySeatIndex: -1,
+    NET.mySeatIndex: -1,
     hostSeatIndex: 0,
     connected: false,
     lastStateVersion: 0,
@@ -1175,7 +1175,7 @@
 
     // gameMode: offline | pass_play | p2p
     let gameMode = "offline";
-    let mySeatIndex = 0; // 0 host, 1 joiner (for 2-player p2p)
+    // let NET.mySeatIndex = 0; // (unused - online uses NET.mySeatIndex)
 
     function initGame(config) {
       deck = createDeck();
@@ -1212,7 +1212,7 @@
         deck.unshift(start);
       }
 
-      sortHand(gamePlayers[(gameMode === "online") ? mySeatIndex : 0].hand);
+      sortHand(gamePlayers[(gameMode === "online") ? NET.mySeatIndex : 0].hand);
       updateFeed("Cards are in play!");
 
       if (gameMode === "pass_play" && isPassAndPlay) triggerPassScreen();
@@ -1258,7 +1258,7 @@
 
       // P2P: lock controls if it's not your turn
       if (gameMode === "online") {
-        const myTurn = (turnIndex === mySeatIndex);
+        const myTurn = (turnIndex === NET.mySeatIndex);
         statusDiv.innerText = myTurn ? "YOUR TURN" : "WAITING...";
         statusDiv.style.color = myTurn ? "white" : "#ccc";
       } else {
@@ -1266,7 +1266,7 @@
         statusDiv.style.color = p.isBot ? "#ccc" : "white";
       }
 
-      if (gameMode !== "p2p" && p.isBot) {
+      if (gameMode !== "online" && p.isBot) {
         setTimeout(cpuTurn, 1000);
       } else {
         isProcessing = false;
@@ -1289,14 +1289,14 @@
 
       gameLoop();
       // P2P host sends snapshot after turn changes too
-      if (gameMode === "online" && NET.isHost) p2pBroadcastState();
+      if (gameMode === "online" && NET.isHost) netBroadcastState();
     }
 
     // --- ACTIONS ---
     function toggleSelect(i) {
       if (isProcessing) return;
-      if (gameMode === "online" && turnIndex !== mySeatIndex) return;
-      if (gameMode !== "p2p" && gamePlayers[turnIndex].isBot) return;
+      if (gameMode === "online" && turnIndex !== NET.mySeatIndex) return;
+      if (gameMode !== "online" && gamePlayers[turnIndex].isBot) return;
 
       const existingIdx = selectionOrder.indexOf(i);
       if (existingIdx !== -1) selectionOrder.splice(existingIdx, 1);
@@ -1311,11 +1311,11 @@
     function humanPickup() {
       if (isProcessing) return;
       if (gameMode === "online") {
-        if (turnIndex !== mySeatIndex) return;
+        if (turnIndex !== NET.mySeatIndex) return;
         if (NET.isHost) {
           isProcessing = true;
           _humanPickupLocal();
-          p2pBroadcastState();
+          netBroadcastState();
         } else {
           netSendActionToHost({ type: "pickup", seat: NET.mySeatIndex });
         }
@@ -1359,13 +1359,13 @@
 
     function humanDeclareLast() {
       if (gameMode === "online") {
-        if (turnIndex !== mySeatIndex) return;
+        if (turnIndex !== NET.mySeatIndex) return;
         if (NET.isHost) {
           gamePlayers[turnIndex].lastDeclared = true;
           AudioEngine.playCall();
           document.getElementById("turn-status").innerText = "CALLED LAST!";
           updateControls();
-          p2pBroadcastState();
+          netBroadcastState();
         } else {
           netSendActionToHost({ type: "declare_last", seat: NET.mySeatIndex });
         }
@@ -1380,7 +1380,7 @@
 
     function humanPlay() {
       if (isProcessing || !selectionOrder.length) return;
-      if (gameMode === "online" && turnIndex !== mySeatIndex) return;
+      if (gameMode === "online" && turnIndex !== NET.mySeatIndex) return;
 
       let p = gamePlayers[turnIndex];
 
@@ -1399,7 +1399,7 @@
       if (gameMode === "online") {
         if (NET.isHost) {
           attemptPlay(turnIndex, [...selectionOrder]);
-          p2pBroadcastState();
+          netBroadcastState();
         } else {
           netSendActionToHost({ type: "play", seat: NET.mySeatIndex, indices: [...selectionOrder] });
           // clear local selection immediately (host will echo full snapshot)
@@ -1430,7 +1430,7 @@
       }
 
       if (err) {
-        if (gameMode !== "p2p") {
+        if (gameMode !== "online") {
           showToast(err);
           AudioEngine.playError();
           shakeCards(indices);
@@ -1479,7 +1479,7 @@
         updateGameUI();
 
         // If Ace was last, still resolve suit (optional)
-        if (lastCard.rank === "A" && gameMode !== "p2p") {
+        if (lastCard.rank === "A" && gameMode !== "online") {
           acePending = true;
           document.getElementById("suit-modal").style.display = "flex";
           isProcessing = false;
@@ -1504,7 +1504,7 @@
         // IMPORTANT FIX: refresh UI so selection doesn't get weird after king
         updateGameUI();
 
-        if (gameMode !== "p2p" && p.isBot) setTimeout(cpuTurn, 1000);
+        if (gameMode !== "online" && p.isBot) setTimeout(cpuTurn, 1000);
         else {
           isProcessing = false;
           document.getElementById("turn-status").innerText = (gameMode === "online") ? "PLAY AGAIN!" : "PLAY AGAIN!";
@@ -1513,7 +1513,7 @@
         return;
       }
 
-      if (acePending && gameMode !== "p2p" && !p.isBot) {
+      if (acePending && gameMode !== "online" && !p.isBot) {
         document.getElementById("suit-modal").style.display = "flex";
         isProcessing = false;
         return;
@@ -1562,7 +1562,7 @@
       if (r === "A" && isLast) {
         // Online: host should not open suit modal for remote players.
         if (gameMode === "online" && NET && NET.isHost) {
-          if (pidx === mySeatIndex) {
+          if (pidx === NET.mySeatIndex) {
             // host's own move can use the modal
             if (gamePlayers[pidx].isBot) {
               let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
@@ -1770,8 +1770,8 @@
         bottomP = activeP;
         opponents = gamePlayers.filter((p) => p !== activeP);
       } else if (gameMode === "online") {
-        bottomP = gamePlayers[mySeatIndex];
-        opponents = gamePlayers.filter((p, i) => i !== mySeatIndex);
+        bottomP = gamePlayers[NET.mySeatIndex];
+        opponents = gamePlayers.filter((p, i) => i !== NET.mySeatIndex);
       } else {
         bottomP = gamePlayers[0];
         opponents = gamePlayers.filter((p, i) => i !== 0);
@@ -1783,7 +1783,7 @@
         const degreesPerCard = 3;
 
         bottomP.hand.forEach((c, i) => {
-          let isMyTurn = bottomP === activeP && (gameMode !== "p2p" || turnIndex === mySeatIndex);
+          let isMyTurn = bottomP === activeP && (gameMode !== "p2p" || turnIndex === NET.mySeatIndex);
           let cardDiv = createCardDiv(c, i, isMyTurn);
 
           let centerIdx = (totalCards - 1) / 2;
@@ -1854,10 +1854,10 @@
 
     function updateControls() {
       let btnPlay = document.getElementById("btn-play");
-      btnPlay.disabled = selectionOrder.length === 0 || (gameMode === "online" && turnIndex !== mySeatIndex);
+      btnPlay.disabled = selectionOrder.length === 0 || (gameMode === "online" && turnIndex !== NET.mySeatIndex);
 
-      let p = (gameMode === "online") ? gamePlayers[mySeatIndex] : gamePlayers[turnIndex];
-      let effectiveHandLen = (gameMode === "online") ? gamePlayers[mySeatIndex].hand.length : gamePlayers[turnIndex].hand.length;
+      let p = (gameMode === "online") ? gamePlayers[NET.mySeatIndex] : gamePlayers[turnIndex];
+      let effectiveHandLen = (gameMode === "online") ? gamePlayers[NET.mySeatIndex].hand.length : gamePlayers[turnIndex].hand.length;
       let willFinish = effectiveHandLen === selectionOrder.length && selectionOrder.length > 0;
       if (willFinish && p.lastDeclared) {
         btnPlay.classList.add("winning-btn");
@@ -1876,7 +1876,7 @@
         btnLast.innerText = "LAST!";
       }
 
-      const canAct = !(gameMode === "online" && turnIndex !== mySeatIndex);
+      const canAct = !(gameMode === "online" && turnIndex !== NET.mySeatIndex);
       document.getElementById("btn-pickup").disabled = !canAct;
       btnLast.disabled = !canAct;
       document.getElementById("btn-sort").disabled = !canAct;
@@ -1885,12 +1885,12 @@
 
     // --- SORT ---
     function toggleSort() {
-      if (gameMode === "online" && turnIndex !== mySeatIndex) return;
+      if (gameMode === "online" && turnIndex !== NET.mySeatIndex) return;
 
       sortByRank = !sortByRank;
       updateSortUI();
 
-      let p = (gameMode === "online") ? gamePlayers[mySeatIndex] : gamePlayers[turnIndex];
+      let p = (gameMode === "online") ? gamePlayers[NET.mySeatIndex] : gamePlayers[turnIndex];
       let selectedCards = selectionOrder.map((idx) => p.hand[idx]).filter(Boolean);
 
       sortHand(p.hand);
@@ -1930,19 +1930,21 @@
     function p2pResetUI(){ /* deprecated */ }
 
     
+
 // ===============================
-// ONLINE (WebSocket relay lobby)
-// Server is the rendezvous point. The *host* runs the rules locally and pushes authoritative state.
-// Other players send actions -> server -> host. Host updates state -> broadcasts snapshot.
-// This avoids "two truths" without PeerJS.
+// ONLINE (WebSocket Relay + Authoritative Host)
+// - Server is ONLY a meeting point + message relay.
+// - Host runs the game rules and broadcasts snapshots.
+// - Joiners NEVER simulate their own game; they only send actions.
 // ===============================
 
 const SERVER_URL = (() => {
-  // If you're on Render, the server and client are the same origin
-  // (index.html is served by server.js), so ws URL can be derived.
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return proto + '//' + location.host;
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  return proto + "//" + location.host;
 })();
+
+NET.players = [];        // [{seat,name,isHost}]
+NET.hasGameStarted = false;
 
 function netSetStatus(msg) {
   const el = document.getElementById("onlineStatus");
@@ -1950,21 +1952,25 @@ function netSetStatus(msg) {
 }
 
 function netRenderPlayers(list) {
-  const ul = document.getElementById("onlinePlayersList");
-  if (!ul) return;
   NET.players = Array.isArray(list) ? list : [];
-  ul.innerHTML = "";
-  list.forEach(p => {
-    const li = document.createElement("li");
-    li.textContent = `${p.seat + 1}. ${p.name}${p.isHost ? " (host)" : ""}`;
-    ul.appendChild(li);
-  });
+  const ul = document.getElementById("onlinePlayersList");
+  if (ul) {
+    ul.innerHTML = "";
+    NET.players.forEach(p => {
+      const li = document.createElement("li");
+      li.textContent = `${p.seat + 1}. ${p.name}${p.isHost ? " (host)" : ""}`;
+      ul.appendChild(li);
+    });
+  }
   const roomLabel = document.getElementById("onlineRoomLabel");
   const seatLabel = document.getElementById("onlineSeatLabel");
   const hostLabel = document.getElementById("onlineHostLabel");
   if (roomLabel) roomLabel.textContent = NET.room || "—";
   if (seatLabel) seatLabel.textContent = (NET.mySeatIndex >= 0) ? String(NET.mySeatIndex + 1) : "—";
   if (hostLabel) hostLabel.textContent = (NET.hostSeatIndex >= 0) ? String(NET.hostSeatIndex + 1) : "—";
+
+  const btnStart = document.getElementById("btnOnlineStart");
+  if (btnStart) btnStart.disabled = !NET.isHost || NET.players.length < 2;
 }
 
 function netDisconnect() {
@@ -1975,6 +1981,10 @@ function netDisconnect() {
   NET.isHost = false;
   NET.mySeatIndex = -1;
   NET.hostSeatIndex = 0;
+  NET.lastStateVersion = 0;
+  NET.players = [];
+  NET.hasGameStarted = false;
+
   netSetStatus("Not connected.");
   netRenderPlayers([]);
 }
@@ -1986,17 +1996,12 @@ function netConnect(cb) {
 
   ws.onopen = () => {
     NET.connected = true;
-    netSetStatus("Connected. Choose Create or Join.");
+    netSetStatus("Connected. Create or Join a room.");
     cb && cb();
   };
 
-  ws.onclose = () => {
-    netDisconnect();
-  };
-
-  ws.onerror = () => {
-    netSetStatus("WebSocket error.");
-  };
+  ws.onclose = () => netDisconnect();
+  ws.onerror = () => netSetStatus("WebSocket error.");
 
   ws.onmessage = (ev) => {
     let msg = null;
@@ -2004,6 +2009,10 @@ function netConnect(cb) {
     if (!msg || !msg.type) return;
 
     if (msg.type === "room_created") {
+      if (msg.ok === false) {
+        netSetStatus(msg.message || "Couldn't create room.");
+        return;
+      }
       NET.room = msg.room;
       NET.isHost = true;
       NET.mySeatIndex = msg.seat;
@@ -2015,6 +2024,10 @@ function netConnect(cb) {
     }
 
     if (msg.type === "joined") {
+      if (msg.ok === false) {
+        netSetStatus(msg.message || "Couldn't join room.");
+        return;
+      }
       NET.room = msg.room;
       NET.isHost = false;
       NET.mySeatIndex = msg.seat;
@@ -2022,7 +2035,6 @@ function netConnect(cb) {
       gameMode = "online";
       netSetStatus(`Joined room: ${NET.room}. Waiting for host...`);
       netRenderPlayers(msg.players || []);
-      // if server has state already, it may send it next
       return;
     }
 
@@ -2033,16 +2045,14 @@ function netConnect(cb) {
     }
 
     if (msg.type === "to_host_action") {
-      // Only host should ever receive these
       if (!NET.isHost) return;
       handleRemoteAction(msg.action);
       return;
     }
 
     if (msg.type === "state") {
-      // Everyone receives state. Host can ignore older versions.
-      if (msg.version && msg.version < NET.lastStateVersion) return;
-      if (msg.version) NET.lastStateVersion = msg.version;
+      if (typeof msg.version === "number" && msg.version < (NET.lastStateVersion || 0)) return;
+      if (typeof msg.version === "number") NET.lastStateVersion = msg.version;
       if (!NET.isHost) applySnapshot(msg.snap);
       return;
     }
@@ -2059,8 +2069,8 @@ function netSend(obj) {
   NET.ws.send(JSON.stringify(obj));
 }
 
-function netCreateRoom(name, room) {
-  netConnect(() => netSend({ type: "create_room", name, room }));
+function netCreateRoom(name, preferredRoom) {
+  netConnect(() => netSend({ type: "create_room", name, room: preferredRoom || "" }));
 }
 
 function netJoinRoom(name, room) {
@@ -2074,7 +2084,6 @@ function netLeaveRoom() {
 
 function netBroadcastState() {
   if (!NET.isHost) return;
-  // version increments on host each broadcast
   NET.lastStateVersion = (NET.lastStateVersion || 0) + 1;
   netSend({ type: "state", room: NET.room, version: NET.lastStateVersion, snap: getSnapshot() });
 }
@@ -2084,7 +2093,7 @@ function netSendActionToHost(action) {
   netSend({ type: "action", room: NET.room, action });
 }
 
-// Hook the online screen buttons
+// Online UI wiring
 function bindOnlineUI() {
   const nameEl = document.getElementById("onlineName");
   const codeEl = document.getElementById("onlineRoomCode");
@@ -2095,155 +2104,148 @@ function bindOnlineUI() {
   const btnStart = document.getElementById("btnOnlineStart");
   const btnQuick = document.getElementById("btnOnlineQuick");
 
-  if (btnCreate) btnCreate.onclick = () => {
-    const name = (nameEl?.value || "Player").trim().slice(0,16) || "Player";
-    netCreateRoom(name);
-  };
+  const getName = () => ((nameEl?.value || leagueData?.player?.name || "Player").trim().slice(0,16) || "Player");
+  const getRoom = () => ((codeEl?.value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0,8));
 
-  if (btnJoin) btnJoin.onclick = () => {
-    const name = (nameEl?.value || "Player").trim().slice(0,16) || "Player";
-    const room = (codeEl?.value || "").trim().toUpperCase();
-    if (!room) return netSetStatus("Enter a room code.");
-    netJoinRoom(name, room);
+  if (nameEl && leagueData?.player?.name && !nameEl.value) nameEl.value = leagueData.player.name;
+
+  if (btnCreate) btnCreate.onclick = () => {
+    const name = getName();
+    const room = getRoom(); // optional
+    netCreateRoom(name, room);
   };
 
   if (btnQuick) btnQuick.onclick = () => {
-    const name = (nameEl?.value || "Player").trim().slice(0,16) || "Player";
-    let code = prompt("Choose a room code (4-8 letters/numbers):", "");
-    if (!code) return;
-    code = code.trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,8}$/.test(code)) return netSetStatus("Code must be 4-8 A-Z/0-9.");
-    // Create room with your chosen code (server will fall back if already taken)
-    netCreateRoom(name, code);
+    // "Quick" = create a room with your chosen code, or auto-generate one if blank.
+    const name = getName();
+    let room = getRoom();
+    if (!room) {
+      room = Array.from({length:6}, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*32)]).join("");
+      if (codeEl) codeEl.value = room;
+    }
+    netCreateRoom(name, room);
+  };
+
+  if (btnJoin) btnJoin.onclick = () => {
+    const name = getName();
+    const room = getRoom();
+    if (!room) return netSetStatus("Enter a room code.");
+    netJoinRoom(name, room);
   };
 
   if (btnLeave) btnLeave.onclick = () => netLeaveRoom();
 
   if (btnStart) btnStart.onclick = () => {
     if (!NET.isHost) return netSetStatus("Only host can start/deal.");
-    // Host starts game locally then broadcasts.
+    if (NET.players.length < 2) return netSetStatus("Need at least 2 players.");
     startOnlineGameAsHost();
-    netBroadcastState();
   };
 }
 
-// Boot wiring for online lobby
-window.addEventListener("DOMContentLoaded", () => {
-  try { bindOnlineUI(); } catch (e) { console.error("bindOnlineUI failed", e); }
-});
+// Host starts game once, then snapshots to everyone
+function startOnlineGameAsHost() {
+  NET.hasGameStarted = true;
+  gameMode = "online";
 
+  // Build human config from current room players (seat order)
+  const ordered = [...(NET.players || [])].sort((a,b)=>a.seat-b.seat);
+  const config = ordered.map(p => ({ name: p.name, isBot: false }));
+
+  // Start local game (host truth)
+  initGame(config);
+
+  // Broadcast initial snapshot
+  netBroadcastState();
+  netSetStatus("Game started.");
+}
+
+// Boot wiring for online lobby
+try { bindOnlineUI(); } catch (e) { console.error("bindOnlineUI failed", e); }
 
 // ===============================
-// Snapshot + remote actions (ONLINE WS)
-// Uses the *existing* game engine variables: gamePlayers/deck/discard/etc.
+// Snapshot + Remote Actions (Online Mode)
 // ===============================
 
 function getSnapshot() {
   return {
-    inGame: document.getElementById("game-screen")?.classList.contains("active") || discard.length > 0,
+    v: 1,
+    gameMode: "online",
     gamePlayers,
     deck,
     discard,
-    activeSuit,
     turnIndex,
     direction,
+    activeSuit,
     pendingDraw2,
     pendingDrawJ,
     pendingSkip,
     extraTurn,
-    // keep client UI consistent
-    sortByRank,
+    // lastDeclared flags live in gamePlayers[*].lastDeclared already
   };
 }
 
 function applySnapshot(snap) {
-  if (!snap) return;
+  if (!snap || snap.v !== 1) return;
 
-  gamePlayers = snap.gamePlayers || gamePlayers;
-  deck = snap.deck || deck;
-  discard = snap.discard || discard;
-  activeSuit = snap.activeSuit || activeSuit;
-  turnIndex = (typeof snap.turnIndex === "number") ? snap.turnIndex : turnIndex;
-  direction = (typeof snap.direction === "number") ? snap.direction : direction;
+  gameMode = "online";
+  gamePlayers = snap.gamePlayers;
+  deck = snap.deck;
+  discard = snap.discard;
+  turnIndex = snap.turnIndex;
+  direction = snap.direction;
+  activeSuit = snap.activeSuit;
   pendingDraw2 = snap.pendingDraw2 || 0;
   pendingDrawJ = snap.pendingDrawJ || 0;
   pendingSkip = snap.pendingSkip || 0;
   extraTurn = !!snap.extraTurn;
-  sortByRank = !!snap.sortByRank;
 
-  // Ensure we're in online mode locally
-  gameMode = "online";
-  mySeatIndex = NET.mySeatIndex;
+  // Clients should never keep stale selections
+  selectionOrder = [];
+  isProcessing = false;
 
-  // If host started the match, jump to table
-  if (snap.inGame) {
-    showScreen("game-screen");
-    selectionOrder = [];
-    isProcessing = false;
-    updateGameUI();
-    gameLoop();
-  }
+  // If host started game, ensure we are on game screen and UI is synced
+  showScreen("game-screen");
+  updateGameUI();
+  updateFeed("Online game in progress");
 }
 
 function handleRemoteAction(action) {
-  // Host receives actions from other players via server.
   if (!NET.isHost) return;
   if (!action || typeof action !== "object") return;
 
-  const seat = action.seat;
-  if (typeof seat !== "number") return;
+  const seat = Number(action.seat);
+  if (!Number.isInteger(seat)) return;
 
-  // Only accept actions on that player's actual turn.
+  // Out-of-turn guard
   if (seat !== turnIndex) return;
 
   try {
     if (action.type === "pickup") {
-      // run using current turnIndex
+      // host runs pickup for current turn
+      isProcessing = true;
       _humanPickupLocal();
-    } else if (action.type === "declare_last") {
+      // _humanPickupLocal() advances turn via nextTurn()
+      netBroadcastState();
+      return;
+    }
+
+    if (action.type === "declare_last") {
       gamePlayers[seat].lastDeclared = true;
-      updateFeed(`${gamePlayers[seat].name} called LAST!`);
-    } else if (action.type === "play") {
-      // indices: array of card indexes in that player's hand
-      if (action.chosenSuit && SUIT_MAP[action.chosenSuit]) {
-        NET.aceChoice = SUIT_MAP[action.chosenSuit];
-      } else {
-        NET.aceChoice = null;
-      }
-      attemptPlay(seat, Array.isArray(action.indices) ? action.indices : []);
-      NET.aceChoice = null;
+      netBroadcastState();
+      return;
+    }
+
+    if (action.type === "play") {
+      const indices = Array.isArray(action.indices) ? action.indices : [];
+      attemptPlay(seat, indices);
+      netBroadcastState();
+      return;
     }
   } catch (e) {
     console.error(e);
   }
-
-  netBroadcastState();
 }
 
-// ===============================
-// Integrations into existing code paths
-// ===============================
-// ===============================
-// Integrations into existing code paths
-// ===============================
-
-// When non-host tries to do something, send action instead of mutating local state.
-function onlineMySeat() {
-  return (gameMode === "online") ? NET.mySeatIndex : mySeatIndex;
-}
-
-
-// Back-compat wrappers (old code still calls these)
-function p2pResetUI(){ /* no-op: online UI is managed by bindOnlineUI */ }
-function p2pSend(type, payload){
-  // client -> host action
-  if (type === "action") return netSendActionToHost(payload);
-  if (type === "state") return netBroadcastState();
-}
-function p2pSendToClient(seat, type, payload){
-  // not used in ws version
-}
-function p2pBroadcastState(){ return netBroadcastState(); }
 
 </script>
 </body>
