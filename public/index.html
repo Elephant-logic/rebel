@@ -1169,7 +1169,10 @@
       pendingSkip = 0;
     let selectionOrder = [],
       isProcessing = false,
-      acePending = false;
+      acePending = false,
+      pendingAceSeat = -1,
+      matchOver = false,
+      matchWinner = -1;
     let isPassAndPlay = false,
       extraTurn = false;
 
@@ -1191,6 +1194,10 @@
       isProcessing = false;
       extraTurn = false;
       acePending = false;
+      pendingAceSeat = -1;
+      matchOver = false;
+      matchWinner = -1;
+
 
       gamePlayers = config.map((p) => ({
         name: p.name,
@@ -1513,10 +1520,19 @@
         return;
       }
 
-      if (acePending && gameMode !== "online" && !p.isBot) {
-        document.getElementById("suit-modal").style.display = "flex";
-        isProcessing = false;
-        return;
+      if (acePending && !p.isBot) {
+        if (gameMode === "online") {
+          // Only the player who must choose suit opens the modal
+          if ((!NET.isHost && turnIndex === NET.mySeatIndex) || (NET.isHost && pendingAceSeat === NET.mySeatIndex)) {
+            document.getElementById("suit-modal").style.display = "flex";
+          }
+          isProcessing = false;
+          return;
+        } else {
+          document.getElementById("suit-modal").style.display = "flex";
+          isProcessing = false;
+          return;
+        }
       }
 
       setTimeout(nextTurn, 900);
@@ -1570,8 +1586,11 @@
               activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
               updateFeed(`Suit is ${activeSuit}`);
             } else {
-              acePending = true;
-            }
+          acePending = true;
+          if (gameMode === "online" && NET.isHost) {
+            pendingAceSeat = pidx;
+          }
+        }
           } else {
             // remote seat: use chosen suit if provided, else auto-pick by hand majority
             if (NET.aceChoice) {
@@ -1623,6 +1642,12 @@
 
     function endMatch(winnerIdx) {
       AudioEngine.playWin();
+      matchOver = true;
+      matchWinner = winnerIdx;
+      if (gameMode === "online" && NET.isHost) {
+        // broadcast so joiners also see the result modal
+        netBroadcastState();
+      }
       let title = document.getElementById("result-title");
       let desc = document.getElementById("result-desc");
       let modal = document.getElementById("match-result-modal");
@@ -1658,9 +1683,28 @@
     }
 
     function resolveAce(char) {
-      activeSuit = SUIT_MAP[char];
-      acePending = false;
+      const chosen = SUIT_MAP[char];
       document.getElementById("suit-modal").style.display = "none";
+
+      if (gameMode === "online") {
+        // Authoritative host applies suit & advances. Clients just send choice to host.
+        if (NET.isHost) {
+          activeSuit = chosen;
+          acePending = false;
+          pendingAceSeat = -1;
+          // Push updated state immediately so everyone sees the suit badge
+          netBroadcastState();
+          setTimeout(nextTurn, 250);
+        } else {
+          acePending = false;
+          netSendActionToHost({ type: "ace_suit", seat: NET.mySeatIndex, suit: chosen });
+          netSetStatus("Suit chosen. Waiting for host...");
+        }
+        return;
+      }
+
+      activeSuit = chosen;
+      acePending = false;
       setTimeout(nextTurn, 250);
     }
 
@@ -1737,12 +1781,28 @@
 
     // --- RENDER ---
     function updateGameUI() {
+      
       let dp = document.getElementById("discard-pile");
       dp.innerHTML = "";
+      dp.style.position = "relative";
+      dp.style.width = "var(--card-w)";
+      dp.style.height = "var(--card-h)";
+
       if (discard.length) {
-        let top = discard[discard.length - 1];
-        let cardDiv = createCardDiv(top, -1, false);
-        dp.appendChild(cardDiv);
+        const shown = discard.slice(-3); // last 3 cards for visibility
+        shown.forEach((card, idx) => {
+          const cardDiv = createCardDiv(card, -1, false);
+          cardDiv.style.position = "absolute";
+          cardDiv.style.left = (idx * 10) + "px";
+          cardDiv.style.top = (-idx * 3) + "px";
+          const rot = (idx - (shown.length - 1)) * 4;
+          cardDiv.style.transform = `rotate(${rot}deg)`;
+          cardDiv.style.opacity = (idx === shown.length - 1) ? "1" : "0.6";
+          cardDiv.style.zIndex = String(10 + idx);
+          dp.appendChild(cardDiv);
+        });
+
+        const top = shown[shown.length - 1];
         if (top.rank === "A" && activeSuit) {
           let sDiv = document.createElement("div");
           sDiv.innerText = activeSuit;
@@ -1753,6 +1813,7 @@
           dp.appendChild(sDiv);
         }
       }
+
       renderHandUI();
       updateControls();
       updateSortUI();
@@ -2180,6 +2241,10 @@ function getSnapshot() {
     pendingDrawJ,
     pendingSkip,
     extraTurn,
+    acePending,
+    pendingAceSeat,
+    matchOver,
+    matchWinner,
     // lastDeclared flags live in gamePlayers[*].lastDeclared already
   };
 }
@@ -2199,6 +2264,12 @@ function applySnapshot(snap) {
   pendingSkip = snap.pendingSkip || 0;
   extraTurn = !!snap.extraTurn;
 
+  acePending = !!snap.acePending;
+  pendingAceSeat = (typeof snap.pendingAceSeat === "number") ? snap.pendingAceSeat : -1;
+
+  matchOver = !!snap.matchOver;
+  matchWinner = (typeof snap.matchWinner === "number") ? snap.matchWinner : -1;
+
   // Clients should never keep stale selections
   selectionOrder = [];
   isProcessing = false;
@@ -2206,7 +2277,35 @@ function applySnapshot(snap) {
   // If host started game, ensure we are on game screen and UI is synced
   showScreen("game-screen");
   updateGameUI();
-  updateFeed("Online game in progress");
+
+  // If match ended on host, show a clear win/lose modal here too
+  if (matchOver && matchWinner >= 0) {
+    const winner = gamePlayers[matchWinner];
+    const title = document.getElementById("result-title");
+    const desc = document.getElementById("result-desc");
+    const modal = document.getElementById("match-result-modal");
+
+    if (matchWinner === NET.mySeatIndex) {
+      title.innerText = "WIN!";
+      desc.innerText = "Nice one.";
+    } else {
+      title.innerText = "LOSE";
+      desc.innerText = `${winner ? winner.name : "Opponent"} got you`;
+    }
+    modal.style.display = "flex";
+    updateFeed("Match ended.");
+    return;
+  }
+
+  // If you played an Ace, you must choose suit on YOUR device
+  const suitModal = document.getElementById("suit-modal");
+  if (acePending && pendingAceSeat === NET.mySeatIndex) {
+    suitModal.style.display = "flex";
+    updateFeed("Pick a suit!");
+  } else {
+    suitModal.style.display = "none";
+    updateFeed("Online game in progress");
+  }
 }
 
 function handleRemoteAction(action) {
@@ -2220,6 +2319,19 @@ function handleRemoteAction(action) {
   if (seat !== turnIndex) return;
 
   try {
+    if (action.type === "ace_suit") {
+      // Remote player chose suit after playing an Ace
+      const suit = action.suit;
+      if (acePending && pendingAceSeat === seat && SUITS.includes(suit)) {
+        activeSuit = suit;
+        acePending = false;
+        pendingAceSeat = -1;
+        netBroadcastState();
+        setTimeout(nextTurn, 250);
+      }
+      return;
+    }
+
     if (action.type === "pickup") {
       // host runs pickup for current turn
       isProcessing = true;
