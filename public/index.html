@@ -1203,9 +1203,6 @@
     let pendingDraw2 = 0,
       pendingDrawJ = 0,
       pendingSkip = 0;
-    let pendingAceSeat = -1; // seat waiting to choose suit after Ace
-    let acePending = false;
-
     let selectionOrder = [],
       isProcessing = false,
       acePending = false,
@@ -1214,6 +1211,11 @@
       matchWinner = -1;
     let isPassAndPlay = false,
       extraTurn = false;
+
+    // Online end-match sync
+    let gameOver = false;
+    let winnerIdxGlobal = -1;
+
 
     // gameMode: offline | pass_play | p2p
     let gameMode = "offline";
@@ -1669,6 +1671,9 @@
 
     function endMatch(winnerIdx) {
       AudioEngine.playWin();
+      gameOver = true;
+      winnerIdxGlobal = winnerIdx;
+
       matchOver = true;
       matchWinner = winnerIdx;
       if (gameMode === "online" && NET.isHost) {
@@ -1707,9 +1712,16 @@
       }
 
       modal.style.display = "flex";
+      if (gameMode === "online" && NET && NET.isHost) {
+        netBroadcastState();
+      }
     }
 
     function exitGame() {
+      gameOver = false;
+      winnerIdxGlobal = -1;
+      onlineGameOverShown = false;
+
       document.getElementById("match-result-modal").style.display = "none";
       if (isLeagueMode) showScreen("dashboard-screen");
       else showScreen("menu-screen");
@@ -2030,10 +2042,13 @@
     
 
 // ===============================
-// ONLINE (WebSocket Relay + Authoritative Host)
-// - Server is ONLY a meeting point + message relay.
-// - Host runs the game rules and broadcasts snapshots.
-// - Joiners NEVER simulate their own game; they only send actions.
+// 
+// ===============================
+// ONLINE (WebSocket server-authoritative)
+// - Server manages rooms + relays messages
+// - HOST is authoritative: only host mutates game state
+// - Clients send actions -> server -> host
+// - Host broadcasts snapshots -> everyone renders same truth
 // ===============================
 
 const SERVER_URL = (() => {
@@ -2041,38 +2056,31 @@ const SERVER_URL = (() => {
   return proto + "//" + location.host;
 })();
 
-NET.players = [];        // [{seat,name,isHost}]
-NET.hasGameStarted = false;
-
 function netSetStatus(msg) {
   const el = document.getElementById("onlineStatus");
   if (el) el.textContent = msg;
 }
 
 function netRenderPlayers(list) {
-  NET.players = Array.isArray(list) ? list : [];
   const ul = document.getElementById("onlinePlayersList");
-  if (ul) {
-    ul.innerHTML = "";
-    NET.players.forEach(p => {
-      const li = document.createElement("li");
-      li.textContent = `${p.seat + 1}. ${p.name}${p.isHost ? " (host)" : ""}`;
-      ul.appendChild(li);
-    });
-  }
+  if (!ul) return;
+  ul.innerHTML = "";
+  (list || []).forEach(p => {
+    const li = document.createElement("li");
+    li.textContent = `${p.seat + 1}. ${p.name}${p.isHost ? " (host)" : ""}`;
+    ul.appendChild(li);
+  });
+
   const roomLabel = document.getElementById("onlineRoomLabel");
   const seatLabel = document.getElementById("onlineSeatLabel");
   const hostLabel = document.getElementById("onlineHostLabel");
   if (roomLabel) roomLabel.textContent = NET.room || "—";
   if (seatLabel) seatLabel.textContent = (NET.mySeatIndex >= 0) ? String(NET.mySeatIndex + 1) : "—";
   if (hostLabel) hostLabel.textContent = (NET.hostSeatIndex >= 0) ? String(NET.hostSeatIndex + 1) : "—";
-
-  const btnStart = document.getElementById("btnOnlineStart");
-  if (btnStart) btnStart.disabled = !NET.isHost || NET.players.length < 2;
 }
 
 function netDisconnect() {
-  try { NET.ws && NET.ws.close(); } catch(e) {}
+  try { NET.ws && NET.ws.close(); } catch (e) {}
   NET.ws = null;
   NET.connected = false;
   NET.room = null;
@@ -2081,8 +2089,8 @@ function netDisconnect() {
   NET.hostSeatIndex = 0;
   NET.lastStateVersion = 0;
   NET.players = [];
-  NET.hasGameStarted = false;
-
+  NET.awaitingAce = false;
+  NET.awaitingAceSeat = -1;
   netSetStatus("Not connected.");
   netRenderPlayers([]);
 }
@@ -2103,42 +2111,39 @@ function netConnect(cb) {
 
   ws.onmessage = (ev) => {
     let msg = null;
-    try { msg = JSON.parse(ev.data); } catch(e) { return; }
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
     if (!msg || !msg.type) return;
 
     if (msg.type === "room_created") {
-      if (msg.ok === false) {
-        netSetStatus(msg.message || "Couldn't create room.");
-        return;
-      }
       NET.room = msg.room;
       NET.isHost = true;
       NET.mySeatIndex = msg.seat;
       NET.hostSeatIndex = msg.hostSeat;
+      NET.players = msg.players || [];
       gameMode = "online";
+      mySeatIndex = NET.mySeatIndex;
       netSetStatus(`Room created: ${NET.room}. Share code & wait for players.`);
-      netRenderPlayers(msg.players || []);
+      netRenderPlayers(NET.players);
       return;
     }
 
     if (msg.type === "joined") {
-      if (msg.ok === false) {
-        netSetStatus(msg.message || "Couldn't join room.");
-        return;
-      }
       NET.room = msg.room;
       NET.isHost = false;
       NET.mySeatIndex = msg.seat;
       NET.hostSeatIndex = msg.hostSeat;
+      NET.players = msg.players || [];
       gameMode = "online";
-      netSetStatus(`Joined room: ${NET.room}. Waiting for host...`);
-      netRenderPlayers(msg.players || []);
+      mySeatIndex = NET.mySeatIndex;
+      netSetStatus(`Joined room: ${NET.room}. Waiting for host to start...`);
+      netRenderPlayers(NET.players);
       return;
     }
 
     if (msg.type === "players") {
       NET.hostSeatIndex = msg.hostSeat;
-      netRenderPlayers(msg.players || []);
+      NET.players = msg.players || [];
+      netRenderPlayers(NET.players);
       return;
     }
 
@@ -2148,24 +2153,26 @@ function netConnect(cb) {
       return;
     }
 
-    if (msg.type === "ace_prompt") {
-      if (typeof msg.seat === "number" && msg.seat === NET.mySeatIndex) {
-        acePending = true;
-        document.getElementById("suit-modal").style.display = "flex";
-        netSetStatus("Choose a suit for your Ace.");
-      }
-      return;
-    }
-
     if (msg.type === "state") {
-      if (typeof msg.version === "number" && msg.version < (NET.lastStateVersion || 0)) return;
+      // Everyone receives state. Ignore older versions.
+      if (typeof msg.version === "number" && msg.version < NET.lastStateVersion) return;
       if (typeof msg.version === "number") NET.lastStateVersion = msg.version;
       if (!NET.isHost) applySnapshot(msg.snap);
       return;
     }
 
+    if (msg.type === "ace_prompt") {
+      // Only the prompted seat shows suit picker
+      if (msg.seat === NET.mySeatIndex) {
+        acePending = true;
+        document.getElementById("suit-modal").style.display = "flex";
+        showToast("Pick a suit!");
+      }
+      return;
+    }
+
     if (msg.type === "toast") {
-      netSetStatus(msg.message || "");
+      if (msg.message) showToast(msg.message);
       return;
     }
   };
@@ -2176,8 +2183,8 @@ function netSend(obj) {
   NET.ws.send(JSON.stringify(obj));
 }
 
-function netCreateRoom(name, preferredRoom) {
-  netConnect(() => netSend({ type: "create_room", name, room: preferredRoom || "" }));
+function netCreateRoom(name) {
+  netConnect(() => netSend({ type: "create_room", name }));
 }
 
 function netJoinRoom(name, room) {
@@ -2190,7 +2197,7 @@ function netLeaveRoom() {
 }
 
 function netBroadcastState() {
-  if (!NET.isHost) return;
+  if (!NET.isHost || !NET.room) return;
   NET.lastStateVersion = (NET.lastStateVersion || 0) + 1;
   netSend({ type: "state", room: NET.room, version: NET.lastStateVersion, snap: getSnapshot() });
 }
@@ -2200,7 +2207,6 @@ function netSendActionToHost(action) {
   netSend({ type: "action", room: NET.room, action });
 }
 
-// Online UI wiring
 function bindOnlineUI() {
   const nameEl = document.getElementById("onlineName");
   const codeEl = document.getElementById("onlineRoomCode");
@@ -2211,72 +2217,51 @@ function bindOnlineUI() {
   const btnStart = document.getElementById("btnOnlineStart");
   const btnQuick = document.getElementById("btnOnlineQuick");
 
-  const getName = () => ((nameEl?.value || leagueData?.player?.name || "Player").trim().slice(0,16) || "Player");
-  const getRoom = () => ((codeEl?.value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0,8));
-
-  if (nameEl && leagueData?.player?.name && !nameEl.value) nameEl.value = leagueData.player.name;
-
   if (btnCreate) btnCreate.onclick = () => {
-    const name = getName();
-    const room = getRoom(); // optional
-    netCreateRoom(name, room);
-  };
-
-  if (btnQuick) btnQuick.onclick = () => {
-    // "Quick" = create a room with your chosen code, or auto-generate one if blank.
-    const name = getName();
-    let room = getRoom();
-    if (!room) {
-      room = Array.from({length:6}, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*32)]).join("");
-      if (codeEl) codeEl.value = room;
-    }
-    netCreateRoom(name, room);
+    const name = (nameEl?.value || leagueData.player.name || "Player").trim().slice(0, 16) || "Player";
+    netCreateRoom(name);
   };
 
   if (btnJoin) btnJoin.onclick = () => {
-    const name = getName();
-    const room = getRoom();
+    const name = (nameEl?.value || leagueData.player.name || "Player").trim().slice(0, 16) || "Player";
+    const room = (codeEl?.value || "").trim().toUpperCase();
     if (!room) return netSetStatus("Enter a room code.");
     netJoinRoom(name, room);
+  };
+
+  if (btnQuick) btnQuick.onclick = () => {
+    netSetStatus("Quick Join not enabled. Use a room code.");
   };
 
   if (btnLeave) btnLeave.onclick = () => netLeaveRoom();
 
   if (btnStart) btnStart.onclick = () => {
     if (!NET.isHost) return netSetStatus("Only host can start/deal.");
-    if (NET.players.length < 2) return netSetStatus("Need at least 2 players.");
-    startOnlineGameAsHost();
+    if (!NET.players || NET.players.length < 2) return netSetStatus("Need at least 2 players.");
+    startOnlineGameFromLobby();
   };
 }
 
-// Host starts game once, then snapshots to everyone
-function startOnlineGameAsHost() {
-  NET.hasGameStarted = true;
+// Start game (host) using lobby player list
+function startOnlineGameFromLobby() {
+  // Build player config from NET.players (no bots online)
+  const cfg = (NET.players || []).map(p => ({ name: p.name, isBot: false }));
   gameMode = "online";
-
-  // Build human config from current room players (seat order)
-  const ordered = [...(NET.players || [])].sort((a,b)=>a.seat-b.seat);
-  const config = ordered.map(p => ({ name: p.name, isBot: false }));
-
-  // Start local game (host truth)
-  initGame(config);
-
-  // Broadcast initial snapshot
+  mySeatIndex = NET.mySeatIndex;
+  initGame(cfg);
+  // Host immediately broadcasts initial snapshot
   netBroadcastState();
   netSetStatus("Game started.");
 }
 
-// Boot wiring for online lobby
-try { bindOnlineUI(); } catch (e) { console.error("bindOnlineUI failed", e); }
+// ===============================
+// Snapshot + remote actions
+// ===============================
 
-// ===============================
-// Snapshot + Remote Actions (Online Mode)
-// ===============================
+let onlineGameOverShown = false;
 
 function getSnapshot() {
   return {
-    v: 1,
-    gameMode: "online",
     gamePlayers,
     deck,
     discard,
@@ -2287,77 +2272,46 @@ function getSnapshot() {
     pendingDrawJ,
     pendingSkip,
     extraTurn,
-    acePending,
-    pendingAceSeat,
-    matchOver,
-    matchWinner,
-    // lastDeclared flags live in gamePlayers[*].lastDeclared already
+    aceAwaiting: !!NET.awaitingAce,
+    aceSeat: NET.awaitingAceSeat,
+    isLeagueMode,
+    gameOver: !!gameOver,
+    winnerIdx: (typeof winnerIdxGlobal === "number") ? winnerIdxGlobal : -1,
   };
 }
 
 function applySnapshot(snap) {
-  if (!snap || snap.v !== 1) return;
+  if (!snap) return;
 
-  gameMode = "online";
-  gamePlayers = snap.gamePlayers;
-  deck = snap.deck;
-  discard = snap.discard;
-  turnIndex = snap.turnIndex;
-  direction = snap.direction;
-  activeSuit = snap.activeSuit;
+  gamePlayers = snap.gamePlayers || gamePlayers;
+  deck = snap.deck || deck;
+  discard = snap.discard || discard;
+  turnIndex = typeof snap.turnIndex === "number" ? snap.turnIndex : turnIndex;
+  direction = typeof snap.direction === "number" ? snap.direction : direction;
+  activeSuit = snap.activeSuit ?? activeSuit;
+
   pendingDraw2 = snap.pendingDraw2 || 0;
   pendingDrawJ = snap.pendingDrawJ || 0;
   pendingSkip = snap.pendingSkip || 0;
   extraTurn = !!snap.extraTurn;
 
-  acePending = !!snap.acePending;
-  pendingAceSeat = (typeof snap.pendingAceSeat === "number") ? snap.pendingAceSeat : -1;
+  NET.awaitingAce = !!snap.aceAwaiting;
+  NET.awaitingAceSeat = typeof snap.aceSeat === "number" ? snap.aceSeat : -1;
 
-  if (gameMode === "online" && pendingAceSeat === NET.mySeatIndex) {
-    acePending = true;
-    document.getElementById("suit-modal").style.display = "flex";
-    netSetStatus("Choose a suit for your Ace.");
+  gameOver = !!snap.gameOver;
+  winnerIdxGlobal = (typeof snap.winnerIdx === "number") ? snap.winnerIdx : -1;
+
+  // Ensure we're on game screen once host starts
+  if (document.getElementById("game-screen")?.classList.contains("active") === false) {
+    showScreen("game-screen");
   }
 
-
-  matchOver = !!snap.matchOver;
-  matchWinner = (typeof snap.matchWinner === "number") ? snap.matchWinner : -1;
-
-  // Clients should never keep stale selections
-  selectionOrder = [];
-  isProcessing = false;
-
-  // If host started game, ensure we are on game screen and UI is synced
-  showScreen("game-screen");
   updateGameUI();
+  gameLoop();
 
-  // If match ended on host, show a clear win/lose modal here too
-  if (matchOver && matchWinner >= 0) {
-    const winner = gamePlayers[matchWinner];
-    const title = document.getElementById("result-title");
-    const desc = document.getElementById("result-desc");
-    const modal = document.getElementById("match-result-modal");
-
-    if (matchWinner === NET.mySeatIndex) {
-      title.innerText = "WIN!";
-      desc.innerText = "Nice one.";
-    } else {
-      title.innerText = "LOSE";
-      desc.innerText = `${winner ? winner.name : "Opponent"} got you`;
-    }
-    modal.style.display = "flex";
-    updateFeed("Match ended.");
-    return;
-  }
-
-  // If you played an Ace, you must choose suit on YOUR device
-  const suitModal = document.getElementById("suit-modal");
-  if (acePending && pendingAceSeat === NET.mySeatIndex) {
-    suitModal.style.display = "flex";
-    updateFeed("Pick a suit!");
-  } else {
-    suitModal.style.display = "none";
-    updateFeed("Online game in progress");
+  if (gameOver && !onlineGameOverShown && winnerIdxGlobal >= 0) {
+    onlineGameOverShown = true;
+    endMatch(winnerIdxGlobal);
   }
 }
 
@@ -2365,45 +2319,58 @@ function handleRemoteAction(action) {
   if (!NET.isHost) return;
   if (!action || typeof action !== "object") return;
 
-  const seat = Number(action.seat);
-  if (!Number.isInteger(seat)) return;
+  const seat = action.seat;
+  if (typeof seat !== "number") return;
 
-  // Out-of-turn guard
+  // Guard: if awaiting ace selection, only accept ace_suit from that seat
+  if (NET.awaitingAce) {
+    if (action.type === "ace_suit" && seat === NET.awaitingAceSeat) {
+      // Apply suit
+      activeSuit = SUIT_MAP[action.suit] || activeSuit;
+      acePending = false;
+      NET.awaitingAce = false;
+      NET.awaitingAceSeat = -1;
+      document.getElementById("suit-modal").style.display = "none";
+      updateFeed(`Suit is ${activeSuit}`);
+      updateGameUI();
+      netBroadcastState();
+      setTimeout(nextTurn, 250);
+    }
+    return;
+  }
+
+  // Only accept turn actions from the current turn seat
   if (seat !== turnIndex) return;
 
   try {
-    if (action.type === "ace_suit") {
-      // Remote player chose suit after playing an Ace
-      const suit = action.suit;
-      if (acePending && pendingAceSeat === seat && SUITS.includes(suit)) {
-        activeSuit = suit;
-        acePending = false;
-        pendingAceSeat = -1;
-        netBroadcastState();
-        setTimeout(nextTurn, 250);
-      }
-      return;
-    }
-
     if (action.type === "pickup") {
-      // host runs pickup for current turn
-      isProcessing = true;
+      // Temporarily set local mySeatIndex to the acting seat for correct UI calc
+      const prevSeat = mySeatIndex;
+      mySeatIndex = seat;
       _humanPickupLocal();
-      // _humanPickupLocal() advances turn via nextTurn()
+      mySeatIndex = prevSeat;
       netBroadcastState();
       return;
     }
 
     if (action.type === "declare_last") {
       gamePlayers[seat].lastDeclared = true;
+      updateFeed(`${gamePlayers[seat].name} called LAST!`);
+      updateGameUI();
       netBroadcastState();
       return;
     }
 
     if (action.type === "play") {
-      const indices = Array.isArray(action.indices) ? action.indices : [];
-      attemptPlay(seat, indices);
-      netBroadcastState();
+      // indices: array of card indices (selection order)
+      attemptPlay(seat, action.indices || []);
+      // attemptPlay may pause for ace; broadcast handled in those paths
+      if (!NET.awaitingAce) netBroadcastState();
+      return;
+    }
+
+    if (action.type === "ace_suit") {
+      // If host asked a remote to choose suit, handle above. Otherwise ignore.
       return;
     }
   } catch (e) {
@@ -2411,6 +2378,129 @@ function handleRemoteAction(action) {
   }
 }
 
+// ===============================
+// Client-side action wrappers
+// ===============================
+
+function netActionPickup() {
+  netSendActionToHost({ type: "pickup", seat: NET.mySeatIndex });
+}
+
+function netActionDeclareLast() {
+  netSendActionToHost({ type: "declare_last", seat: NET.mySeatIndex });
+}
+
+function netActionPlay(indices) {
+  netSendActionToHost({ type: "play", seat: NET.mySeatIndex, indices });
+}
+
+function netActionAceSuit(suitChar) {
+  netSendActionToHost({ type: "ace_suit", seat: NET.mySeatIndex, suit: suitChar });
+}
+
+// ===============================
+// Patch existing flows for online
+// ===============================
+
+/**
+ * In online mode:
+ * - Non-host never mutates state; it sends actions
+ * - Host runs the same local logic and then broadcasts snapshots
+ * - Aces: host prompts the acting seat using server 'ace_prompt'
+ */
+
+// Override resolveAce to be online-safe
+const _resolveAceOriginal = resolveAce;
+resolveAce = function(char) {
+  if (gameMode === "online") {
+    document.getElementById("suit-modal").style.display = "none";
+    if (NET.isHost) {
+      activeSuit = SUIT_MAP[char] || activeSuit;
+      acePending = false;
+      updateFeed(`Suit is ${activeSuit}`);
+      updateGameUI();
+      netBroadcastState();
+      setTimeout(nextTurn, 250);
+    } else {
+      // client sends choice to host, does not change local truth
+      acePending = false;
+      netActionAceSuit(char);
+    }
+    return;
+  }
+  return _resolveAceOriginal(char);
+};
+
+// Wrap humanPickup / humanDeclareLast / humanPlay for online clients
+const _humanPickupOrig = humanPickup;
+humanPickup = function() {
+  if (gameMode === "online" && !NET.isHost) {
+    if (turnIndex !== NET.mySeatIndex) return;
+    netActionPickup();
+    return;
+  }
+  return _humanPickupOrig();
+};
+
+const _humanDeclareLastOrig = humanDeclareLast;
+humanDeclareLast = function() {
+  if (gameMode === "online" && !NET.isHost) {
+    if (turnIndex !== NET.mySeatIndex) return;
+    netActionDeclareLast();
+    return;
+  }
+  return _humanDeclareLastOrig();
+};
+
+const _humanPlayOrig = humanPlay;
+humanPlay = function() {
+  if (gameMode === "online" && !NET.isHost) {
+    if (turnIndex !== NET.mySeatIndex) return;
+    if (!selectionOrder.length) return;
+    // basic client-side validation (host still enforces)
+    netActionPlay([...selectionOrder]);
+    selectionOrder = [];
+    renderHandUI();
+    updateControls();
+    return;
+  }
+  return _humanPlayOrig();
+};
+
+// Hook into attemptPlay to handle ACE prompts when host needs remote suit
+const _attemptPlayOrig = attemptPlay;
+attemptPlay = function(pidx, indices) {
+  // Call original
+  _attemptPlayOrig(pidx, indices);
+
+  // If online host and acePending is set for a HUMAN on that seat,
+  // decide who should see the modal.
+  if (gameMode === "online" && NET.isHost && acePending) {
+    const actingSeat = pidx;
+    // If host is the acting seat, host sees modal (already opened by UI)
+    if (actingSeat === NET.mySeatIndex) {
+      // host will pick suit locally via modal
+      netBroadcastState();
+      return;
+    }
+    // Remote seat: host should not show modal, prompt that seat
+    document.getElementById("suit-modal").style.display = "none";
+    NET.awaitingAce = true;
+    NET.awaitingAceSeat = actingSeat;
+    // Prompt the remote seat
+    netSend({ type: "ace_prompt", room: NET.room, seat: actingSeat });
+    netBroadcastState();
+  }
+};
+
+// Boot wiring
+try { bindOnlineUI(); } catch (e) { console.error("bindOnlineUI failed", e); }
+
+
+// Boot
+window.addEventListener('load', () => {
+  try { loadData(); } catch(e) { console.error(e); }
+});
 
 </script>
 </body>
