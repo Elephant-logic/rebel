@@ -1,11 +1,16 @@
 {
-  "name": "my-card-server",
+  "name": "oldskool-blackjack-server-authority",
   "version": "1.0.0",
+  "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.2"
+    "express": "^4.19.2",
+    "ws": "^8.17.1"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
