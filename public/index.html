@@ -306,7 +306,43 @@
     }
     .tinybtn:active{ transform: scale(0.97); box-shadow:1px 1px 0 rgba(0,0,0,0.2); }
 
-    /* --- GAME TABLE UI --- */
+    
+    /* ONLINE LOBBY (WS) */
+    .card-panel{
+      width:90%;
+      max-width:520px;
+      background:white;
+      border:3px solid #333;
+      border-radius:14px;
+      padding:12px;
+      box-shadow:5px 5px 0 rgba(0,0,0,0.1);
+      margin-bottom:14px;
+    }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; align-items:center; width:100%; }
+    .btn{
+      flex:1;
+      min-width:140px;
+      padding:12px;
+      background:white;
+      border:2px solid #333;
+      border-radius:10px;
+      font-weight:900;
+      cursor:pointer;
+      box-shadow:3px 3px 0 rgba(0,0,0,0.12);
+      font-family: inherit;
+      text-transform: uppercase;
+    }
+    .btn.primary{ background: var(--sticker-pink); }
+    .btn.danger{ background: #ff5252; color: white; }
+    .btn:active{ transform: scale(0.97); box-shadow:1px 1px 0 rgba(0,0,0,0.2); }
+    .muted{ font-weight:800; opacity:0.8; margin-top:10px; text-align:center; }
+    .players-list{ list-style:none; padding:0; margin:8px 0 0 0; width:100%; }
+    .players-list li{
+      padding:10px 8px;
+      border-bottom:1px dashed #ccc;
+      font-weight:900;
+    }
+/* --- GAME TABLE UI --- */
     #status-feed {
       position: absolute;
       top: 0;
@@ -1167,6 +1203,9 @@
     let pendingDraw2 = 0,
       pendingDrawJ = 0,
       pendingSkip = 0;
+    let pendingAceSeat = -1; // seat waiting to choose suit after Ace
+    let acePending = false;
+
     let selectionOrder = [],
       isProcessing = false,
       acePending = false,
@@ -1469,6 +1508,17 @@
       let lastCard = cards[cards.length - 1];
       if (lastCard.rank !== "A") activeSuit = lastCard.suit;
 
+      // ONLINE: If an Ace needs a suit choice, pause here until chosen.
+      if (gameMode === "online" && lastCard.rank === "A" && pendingAceSeat === pidx) {
+        if (NET.isHost) {
+          p2pBroadcastState();
+          try { netSend({ type: "ace_prompt", room: NET.room, seat: pidx }); } catch(e) {}
+        }
+        isProcessing = false;
+        return;
+      }
+
+
       // --- RULE FIX: NO POWER CARD FINISH (includes King) + Draw 2 ---
       let triedToFinish = p.hand.length === 0;
       let finishedOnPower = triedToFinish && POWER_RANKS.has(lastCard.rank);
@@ -1573,50 +1623,27 @@
       return arr;
     }
 
+    
     function applyPower(c, pidx, isLast) {
-      let r = c.rank;
-      if (r === "A" && isLast) {
-        // Online: host should not open suit modal for remote players.
-        if (gameMode === "online" && NET && NET.isHost) {
-          if (pidx === NET.mySeatIndex) {
-            // host's own move can use the modal
-            if (gamePlayers[pidx].isBot) {
-              let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
-              gamePlayers[pidx].hand.forEach((x) => counts[x.suit]++);
-              activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
-              updateFeed(`Suit is ${activeSuit}`);
-            } else {
-          acePending = true;
-          if (gameMode === "online" && NET.isHost) {
-            pendingAceSeat = pidx;
-          }
-        }
-          } else {
-            // remote seat: use chosen suit if provided, else auto-pick by hand majority
-            if (NET.aceChoice) {
-              activeSuit = NET.aceChoice;
-              NET.aceChoice = null;
-              updateFeed(`Suit is ${activeSuit}`);
-            } else {
-              let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
-              gamePlayers[pidx].hand.forEach((x) => counts[x.suit]++);
-              activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
-              updateFeed(`Suit is ${activeSuit}`);
-            }
-          }
-          return;
-        }
+      const r = c.rank;
 
-        // Offline: bots auto-pick, humans use the modal
+      if (r === "A" && isLast) {
+        // Ace = wild. Bots auto-pick suit. Humans must choose suit.
         if (gamePlayers[pidx].isBot) {
           let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
           gamePlayers[pidx].hand.forEach((x) => counts[x.suit]++);
           activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
+          pendingAceSeat = -1;
+          acePending = false;
           updateFeed(`Suit is ${activeSuit}`);
         } else {
+          pendingAceSeat = pidx;
           acePending = true;
         }
-      } else if (r === "2") pendingDraw2 += 2;
+        return;
+      }
+
+      if (r === "2") pendingDraw2 += 2;
       else if (r === "8") pendingSkip++;
       else if (r === "Q") { direction *= -1; updateFeed("Direction Reversed!"); }
       else if (r === "K") extraTurn = true;
@@ -1669,8 +1696,14 @@
         }
         saveData();
       } else {
-        title.innerText = `${winner.name} WINS!`;
-        desc.innerText = "Table closed.";
+        if (gameMode === "online") {
+          const iAmWinner = (winnerIdx === NET.mySeatIndex);
+          title.innerText = iAmWinner ? "WIN!" : "LOSE";
+          desc.innerText = iAmWinner ? "Nice one — you rinsed it." : `${winner.name} beat you.`;
+        } else {
+          title.innerText = `${winner.name} WINS!`;
+          desc.innerText = "Table closed.";
+        }
       }
 
       modal.style.display = "flex";
@@ -1682,29 +1715,33 @@
       else showScreen("menu-screen");
     }
 
+    
     function resolveAce(char) {
-      const chosen = SUIT_MAP[char];
-      document.getElementById("suit-modal").style.display = "none";
+      const suit = SUIT_MAP[char];
+      if (!suit) return;
 
+      // ONLINE
       if (gameMode === "online") {
-        // Authoritative host applies suit & advances. Clients just send choice to host.
+        document.getElementById("suit-modal").style.display = "none";
+        acePending = false;
+
         if (NET.isHost) {
-          activeSuit = chosen;
-          acePending = false;
+          if (pendingAceSeat < 0) return;
+          activeSuit = suit;
           pendingAceSeat = -1;
-          // Push updated state immediately so everyone sees the suit badge
-          netBroadcastState();
+          p2pBroadcastState();
           setTimeout(nextTurn, 250);
         } else {
-          acePending = false;
-          netSendActionToHost({ type: "ace_suit", seat: NET.mySeatIndex, suit: chosen });
-          netSetStatus("Suit chosen. Waiting for host...");
+          p2pSend({ type: "ace_suit", suitChar: char });
         }
         return;
       }
 
-      activeSuit = chosen;
+      // Offline / pass-play
+      activeSuit = suit;
       acePending = false;
+      pendingAceSeat = -1;
+      document.getElementById("suit-modal").style.display = "none";
       setTimeout(nextTurn, 250);
     }
 
@@ -2111,6 +2148,15 @@ function netConnect(cb) {
       return;
     }
 
+    if (msg.type === "ace_prompt") {
+      if (typeof msg.seat === "number" && msg.seat === NET.mySeatIndex) {
+        acePending = true;
+        document.getElementById("suit-modal").style.display = "flex";
+        netSetStatus("Choose a suit for your Ace.");
+      }
+      return;
+    }
+
     if (msg.type === "state") {
       if (typeof msg.version === "number" && msg.version < (NET.lastStateVersion || 0)) return;
       if (typeof msg.version === "number") NET.lastStateVersion = msg.version;
@@ -2266,6 +2312,13 @@ function applySnapshot(snap) {
 
   acePending = !!snap.acePending;
   pendingAceSeat = (typeof snap.pendingAceSeat === "number") ? snap.pendingAceSeat : -1;
+
+  if (gameMode === "online" && pendingAceSeat === NET.mySeatIndex) {
+    acePending = true;
+    document.getElementById("suit-modal").style.display = "flex";
+    netSetStatus("Choose a suit for your Ace.");
+  }
+
 
   matchOver = !!snap.matchOver;
   matchWinner = (typeof snap.matchWinner === "number") ? snap.matchWinner : -1;
