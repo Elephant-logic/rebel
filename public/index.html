@@ -35,18 +35,9 @@
     }
 
     @media (max-width: 600px) {
-      :root {
-        --card-w: 60px;
-        --card-h: 84px;
-      }
-      .hud-btn {
-        padding: 10px 10px !important;
-        font-size: 0.8rem !important;
-      }
-      #game-info-bar {
-        font-size: 0.8rem !important;
-        padding: 4px !important;
-      }
+      :root { --card-w: 60px; --card-h: 84px; }
+      .hud-btn { padding: 10px 10px !important; font-size: 0.8rem !important; }
+      #game-info-bar { font-size: 0.8rem !important; padding: 4px !important; }
     }
 
     /* --- ANIMATIONS --- */
@@ -83,10 +74,8 @@
     /* --- SCREENS --- */
     .screen {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       display: none;
       flex-direction: column;
       justify-content: center;
@@ -130,11 +119,9 @@
       transform: rotate(-2deg);
     }
     .logo-mark {
-      width: 42px;
-      height: 42px;
+      width: 42px; height: 42px;
       display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      align-items: center; justify-content: center;
       border: 2px solid #333;
       border-radius: 10px;
       background: var(--sticker-yellow);
@@ -204,8 +191,8 @@
       color: #333;
     }
     .btn-league { background: var(--sticker-yellow); transform: rotate(1deg); }
-    .btn-party { background: var(--sticker-blue); transform: rotate(-1deg); }
-    .btn-start { background: var(--sticker-pink); }
+    .btn-party  { background: var(--sticker-blue);   transform: rotate(-1deg); }
+    .btn-start  { background: var(--sticker-pink); }
     .menu-btn:active { transform: scale(0.95); box-shadow: 1px 1px 0 #333; }
     .menu-btn small { font-size: 0.8rem; font-weight: normal; opacity: 0.8; text-transform: none; }
 
@@ -252,65 +239,10 @@
       box-shadow: 3px 3px 0 #ccc;
     }
 
-    /* P2P */
-    .p2p-box{
-      width:90%;
-      max-width:520px;
-      background:white;
-      border:3px solid #333;
-      border-radius:14px;
-      padding:12px;
-      box-shadow:5px 5px 0 rgba(0,0,0,0.1);
-      margin-bottom:14px;
-    }
-    .p2p-row{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      justify-content:center;
-      width:90%;
-      max-width:520px;
-    }
-    .pill{
-      display:inline-block;
-      padding:8px 12px;
-      border:2px solid #333;
-      border-radius:999px;
-      font-weight:900;
-      background: var(--sticker-yellow);
-      box-shadow:3px 3px 0 rgba(0,0,0,0.12);
-      margin-bottom:12px;
-    }
-    .p2p-code{
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size: 0.95rem;
-      background:#fff9c4;
-      border:2px dashed #333;
-      border-radius:10px;
-      padding:10px;
-      word-break:break-all;
-    }
-    .mini{
-      font-size:0.92rem;
-      font-weight:700;
-      opacity:0.85;
-    }
-    .tinybtn{
-      padding:10px 12px;
-      border:2px solid #333;
-      border-radius:10px;
-      font-weight:900;
-      cursor:pointer;
-      background:white;
-      box-shadow:3px 3px 0 rgba(0,0,0,0.12);
-    }
-    .tinybtn:active{ transform: scale(0.97); box-shadow:1px 1px 0 rgba(0,0,0,0.2); }
-
     /* --- GAME TABLE UI --- */
     #status-feed {
       position: absolute;
-      top: 0;
-      left: 0;
+      top: 0; left: 0;
       width: 100%;
       height: 35px;
       background: rgba(0, 0, 0, 0.3);
@@ -321,6 +253,9 @@
       align-items: center;
       justify-content: center;
       z-index: 20;
+      padding: 0 10px;
+      box-sizing: border-box;
+      text-align: center;
     }
 
     #game-info-bar {
@@ -417,9 +352,9 @@
       text-transform: uppercase;
       font-family: inherit;
     }
-    #btn-play { background: var(--sticker-pink); transform: rotate(-2deg); }
-    #btn-pickup { background: var(--sticker-blue); transform: rotate(2deg); }
-    #btn-last { background: var(--sticker-yellow); transform: rotate(-1deg); }
+    #btn-play   { background: var(--sticker-pink);   transform: rotate(-2deg); }
+    #btn-pickup { background: var(--sticker-blue);   transform: rotate(2deg); }
+    #btn-last   { background: var(--sticker-yellow); transform: rotate(-1deg); }
     .hud-btn:disabled {
       background: #ccc;
       color: #777;
@@ -456,7 +391,13 @@
       border-top: 5px solid #8d6e63;
       box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.5);
     }
-    .hand { display: inline-flex; justify-content: center; min-width: 100%; padding-top: 25px; align-items: flex-end; }
+    .hand {
+      display: inline-flex;
+      justify-content: center;
+      min-width: 100%;
+      padding-top: 25px;
+      align-items: flex-end;
+    }
 
     /* --- CARDS (With Fan Support) --- */
     .card {
@@ -474,6 +415,7 @@
       margin-left: -35px;
       cursor: pointer;
 
+      /* FAN SUPPORT */
       --fan-rot: 0deg;
       --fan-y: 0px;
       transform: rotate(var(--fan-rot)) translateY(var(--fan-y));
@@ -662,9 +604,9 @@
     }
 
     /* ==================================================
-      ONLINE LOBBY (Server Hosted) — SKOOL THEME ONLY
-      Scoped to #p2p-screen so the rest of the game is untouched
-      ================================================== */
+       ONLINE LOBBY (Server Hosted) — SKOOL THEME ONLY
+       Scoped to #p2p-screen so the rest of the game is untouched
+       ================================================== */
     #p2p-screen { background: transparent; }
     #p2p-screen h2{
       text-align:center;
@@ -678,10 +620,10 @@
       border-radius: 22px;
       box-shadow: 0 12px 0 rgba(0,0,0,0.12);
       padding: 16px;
-      width:90%;
-      max-width:520px;
-      box-sizing:border-box;
-      margin-bottom:12px;
+      width: 90%;
+      max-width: 520px;
+      margin-bottom: 14px;
+      box-sizing: border-box;
     }
     #p2p-screen label{
       display:block;
@@ -719,9 +661,9 @@
       text-transform: uppercase;
       letter-spacing: 0.6px;
       box-shadow: 0 10px 0 rgba(0,0,0,0.18);
-      border: 3px solid #1f1f1f;
-      background: white;
-      cursor:pointer;
+      border: 3px solid #111;
+      background: #fff;
+      cursor: pointer;
     }
     #p2p-screen .row .btn:active{
       transform: translateY(3px);
@@ -729,6 +671,7 @@
     }
     #p2p-screen .btn.primary{ background: var(--sticker-yellow); }
     #p2p-screen #btnOnlineStart.btn.primary{ background: var(--sticker-pink); }
+    #p2p-screen .btn.danger{ background: #ff5252; color: #fff; }
     #p2p-screen .players-list{
       list-style: none;
       padding: 12px;
@@ -750,95 +693,107 @@
       opacity: 0.85;
     }
 
-    /* =========================
-      ONLINE CHAT (Skool theme)
-      ========================= */
-    .chat-panel{
-      width:90%;
-      max-width:520px;
+    /* ===========================
+       CHAT PANEL (in-game)
+       =========================== */
+    #chat-wrap{
+      position: absolute;
+      left: 10px;
+      bottom: calc(var(--card-h) + 72px);
+      width: min(320px, calc(100% - 20px));
+      z-index: 120;
+      user-select: none;
+    }
+    #chat-box{
       background: rgba(255,255,255,0.92);
-      border: 4px solid #1f1f1f;
-      border-radius: 22px;
-      box-shadow: 0 12px 0 rgba(0,0,0,0.12);
-      padding: 12px;
-      margin-top: 2px;
-      box-sizing:border-box;
+      border: 3px solid #111;
+      border-radius: 14px;
+      box-shadow: 6px 6px 0 rgba(0,0,0,0.18);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 240px;
     }
-
-    .chat-log{
-      height: 160px;
-      overflow-y: auto;
-      background: rgba(255,255,255,0.7);
-      border: 4px dashed rgba(0,0,0,0.25);
-      border-radius: 16px;
-      padding: 10px;
-      font-weight: 800;
-      color:#111;
-    }
-
-    .chat-msg{
-      padding: 6px 8px;
-      border-bottom: 2px dashed rgba(0,0,0,0.12);
-      font-size: 0.95rem;
-    }
-    .chat-msg:last-child{ border-bottom:none; }
-    .chat-name{ font-weight: 1000; color:#d32f2f; margin-right:6px; }
-    .chat-time{ opacity:0.55; font-weight:800; font-size:0.8rem; margin-left:6px; }
-
-    .chat-row{
+    #chat-head{
       display:flex;
-      gap:10px;
-      margin-top: 10px;
       align-items:center;
-    }
-
-    .chat-input{
-      flex: 1;
-      box-sizing:border-box;
-      background:#fff;
-      border:3px solid #1f1f1f;
-      border-radius: 16px;
-      padding: 12px;
-      font-size: 16px;
-      font-weight: 900;
-      box-shadow: 0 8px 0 rgba(0,0,0,0.10);
-      margin:0;
-    }
-
-    .chat-send{
-      min-width: 92px;
-      padding: 12px 12px;
-      border: 3px solid #1f1f1f;
-      border-radius: 16px;
+      justify-content: space-between;
+      padding: 8px 10px;
       font-weight: 1000;
-      cursor:pointer;
       background: var(--sticker-yellow);
-      box-shadow: 0 8px 0 rgba(0,0,0,0.12);
+      border-bottom: 3px solid #111;
     }
-    .chat-send:active{
-      transform: translateY(2px);
-      box-shadow: 0 6px 0 rgba(0,0,0,0.12);
+    #chat-toggle{
+      border: 2px solid #111;
+      background: #fff;
+      font-weight: 1000;
+      border-radius: 10px;
+      padding: 4px 10px;
+      cursor: pointer;
     }
-
-    .emoji-row{
+    #chat-messages{
+      padding: 8px 10px;
+      overflow-y: auto;
+      font-weight: 800;
+      font-size: 0.95rem;
+      line-height: 1.25;
+      max-height: 150px;
+      background: rgba(255,255,255,0.85);
+    }
+    .chat-line{ margin-bottom: 6px; }
+    .chat-name{ font-weight: 1000; }
+    .chat-sys{ opacity: 0.8; font-style: italic; }
+    #chat-input-row{
       display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      margin-top: 10px;
+      gap: 6px;
+      padding: 8px;
+      border-top: 2px dashed rgba(0,0,0,0.25);
+      background: rgba(255,255,255,0.95);
+      align-items: center;
+    }
+    #chat-input{
+      flex: 1;
+      border: 2px solid #111;
+      border-radius: 12px;
+      padding: 10px 10px;
+      font-size: 0.95rem;
+      font-weight: 900;
+      outline: none;
+      margin: 0;
+      width: auto;
+      text-align: left;
+      background: #fff;
+    }
+    #chat-send{
+      border: 2px solid #111;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 1000;
+      cursor: pointer;
+      background: var(--sticker-pink);
+    }
+    #chat-emojis{
+      display:flex;
+      gap: 6px;
+      padding: 0 8px 8px;
+      background: rgba(255,255,255,0.95);
+      flex-wrap: wrap;
     }
     .emoji-btn{
-      padding: 10px 12px;
-      border: 2px solid #1f1f1f;
-      border-radius: 14px;
-      background:#fff;
+      border: 2px solid #111;
+      background: #fff;
+      border-radius: 12px;
+      padding: 6px 10px;
       cursor:pointer;
-      font-size: 18px;
       font-weight: 900;
-      box-shadow: 0 6px 0 rgba(0,0,0,0.10);
+      box-shadow: 3px 3px 0 rgba(0,0,0,0.12);
     }
-    .emoji-btn:active{
-      transform: translateY(2px);
-      box-shadow: 0 4px 0 rgba(0,0,0,0.10);
+    .emoji-btn:active{ transform: translateY(2px); box-shadow: 1px 1px 0 rgba(0,0,0,0.12); }
+
+    .chat-collapsed #chat-messages,
+    .chat-collapsed #chat-input-row,
+    .chat-collapsed #chat-emojis{
+      display:none;
     }
   </style>
 </head>
@@ -864,14 +819,13 @@
     <div class="logo-text" style="font-size: 1.5rem; margin-bottom: 10px; border: none; background: none; box-shadow: none; transform: none;">
       Player: <span id="menu-username"></span>
     </div>
-    <div style="font-size: 0.95rem; font-weight: 900; margin-bottom: 16px; padding: 8px 12px; background: var(--sticker-yellow);
-        border: 2px solid #333; border-radius: 999px; box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.12); color: #333; display: inline-block;">
+    <div style="font-size: 0.95rem; font-weight: 900; margin-bottom: 16px; padding: 8px 12px; background: var(--sticker-yellow); border: 2px solid #333; border-radius: 999px; box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.12); color: #333; display: inline-block;">
       Streak: <span id="menu-streak">0</span> • Card Back: <span id="menu-back">classic</span>
     </div>
 
     <button class="menu-btn btn-league" onclick="goToLeague()">🏆 Ranked Table<small>Solo • Vs Bots</small></button>
     <button class="menu-btn btn-party" onclick="goToPartyLobby()">🎲 Local Table<small>Pass & Play • Same Device</small></button>
-    <button class="menu-btn btn-league" onclick="goToOnline()">📡 Online Table<small>P2P • Host / Join</small></button>
+    <button class="menu-btn btn-league" onclick="goToOnline()">📡 Online Table<small>Server Hosted • Host / Join</small></button>
     <button class="menu-btn" onclick="cycleCardBack()" style="background: white">🎴 Card Backs<small>Unlock more by win streaks</small></button>
   </div>
 
@@ -906,7 +860,7 @@
     </div>
   </div>
 
-  <div id="p2p-screen" class="screen" style="justify-content:flex-start; padding-top:10px;">
+  <div id="p2p-screen" class="screen">
     <h2>Online Lobby (Server Hosted)</h2>
 
     <div class="card-panel">
@@ -923,14 +877,14 @@
 
       <div class="row">
         <button class="btn" id="btnOnlineJoin">Join Room</button>
-        <button class="btn" id="btnOnlineLeave">Leave</button>
+        <button class="btn danger" id="btnOnlineLeave">Leave</button>
       </div>
 
       <div class="muted" id="onlineStatus">Not connected.</div>
     </div>
 
     <div class="card-panel">
-      <div class="row" style="justify-content:space-between;">
+      <div class="row">
         <div><b>Room:</b> <span id="onlineRoomLabel">—</span></div>
         <div><b>You:</b> <span id="onlineSeatLabel">—</span></div>
         <div><b>Host:</b> <span id="onlineHostLabel">—</span></div>
@@ -942,32 +896,9 @@
         <button class="btn primary" id="btnOnlineStart">Start / Deal (Host)</button>
       </div>
 
-      <div class="muted">Server is the meeting point. Host runs the rules and pushes the authoritative state to everyone.</div>
-    </div>
-
-    <!-- ✅ CHAT PANEL -->
-    <div class="chat-panel">
-      <div style="font-weight:1000; margin-bottom:8px;">💬 Room Chat</div>
-      <div id="chatLog" class="chat-log"></div>
-
-      <div class="chat-row">
-        <input id="chatInput" class="chat-input" type="text" maxlength="120" placeholder="Say something..." />
-        <button id="chatSendBtn" class="chat-send">SEND</button>
+      <div class="muted" id="onlineBanner">
+        Waiting for host to press Start/Deal…
       </div>
-
-      <div class="emoji-row" id="emojiRow">
-        <button class="emoji-btn" data-e="😂">😂</button>
-        <button class="emoji-btn" data-e="🔥">🔥</button>
-        <button class="emoji-btn" data-e="😎">😎</button>
-        <button class="emoji-btn" data-e="😡">😡</button>
-        <button class="emoji-btn" data-e="💀">💀</button>
-        <button class="emoji-btn" data-e="✅">✅</button>
-        <button class="emoji-btn" data-e="❌">❌</button>
-        <button class="emoji-btn" data-e="♥">♥</button>
-        <button class="emoji-btn" data-e="♠">♠</button>
-      </div>
-
-      <div class="muted">Tip: press Enter to send.</div>
     </div>
   </div>
 
@@ -981,22 +912,50 @@
 
   <div id="game-screen" class="screen">
     <div id="status-feed">Cards are in play!</div>
+
     <div id="game-info-bar">
       <div id="turn-status"></div>
       <div id="attack-status" style="color: var(--sticker-yellow); font-weight: bold; font-size: 0.9rem; text-shadow: 1px 1px 0 #000;"></div>
       <button class="help-btn" onclick="openHelp()">?</button>
     </div>
+
     <div id="cpu-area"></div>
     <div id="center-area">
       <div id="draw-pile" class="card back" onclick="humanPickup()"></div>
       <div id="discard-pile"></div>
     </div>
+
     <div id="game-hud">
       <button class="hud-btn" id="btn-play" onclick="humanPlay()">PLAY</button>
       <button class="hud-btn" id="btn-pickup" onclick="humanPickup()">DRAW</button>
       <button class="hud-btn" id="btn-last" onclick="humanDeclareLast()">LAST!</button>
       <button class="hud-btn" id="btn-sort" onclick="toggleSort()" style="background: #fff; border-color: #333">SORT</button>
     </div>
+
+    <!-- CHAT (works offline + online; online needs server relay) -->
+    <div id="chat-wrap">
+      <div id="chat-box">
+        <div id="chat-head">
+          <div>💬 Chat</div>
+          <button id="chat-toggle" onclick="toggleChat()">Hide</button>
+        </div>
+        <div id="chat-messages"></div>
+        <div id="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Say something…" />
+          <button id="chat-send" onclick="sendChat()">Send</button>
+        </div>
+        <div id="chat-emojis">
+          <button class="emoji-btn" onclick="quickEmoji('😂')">😂</button>
+          <button class="emoji-btn" onclick="quickEmoji('😈')">😈</button>
+          <button class="emoji-btn" onclick="quickEmoji('🔥')">🔥</button>
+          <button class="emoji-btn" onclick="quickEmoji('💀')">💀</button>
+          <button class="emoji-btn" onclick="quickEmoji('🃏')">🃏</button>
+          <button class="emoji-btn" onclick="quickEmoji('👏')">👏</button>
+          <button class="emoji-btn" onclick="quickEmoji('😤')">😤</button>
+        </div>
+      </div>
+    </div>
+
     <div id="player-area"><div id="player-hand" class="hand"></div></div>
   </div>
 
@@ -1055,7 +1014,9 @@
       playError: function () { this.playTone(150, "sawtooth", 0.3, 0.2); },
       playCall: function () { this.playTone(800, "square", 0.1, 0.1); },
       playWin: function () {
-        [400, 500, 600, 800].forEach((f, i) => setTimeout(() => this.playTone(f, "square", 0.3, 0.1), i * 100));
+        [400, 500, 600, 800].forEach((f, i) =>
+          setTimeout(() => this.playTone(f, "square", 0.3, 0.1), i * 100)
+        );
       },
     };
 
@@ -1088,6 +1049,10 @@
       },
       bots: JSON.parse(JSON.stringify(BOTS)),
       isLoggedIn: false,
+
+      // ✅ Local-table stats (pass & play)
+      partyStats: {},     // { "Dave": {wins:0, losses:0} }
+      matchHistory: [],   // last 20 matches
     };
 
     let lobbyPlayers = [];
@@ -1107,17 +1072,42 @@
       lastStateVersion: 0,
       pendingActions: [],
       hasGameStarted: false,
-      chat: []
     };
 
-    // --- SETUP ---
+    // --- GAME ENGINE ---
+    const SUITS = ["♠", "♥", "♦", "♣"];
+    const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+    const POWER_RANKS = new Set(["A", "2", "8", "J", "Q", "K"]); // includes King: can't finish
+    const SUIT_MAP = { H: "♥", D: "♦", C: "♣", S: "♠" };
+
+    let deck = [], discard = [], gamePlayers = [];
+    let turnIndex = 0, direction = 1, activeSuit = null;
+    let pendingDraw2 = 0, pendingDrawJ = 0, pendingSkip = 0;
+    let selectionOrder = [], isProcessing = false, acePending = false;
+    let isPassAndPlay = false, extraTurn = false;
+
+    // gameMode: offline | pass_play | online
+    let gameMode = "offline";
+
+    // feed/toast replication for joiners (snapshot)
+    let lastFeedMsg = "Cards are in play!";
+    let lastToastMsg = null;
+
+    // =========================
+    // STORAGE
+    // =========================
     function loadData() {
       const saved = localStorage.getItem("oldskool_blackjack_a_p2p_v1");
       if (saved) {
         try { leagueData = JSON.parse(saved); } catch (e) {}
       }
+      if (!leagueData.player) leagueData.player = {};
       if (!leagueData.player.unlockedBacks) leagueData.player.unlockedBacks = ["classic"];
       if (!leagueData.player.selectedBack) leagueData.player.selectedBack = "classic";
+      if (!leagueData.bots) leagueData.bots = JSON.parse(JSON.stringify(BOTS));
+      if (!leagueData.partyStats) leagueData.partyStats = {};
+      if (!leagueData.matchHistory) leagueData.matchHistory = [];
+
       if (leagueData.isLoggedIn && leagueData.player.name) {
         document.getElementById("menu-username").innerText = leagueData.player.name;
         showScreen("menu-screen");
@@ -1125,6 +1115,7 @@
       applyCardBack();
       updateMenuBadges();
     }
+
     function saveData() {
       localStorage.setItem("oldskool_blackjack_a_p2p_v1", JSON.stringify(leagueData));
       updateMenuBadges();
@@ -1164,6 +1155,9 @@
       if (newlyUnlocked.length) showToast(`Unlocked: ${newlyUnlocked.join(", ")}!`);
     }
 
+    // =========================
+    // UI CORE
+    // =========================
     function signUp() {
       const name = document.getElementById("username-input").value.trim();
       if (!name) return showToast("Write your name!");
@@ -1180,22 +1174,25 @@
       AudioEngine.init();
     }
 
-    // ✅ shared messages for online snapshot
-    let lastFeedMsg = "Cards are in play!";
-    let lastToastMsg = "";
-
     function showToast(msg) {
-      lastToastMsg = msg || "";
+      lastToastMsg = msg;
       const t = document.getElementById("toast-notification");
-      t.innerText = lastToastMsg;
+      t.innerText = msg;
       t.classList.add("show");
       setTimeout(() => t.classList.remove("show"), 2000);
+
+      // host shares toast via snapshot so joiners also see what happened
+      if (gameMode === "online" && NET.isHost) netBroadcastState();
     }
 
-    function goToLeague() {
-      showScreen("dashboard-screen");
-      renderStandings();
+    function updateFeed(msg) {
+      lastFeedMsg = msg;
+      document.getElementById("status-feed").innerText = msg;
+      // host shares feed via snapshot so joiners always see what's happening
+      if (gameMode === "online" && NET.isHost) netBroadcastState();
     }
+
+    function goToLeague() { showScreen("dashboard-screen"); renderStandings(); }
     function goToPartyLobby() {
       lobbyPlayers = [{ name: leagueData.player.name, isBot: false }];
       renderLobby();
@@ -1204,7 +1201,6 @@
     function goToOnline(){
       showScreen("p2p-screen");
       netSetStatus("Not connected.");
-      renderChat();
     }
 
     function renderStandings() {
@@ -1215,7 +1211,11 @@
       all.forEach((p, index) => {
         let row = document.createElement("tr");
         if (p.name === leagueData.player.name) row.style.backgroundColor = "#fff9c4";
-        row.innerHTML = `<td>#${index + 1}</td><td style="text-align:left; padding-left:10px">${p.name}</td><td>${p.wins}-${p.losses}</td><td style="font-weight:bold; color:#d32f2f">${p.pts}</td>`;
+        row.innerHTML =
+          `<td>#${index + 1}</td>` +
+          `<td style="text-align:left; padding-left:10px">${p.name}</td>` +
+          `<td>${p.wins}-${p.losses}</td>` +
+          `<td style="font-weight:bold; color:#d32f2f">${p.pts}</td>`;
         tbody.appendChild(row);
       });
     }
@@ -1256,31 +1256,25 @@
 
     function startLeagueMatch() {
       isLeagueMode = true;
+      gameMode = "offline";
       let opp = leagueData.bots[Math.floor(Math.random() * leagueData.bots.length)];
       initGame([
         { name: leagueData.player.name, isBot: false },
         { name: opp.name, isBot: true },
       ]);
     }
+
+    // ✅ FIX: pass & play mode when 2+ humans
     function startPartyGame() {
       isLeagueMode = false;
+      const humanCount = lobbyPlayers.filter(p => !p.isBot).length;
+      gameMode = (humanCount >= 2) ? "pass_play" : "offline";
       initGame(lobbyPlayers);
     }
 
-    // --- GAME ENGINE ---
-    const SUITS = ["♠", "♥", "♦", "♣"];
-    const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-    const POWER_RANKS = new Set(["A", "2", "8", "J", "Q", "K"]); // includes King: can't finish
-    const SUIT_MAP = { H: "♥", D: "♦", C: "♣", S: "♠" };
-
-    let deck = [], discard = [], gamePlayers = [], turnIndex = 0, direction = 1, activeSuit = null;
-    let pendingDraw2 = 0, pendingDrawJ = 0, pendingSkip = 0;
-    let selectionOrder = [], isProcessing = false, acePending = false;
-    let isPassAndPlay = false, extraTurn = false;
-
-    // gameMode: offline | pass_play | online
-    let gameMode = "offline";
-
+    // =========================
+    // GAME SETUP
+    // =========================
     function initGame(config) {
       deck = createDeck();
       shuffle(deck);
@@ -1303,7 +1297,9 @@
         lastDeclared: false,
       }));
 
-      isPassAndPlay = gameMode === "pass_play" ? gamePlayers.some((p, i) => i > 0 && !p.isBot) : false;
+      // ✅ FIX: correct pass-play detection
+      const humanCount = gamePlayers.filter(p => !p.isBot).length;
+      isPassAndPlay = (gameMode === "pass_play" && humanCount >= 2);
 
       for (let i = 0; i < 7; i++) gamePlayers.forEach((p) => p.hand.push(deck.pop()));
 
@@ -1317,8 +1313,12 @@
         deck.unshift(start);
       }
 
-      sortHand(gamePlayers[(gameMode === "online") ? NET.mySeatIndex : 0].hand);
+      // sort my hand (or current in offline)
+      const mySeat = (gameMode === "online") ? NET.mySeatIndex : 0;
+      if (gamePlayers[mySeat]) sortHand(gamePlayers[mySeat].hand);
+
       updateFeed("Cards are in play!");
+      clearChat();
 
       if (gameMode === "pass_play" && isPassAndPlay) triggerPassScreen();
       else {
@@ -1347,6 +1347,7 @@
       for (let s of SUITS) for (let r of RANKS) d.push({ suit: s, rank: r });
       return d;
     }
+
     function shuffle(arr) {
       for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -1354,9 +1355,13 @@
       }
     }
 
+    // =========================
+    // GAME LOOP
+    // =========================
     function gameLoop() {
       if (gamePlayers.some((p) => p.hand.length === 0)) return;
       updateGameUI();
+
       let p = gamePlayers[turnIndex];
       let statusDiv = document.getElementById("turn-status");
       let atkDiv = document.getElementById("attack-status");
@@ -1392,10 +1397,13 @@
       }
 
       gameLoop();
+
       if (gameMode === "online" && NET.isHost) netBroadcastState();
     }
 
-    // --- ACTIONS ---
+    // =========================
+    // ACTIONS
+    // =========================
     function toggleSelect(i) {
       if (isProcessing) return;
       if (gameMode === "online" && turnIndex !== NET.mySeatIndex) return;
@@ -1500,7 +1508,7 @@
         return;
       }
 
-      // joiner flow: if last card is Ace, open modal locally and wait for suit pick
+      // Client-side: if joiner plays an Ace, open suit modal BEFORE sending action
       if (gameMode === "online" && !NET.isHost) {
         let cards = selectionOrder.map((i) => p.hand[i]);
         let lastCard = cards[cards.length - 1];
@@ -1532,32 +1540,36 @@
       acePending = false;
 
       let p = gamePlayers[pidx];
-      let cards = indices.map((i) => p.hand[i]);
+      let cards = indices.map((i) => p.hand[i]).filter(Boolean);
 
       let err = null;
-      if (pendingDraw2 > 0 && cards[0].rank !== "2") err = "Must play a 2!";
+      if (!cards.length) err = "Invalid Card";
+      else if (pendingDraw2 > 0 && cards[0].rank !== "2") err = "Must play a 2!";
       else if (pendingDrawJ > 0 && cards[0].rank !== "J") err = "Must play a Jack!";
       else if (pendingSkip > 0 && cards[0].rank !== "8") err = "Play an 8 or Draw!";
       else if (!canStart(cards[0], getTop(), activeSuit)) err = "Invalid Card";
       else {
-        for (let i = 0; i < cards.length - 1; i++) if (!linkOk(cards[i], cards[i + 1])) err = "Invalid Combo";
+        for (let i = 0; i < cards.length - 1; i++)
+          if (!linkOk(cards[i], cards[i + 1])) err = "Invalid Combo";
       }
 
       if (err) {
         showToast(err);
         AudioEngine.playError();
-        shakeCards(indices);
+        if (gameMode !== "online") shakeCards(indices);
         isProcessing = false;
         return;
       }
 
       AudioEngine.playCardSnap();
 
+      // Remove from hand
       let removeIndices = [...indices].sort((a, b) => b - a);
       for (let i of removeIndices) p.hand.splice(i, 1);
 
       let isSet = cards.length > 1 && cards.every((c) => c.rank === cards[0].rank);
 
+      // Push to discard + apply powers
       cards.forEach((c, i) => {
         discard.push(c);
         let isLast = i === cards.length - 1;
@@ -1569,7 +1581,7 @@
       let lastCard = cards[cards.length - 1];
       if (lastCard.rank !== "A") activeSuit = lastCard.suit;
 
-      // --- NO POWER CARD FINISH + Draw 2 ---
+      // --- RULE FIX: NO POWER CARD FINISH (includes King) + Draw 2 ---
       let triedToFinish = p.hand.length === 0;
       let finishedOnPower = triedToFinish && POWER_RANKS.has(lastCard.rank);
 
@@ -1584,6 +1596,13 @@
         sortHand(p.hand);
         selectionOrder = [];
         updateGameUI();
+
+        if (lastCard.rank === "A" && gameMode !== "online") {
+          acePending = true;
+          document.getElementById("suit-modal").style.display = "flex";
+          isProcessing = false;
+          return;
+        }
 
         isProcessing = false;
         setTimeout(nextTurn, 900);
@@ -1611,17 +1630,10 @@
         return;
       }
 
-      // ✅ FIX: If Ace suit needs choosing:
-      // - offline human -> modal
-      // - online host (when host played ace) -> modal
-      if (acePending && !p.isBot) {
-        const hostNeedsModal = (gameMode === "online" && NET && NET.isHost && pidx === NET.mySeatIndex);
-        const offlineNeedsModal = (gameMode !== "online");
-        if (hostNeedsModal || offlineNeedsModal) {
-          document.getElementById("suit-modal").style.display = "flex";
-          isProcessing = false;
-          return;
-        }
+      if (acePending && gameMode !== "online" && !p.isBot) {
+        document.getElementById("suit-modal").style.display = "flex";
+        isProcessing = false;
+        return;
       }
 
       setTimeout(nextTurn, 900);
@@ -1664,9 +1676,9 @@
 
     function applyPower(c, pidx, isLast) {
       let r = c.rank;
-
       if (r === "A" && isLast) {
         if (gameMode === "online" && NET && NET.isHost) {
+          // host: for remote seats, use NET.aceChoice if set, otherwise auto-pick
           if (pidx === NET.mySeatIndex) {
             if (gamePlayers[pidx].isBot) {
               let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
@@ -1674,7 +1686,7 @@
               activeSuit = Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b));
               updateFeed(`Suit is ${activeSuit}`);
             } else {
-              acePending = true; // host human will open modal via attemptPlay fix
+              acePending = true;
             }
           } else {
             if (NET.aceChoice) {
@@ -1691,6 +1703,7 @@
           return;
         }
 
+        // Offline: bots auto-pick, humans use the modal
         if (gamePlayers[pidx].isBot) {
           let counts = { "♠": 0, "♥": 0, "♦": 0, "♣": 0 };
           gamePlayers[pidx].hand.forEach((x) => counts[x.suit]++);
@@ -1711,11 +1724,6 @@
       }
     }
 
-    function updateFeed(msg) {
-      lastFeedMsg = msg || "";
-      document.getElementById("status-feed").innerText = lastFeedMsg;
-    }
-
     function shakeCards(indices) {
       let handDiv = document.getElementById("player-hand");
       indices.forEach((i) => {
@@ -1733,11 +1741,29 @@
       let modal = document.getElementById("match-result-modal");
       let winner = gamePlayers[winnerIdx];
 
+      // ✅ store match history + party stats (ALWAYS)
+      leagueData.matchHistory = leagueData.matchHistory || [];
+      leagueData.matchHistory.unshift({
+        date: Date.now(),
+        mode: isLeagueMode ? "league" : (gameMode === "pass_play" ? "pass_play" : (gameMode === "online" ? "online" : "local")),
+        winner: winner.name,
+        players: gamePlayers.map(p => p.name),
+      });
+      leagueData.matchHistory = leagueData.matchHistory.slice(0, 20);
+
+      leagueData.partyStats = leagueData.partyStats || {};
+      gamePlayers.forEach((pl, idx) => {
+        leagueData.partyStats[pl.name] = leagueData.partyStats[pl.name] || { wins: 0, losses: 0 };
+        if (idx === winnerIdx) leagueData.partyStats[pl.name].wins++;
+        else leagueData.partyStats[pl.name].losses++;
+      });
+
       if (isLeagueMode) {
         if (winnerIdx === 0) {
           leagueData.player.wins++;
           leagueData.player.pts += 3;
           leagueData.player.winStreak = (leagueData.player.winStreak || 0) + 1;
+          leagueData.player.bestStreak = Math.max(leagueData.player.bestStreak || 0, leagueData.player.winStreak || 0);
           unlockBackIfNeeded();
           title.innerText = "WIN!";
           desc.innerText = "Nice one.";
@@ -1751,6 +1777,7 @@
       } else {
         title.innerText = `${winner.name} WINS!`;
         desc.innerText = "Table closed.";
+        saveData();
       }
 
       modal.style.display = "flex";
@@ -1763,7 +1790,7 @@
     }
 
     function resolveAce(char) {
-      // joiner: resume pending play with aceChoice
+      // Online joiner: resume pending play, include aceChoice
       if (window.pendingOnlinePlay) {
         const chosenSuit = SUIT_MAP[char];
         netSendActionToHost({
@@ -1772,7 +1799,6 @@
           indices: window.pendingOnlinePlay,
           aceChoice: chosenSuit
         });
-
         window.pendingOnlinePlay = null;
         document.getElementById("suit-modal").style.display = "none";
         selectionOrder = [];
@@ -1781,24 +1807,20 @@
         return;
       }
 
-      // host/offline
       activeSuit = SUIT_MAP[char];
       acePending = false;
       document.getElementById("suit-modal").style.display = "none";
-
-      // ✅ host: broadcast suit change immediately so joiners see it
-      if (gameMode === "online" && NET && NET.isHost) {
-        updateFeed(`Suit is ${activeSuit}`);
-        netBroadcastState();
-      }
-
       setTimeout(nextTurn, 250);
+
+      if (gameMode === "online" && NET.isHost) netBroadcastState();
     }
 
     function openHelp() { document.getElementById("help-modal").style.display = "flex"; }
     function closeHelp() { document.getElementById("help-modal").style.display = "none"; }
 
-    // --- CPU LOGIC ---
+    // =========================
+    // CPU LOGIC
+    // =========================
     function cpuTurn() {
       let p = gamePlayers[turnIndex];
 
@@ -1864,7 +1886,9 @@
       }
     }
 
-    // --- RENDER ---
+    // =========================
+    // RENDER
+    // =========================
     function updateGameUI() {
       let dp = document.getElementById("discard-pile");
       dp.innerHTML = "";
@@ -1954,14 +1978,17 @@
     function createCardDiv(c, i, isClickable) {
       let d = document.createElement("div");
       d.className = `card ${c.suit === "♥" || c.suit === "♦" ? "red" : ""}`;
+
       let corner = document.createElement("div");
       corner.className = "card-corner";
       corner.innerHTML = `<div class="rank">${c.rank}</div><div class="suit">${c.suit}</div>`;
       d.appendChild(corner);
+
       let center = document.createElement("div");
       center.className = "center-suit";
       center.innerText = c.suit;
       d.appendChild(center);
+
       let bottom = document.createElement("div");
       bottom.className = "card-bottom";
       bottom.innerHTML = `<div class="rank">${c.rank}</div><div class="suit">${c.suit}</div>`;
@@ -1988,6 +2015,7 @@
       let p = (gameMode === "online") ? gamePlayers[NET.mySeatIndex] : gamePlayers[turnIndex];
       let effectiveHandLen = (gameMode === "online") ? gamePlayers[NET.mySeatIndex].hand.length : gamePlayers[turnIndex].hand.length;
       let willFinish = effectiveHandLen === selectionOrder.length && selectionOrder.length > 0;
+
       if (willFinish && p.lastDeclared) {
         btnPlay.classList.add("winning-btn");
         btnPlay.innerText = "WIN IT!";
@@ -2052,6 +2080,85 @@
         }
       });
     }
+
+    // =========================
+    // CHAT
+    // =========================
+    let chatCollapsed = false;
+
+    function toggleChat(){
+      chatCollapsed = !chatCollapsed;
+      const box = document.getElementById("chat-box");
+      const btn = document.getElementById("chat-toggle");
+      if (!box || !btn) return;
+      if (chatCollapsed) {
+        box.classList.add("chat-collapsed");
+        btn.textContent = "Show";
+      } else {
+        box.classList.remove("chat-collapsed");
+        btn.textContent = "Hide";
+      }
+    }
+
+    function clearChat(){
+      const el = document.getElementById("chat-messages");
+      if (el) el.innerHTML = "";
+    }
+
+    function addChatLine(line, isSys=false){
+      const el = document.getElementById("chat-messages");
+      if (!el) return;
+      const div = document.createElement("div");
+      div.className = "chat-line" + (isSys ? " chat-sys" : "");
+      div.innerHTML = line;
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function quickEmoji(e){
+      const input = document.getElementById("chat-input");
+      if (!input) return;
+      input.value = (input.value ? input.value + " " : "") + e;
+      input.focus();
+    }
+
+    function sendChat(){
+      const input = document.getElementById("chat-input");
+      if (!input) return;
+      const msg = (input.value || "").trim();
+      if (!msg) return;
+      input.value = "";
+
+      const from = (gameMode === "online")
+        ? ((NET.players.find(p=>p.seat===NET.mySeatIndex)?.name) || leagueData.player.name || "Player")
+        : (gameMode === "pass_play" ? (gamePlayers[turnIndex]?.name || "Player") : (leagueData.player.name || "Player"));
+
+      // local echo
+      addChatLine(`<span class="chat-name">${escapeHtml(from)}:</span> ${escapeHtml(msg)}`);
+
+      // online relay (server must broadcast)
+      if (gameMode === "online" && NET.room) {
+        netSend({ type: "chat", room: NET.room, from, message: msg });
+      }
+    }
+
+    function escapeHtml(s){
+      return String(s)
+        .replaceAll("&","&amp;").replaceAll("<","&lt;")
+        .replaceAll(">","&gt;").replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    // enter-to-send
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const input = document.getElementById("chat-input");
+        if (document.activeElement === input) {
+          e.preventDefault();
+          sendChat();
+        }
+      }
+    });
 
     // ===============================
     // ONLINE (WebSocket Relay + Authoritative Host)
@@ -2132,6 +2239,7 @@
           gameMode = "online";
           netSetStatus(`Room created: ${NET.room}. Share code & wait for players.`);
           netRenderPlayers(msg.players || []);
+          addChatLine(`(system) Room created: ${escapeHtml(NET.room)}`, true);
           return;
         }
 
@@ -2144,6 +2252,7 @@
           gameMode = "online";
           netSetStatus(`Joined room: ${NET.room}. Waiting for host...`);
           netRenderPlayers(msg.players || []);
+          addChatLine(`(system) Joined room: ${escapeHtml(NET.room)}. Waiting for host…`, true);
           return;
         }
 
@@ -2166,9 +2275,11 @@
           return;
         }
 
-        // ✅ CHAT IN
+        // ✅ Chat relay (server must broadcast this)
         if (msg.type === "chat") {
-          chatAdd(msg);
+          const from = msg.from || "Player";
+          const text = msg.message || "";
+          addChatLine(`<span class="chat-name">${escapeHtml(from)}:</span> ${escapeHtml(text)}`);
           return;
         }
 
@@ -2201,8 +2312,9 @@
       if (!NET.isHost) return;
       NET.lastStateVersion = (NET.lastStateVersion || 0) + 1;
       netSend({ type: "state", room: NET.room, version: NET.lastStateVersion, snap: getSnapshot() });
-      // ✅ don't re-send the same toast forever
-      lastToastMsg = "";
+
+      // toast should be one-shot (avoid re-showing it forever)
+      lastToastMsg = null;
     }
 
     function netSendActionToHost(action) {
@@ -2256,28 +2368,6 @@
         if (NET.players.length < 2) return netSetStatus("Need at least 2 players.");
         startOnlineGameAsHost();
       };
-
-      // ✅ CHAT UI
-      const chatInput = document.getElementById("chatInput");
-      const chatSendBtn = document.getElementById("chatSendBtn");
-      const emojiRow = document.getElementById("emojiRow");
-
-      if (chatSendBtn) chatSendBtn.onclick = () => netSendChat(chatInput?.value || "");
-      if (chatInput) {
-        chatInput.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") netSendChat(chatInput.value);
-        });
-      }
-      if (emojiRow) {
-        emojiRow.querySelectorAll(".emoji-btn").forEach(btn => {
-          btn.addEventListener("click", () => {
-            const e = btn.getAttribute("data-e") || "";
-            netSendChat(e);
-          });
-        });
-      }
-
-      renderChat();
     }
 
     // Host starts game once, then snapshots to everyone
@@ -2291,10 +2381,8 @@
       initGame(config);
       netBroadcastState();
       netSetStatus("Game started.");
+      addChatLine(`(system) Host started the game.`, true);
     }
-
-    // Boot wiring for online lobby
-    try { bindOnlineUI(); } catch (e) { console.error("bindOnlineUI failed", e); }
 
     // ===============================
     // Snapshot + Remote Actions (Online Mode)
@@ -2313,8 +2401,6 @@
         pendingDrawJ,
         pendingSkip,
         extraTurn,
-
-        // ✅ show joiners what's going on
         feedMsg: lastFeedMsg || "",
         toastMsg: lastToastMsg || "",
       };
@@ -2341,11 +2427,15 @@
       showScreen("game-screen");
       updateGameUI();
 
-      if (typeof snap.feedMsg === "string" && snap.feedMsg) updateFeed(snap.feedMsg);
-
-      if (typeof snap.toastMsg === "string" && snap.toastMsg) {
+      if (snap.feedMsg) {
+        lastFeedMsg = snap.feedMsg;
+        document.getElementById("status-feed").innerText = snap.feedMsg;
+      }
+      if (snap.toastMsg) {
+        // show as toast locally
+        const msg = snap.toastMsg;
         const t = document.getElementById("toast-notification");
-        t.innerText = snap.toastMsg;
+        t.innerText = msg;
         t.classList.add("show");
         setTimeout(() => t.classList.remove("show"), 2000);
       }
@@ -2379,7 +2469,6 @@
         if (action.type === "play") {
           const indices = Array.isArray(action.indices) ? action.indices : [];
 
-          // ✅ capture aceChoice from joiner (host uses it inside applyPower)
           if (action.aceChoice) NET.aceChoice = action.aceChoice;
 
           attemptPlay(seat, indices);
@@ -2392,59 +2481,12 @@
     }
 
     // =========================
-    // CHAT
+    // BOOT
     // =========================
-    function escapeHtml(s){
-      return String(s).replace(/[&<>"']/g, c => ({
-        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-      }[c]));
-    }
-    function fmtTime(ts){
-      try{
-        const d = new Date(ts || Date.now());
-        return d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
-      }catch(e){ return ""; }
-    }
-    function renderChat(){
-      const log = document.getElementById("chatLog");
-      if (!log) return;
-      log.innerHTML = "";
-      NET.chat.forEach(m => {
-        const div = document.createElement("div");
-        div.className = "chat-msg";
-        div.innerHTML = `<span class="chat-name">${escapeHtml(m.name)}:</span>
-          <span>${escapeHtml(m.text)}</span>
-          <span class="chat-time">${fmtTime(m.ts)}</span>`;
-        log.appendChild(div);
-      });
-      log.scrollTop = log.scrollHeight;
-    }
-    function chatAdd(msg){
-      if (!msg || !msg.text) return;
-      NET.chat.push({
-        name: (msg.name || "Player").slice(0,16),
-        text: String(msg.text).slice(0,120),
-        ts: msg.ts || Date.now()
-      });
-      if (NET.chat.length > 50) NET.chat.shift();
-      renderChat();
-    }
-    function netSendChat(text){
-      const t = (text || "").trim();
-      if (!t) return;
-      if (!NET.room) return netSetStatus("Join/Create a room to chat.");
-
-      const name = (document.getElementById("onlineName")?.value || leagueData?.player?.name || "Player").trim().slice(0,16);
-      const payload = { type:"chat", room: NET.room, name, text: t, ts: Date.now() };
-
-      netSend(payload);      // server should broadcast to everyone in room
-      chatAdd(payload);      // show instantly to sender
-      const input = document.getElementById("chatInput");
-      if (input) input.value = "";
-    }
-
-    // --- BOOT ---
-    loadData();
+    window.addEventListener("load", () => {
+      loadData();
+      bindOnlineUI();
+    });
   </script>
 </body>
 </html>
