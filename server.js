@@ -14,19 +14,34 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 function makeCode(len = 6) {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
-  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < len; i++) {
+    out += chars[Math.floor(Math.random() * chars.length)];
+  }
   return out;
 }
 
-// code -> { code, host, clients: Map(ws -> {wsId,name,seat}), state, version }
+/*
+ room = {
+   code,
+   host,          // ws id
+   clients: Map(ws -> { wsId, name, seat }),
+   state,
+   version
+ }
+*/
 const rooms = new Map();
+let wsCounter = 1;
 
 function roomPlayers(room) {
   const arr = [];
   for (const [, info] of room.clients) {
-    arr.push({ name: info.name, seat: info.seat, isHost: room.host === info.wsId });
+    arr.push({
+      name: info.name,
+      seat: info.seat,
+      isHost: room.host === info.wsId,
+    });
   }
   arr.sort((a, b) => a.seat - b.seat);
   return arr;
@@ -34,20 +49,68 @@ function roomPlayers(room) {
 
 function broadcast(room, obj) {
   const msg = JSON.stringify(obj);
-  for (const [ws] of room.clients) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+  for (const ws of room.clients.keys()) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+    }
   }
 }
 
 function send(ws, obj) {
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
 }
 
-function safeName(n) {
-  return (n || "Player").toString().trim().slice(0, 16) || "Player";
+function systemMessage(room, text) {
+  broadcast(room, {
+    type: "chat",
+    name: "SYSTEM",
+    text,
+    system: true,
+  });
 }
 
-let wsCounter = 1;
+function leaveRoom(ws, silent = false) {
+  const code = ws._room;
+  if (!code) return;
+
+  const room = rooms.get(code);
+  ws._room = null;
+  ws._seat = null;
+
+  if (!room) return;
+
+  const info = room.clients.get(ws);
+  room.clients.delete(ws);
+
+  if (!silent && info) {
+    systemMessage(room, `${info.name} left the room`);
+  }
+
+  // Host left → promote lowest seat
+  if (room.host === ws._id) {
+    const remaining = [...room.clients.values()].sort((a, b) => a.seat - b.seat);
+    if (remaining.length) {
+      room.host = remaining[0].wsId;
+      systemMessage(room, `${remaining[0].name} is now host`);
+    }
+  }
+
+  if (room.clients.size === 0) {
+    rooms.delete(code);
+    return;
+  }
+
+  const hostSeat =
+    [...room.clients.values()].find(v => v.wsId === room.host)?.seat ?? 0;
+
+  broadcast(room, {
+    type: "players",
+    hostSeat,
+    players: roomPlayers(room),
+  });
+}
 
 wss.on("connection", (ws) => {
   ws._id = wsCounter++;
@@ -56,23 +119,27 @@ wss.on("connection", (ws) => {
 
   ws.on("message", (data) => {
     let msg;
-    try { msg = JSON.parse(data.toString()); } catch { return; }
+    try {
+      msg = JSON.parse(data.toString());
+    } catch {
+      return;
+    }
+
     if (!msg || !msg.type) return;
 
-    // ======================
-    // CREATE ROOM
-    // ======================
+    /* ================= CREATE ROOM ================= */
     if (msg.type === "create_room") {
-      if (ws._room) leaveRoom(ws, true);
+      if (ws._room) leaveRoom(ws);
 
       let code;
-      let requested = (msg.room || "").toString().trim().toUpperCase();
-      if (!/^[A-Z0-9]{4,8}$/.test(requested)) requested = "";
+      let requested = (msg.room || "").toUpperCase().trim();
 
-      if (requested && !rooms.has(requested)) {
+      if (/^[A-Z0-9]{4,8}$/.test(requested) && !rooms.has(requested)) {
         code = requested;
       } else {
-        do { code = makeCode(6); } while (rooms.has(code));
+        do {
+          code = makeCode(6);
+        } while (rooms.has(code));
       }
 
       const room = {
@@ -82,149 +149,149 @@ wss.on("connection", (ws) => {
         state: null,
         version: 0,
       };
+
       rooms.set(code, room);
 
-      const name = safeName(msg.name || "Host");
+      const name = (msg.name || "Host").slice(0, 16);
       ws._room = code;
       ws._seat = 0;
 
-      room.clients.set(ws, { wsId: ws._id, name, seat: 0 });
+      room.clients.set(ws, {
+        wsId: ws._id,
+        name,
+        seat: 0,
+      });
 
-      send(ws, { type: "room_created", ok: true, room: code, seat: 0, hostSeat: 0, players: roomPlayers(room) });
+      send(ws, {
+        type: "room_created",
+        room: code,
+        seat: 0,
+        hostSeat: 0,
+        players: roomPlayers(room),
+      });
 
-      // tell everyone (host included) the player list + a system chat line
-      broadcast(room, { type: "players", hostSeat: 0, players: roomPlayers(room) });
-      broadcast(room, { type: "chat", from: "system", message: `${name} created the room.` });
+      systemMessage(room, `${name} created the room`);
 
+      broadcast(room, {
+        type: "players",
+        hostSeat: 0,
+        players: roomPlayers(room),
+      });
       return;
     }
 
-    // ======================
-    // JOIN ROOM
-    // ======================
+    /* ================= JOIN ROOM ================= */
     if (msg.type === "join_room") {
-      if (ws._room) leaveRoom(ws, true);
+      if (ws._room) leaveRoom(ws);
 
-      const code = (msg.room || "").toString().trim().toUpperCase();
+      const code = (msg.room || "").toUpperCase().trim();
       const room = rooms.get(code);
-      if (!room) return send(ws, { type: "joined", ok: false, message: "Room not found." });
+      if (!room) {
+        send(ws, { type: "toast", message: "Room not found" });
+        return;
+      }
 
-      // assign smallest free seat
-      const used = new Set([...room.clients.values()].map(v => v.seat));
+      const usedSeats = new Set([...room.clients.values()].map(v => v.seat));
       let seat = 0;
-      while (used.has(seat)) seat++;
+      while (usedSeats.has(seat)) seat++;
 
-      const name = safeName(msg.name);
+      const name = (msg.name || "Player").slice(0, 16);
+
       ws._room = code;
       ws._seat = seat;
 
-      room.clients.set(ws, { wsId: ws._id, name, seat });
+      room.clients.set(ws, {
+        wsId: ws._id,
+        name,
+        seat,
+      });
 
-      const hostSeat = [...room.clients.values()].find(v => v.wsId === room.host)?.seat ?? 0;
+      const hostSeat =
+        [...room.clients.values()].find(v => v.wsId === room.host)?.seat ?? 0;
 
-      send(ws, { type: "joined", ok: true, room: code, seat, hostSeat, players: roomPlayers(room) });
+      send(ws, {
+        type: "joined",
+        room: code,
+        seat,
+        hostSeat,
+        players: roomPlayers(room),
+      });
 
-      // broadcast new roster + join message
-      broadcast(room, { type: "players", hostSeat, players: roomPlayers(room) });
-      broadcast(room, { type: "chat", from: "system", message: `${name} joined the room.` });
+      systemMessage(room, `${name} joined the room`);
 
-      // send latest snapshot if exists
-      if (room.state) send(ws, { type: "state", version: room.version, snap: room.state });
+      broadcast(room, {
+        type: "players",
+        hostSeat,
+        players: roomPlayers(room),
+      });
 
+      if (room.state) {
+        send(ws, {
+          type: "state",
+          version: room.version,
+          snap: room.state,
+        });
+      }
       return;
     }
 
-    // ======================
-    // LEAVE ROOM
-    // ======================
+    /* ================= LEAVE ================= */
     if (msg.type === "leave_room") {
-      leaveRoom(ws, false);
+      leaveRoom(ws);
       return;
     }
 
-    // Must be in a room for anything below
-    const code = ws._room;
-    if (!code) return send(ws, { type: "toast", message: "Not in a room." });
+    /* ================= MUST BE IN ROOM ================= */
+    const room = rooms.get(ws._room);
+    if (!room) return;
 
-    const room = rooms.get(code);
-    if (!room) { ws._room = null; ws._seat = null; return; }
-
-    // ======================
-    // HOST STATE SNAPSHOT
-    // ======================
-    if (msg.type === "state") {
-      if (ws._id !== room.host) return; // only host can publish
-
-      room.version = Number.isFinite(Number(msg.version)) ? Number(msg.version) : (room.version + 1);
-      room.state = msg.snap;
-
-      broadcast(room, { type: "state", version: room.version, snap: room.state });
-      return;
-    }
-
-    // ======================
-    // ACTION (forward to host)
-    // ======================
-    if (msg.type === "action") {
-      const hostWs = [...room.clients.keys()].find(w => w._id === room.host);
-      if (!hostWs) return send(ws, { type: "toast", message: "Host disconnected." });
-
-      const action = msg.action || {};
-      action.seat = ws._seat; // enforce seat
-      send(hostWs, { type: "to_host_action", action });
-      return;
-    }
-
-    // ======================
-    // CHAT (broadcast to room)
-    // ======================
+    /* ================= CHAT ================= */
     if (msg.type === "chat") {
       const info = room.clients.get(ws);
-      const from = safeName(msg.from || (info ? info.name : "Player"));
-      const message = (msg.message || "").toString().slice(0, 240);
+      if (!info) return;
 
-      broadcast(room, { type: "chat", from, message });
+      broadcast(room, {
+        type: "chat",
+        name: info.name,
+        text: (msg.text || "").slice(0, 200),
+      });
       return;
     }
 
-    // ignore unknown types safely
+    /* ================= GAME STATE ================= */
+    if (msg.type === "state") {
+      if (ws._id !== room.host) return;
+
+      room.version = Number(msg.version || room.version + 1);
+      room.state = msg.snap;
+
+      broadcast(room, {
+        type: "state",
+        version: room.version,
+        snap: room.state,
+      });
+      return;
+    }
+
+    /* ================= ACTION ================= */
+    if (msg.type === "action") {
+      const hostWs = [...room.clients.keys()].find(w => w._id === room.host);
+      if (!hostWs) return;
+
+      const action = msg.action || {};
+      action.seat = ws._seat;
+
+      send(hostWs, {
+        type: "to_host_action",
+        action,
+      });
+      return;
+    }
   });
 
   ws.on("close", () => leaveRoom(ws, true));
 });
 
-function leaveRoom(ws, silent = false) {
-  const code = ws._room;
-  if (!code) return;
-
-  const room = rooms.get(code);
-  const leavingInfo = room ? room.clients.get(ws) : null;
-  const leavingName = leavingInfo ? leavingInfo.name : "A player";
-
-  ws._room = null;
-  ws._seat = null;
-
-  if (!room) return;
-
-  room.clients.delete(ws);
-
-  // if host left, pick new host (lowest seat)
-  if (room.host === ws._id) {
-    const remaining = [...room.clients.values()].sort((a, b) => a.seat - b.seat);
-    if (remaining.length) room.host = remaining[0].wsId;
-  }
-
-  // delete empty room
-  if (room.clients.size === 0) {
-    rooms.delete(code);
-    return;
-  }
-
-  const hostSeat = [...room.clients.values()].find(v => v.wsId === room.host)?.seat ?? 0;
-
-  if (!silent) broadcast(room, { type: "toast", message: `${leavingName} left.` });
-  broadcast(room, { type: "players", hostSeat, players: roomPlayers(room) });
-  broadcast(room, { type: "chat", from: "system", message: `${leavingName} left the room.` });
-}
-
-server.listen(PORT, () => console.log("Listening on", PORT));
+server.listen(PORT, () =>
+  console.log("✅ Server running on port", PORT)
+);
