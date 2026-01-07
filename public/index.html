@@ -102,12 +102,110 @@
     #lobby-screen,
     #dashboard-screen,
     #p2p-screen {
-      background-color: var(--paper-white);
-      background-image: linear-gradient(var(--line-blue) 1px, transparent 1px);
-      background-size: 100% 25px;
-      color: #333;
+      /* Match main chalkboard theme */
+      background: radial-gradient(1200px 600px at 50% 30%, rgba(255,255,255,0.06), rgba(0,0,0,0)),
+                  linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.35)),
+                  var(--chalk-green);
+      color: var(--chalk-white);
+      padding: 18px;
+      overflow-y: auto;
     }
 
+    #p2p-screen h2{
+      margin: 0 0 14px 0;
+      color: var(--chalk-white);
+      text-align: center;
+      letter-spacing: 0.5px;
+      text-shadow: 0 2px 0 rgba(0,0,0,0.35);
+    }
+
+    #p2p-screen .card-panel{
+      width: min(560px, calc(100% - 20px));
+      margin: 10px auto;
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(0,0,0,0.22);
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+      backdrop-filter: blur(6px);
+    }
+
+    #p2p-screen label{
+      display: block;
+      margin: 10px 0 6px;
+      opacity: 0.95;
+      font-weight: 600;
+    }
+
+    #p2p-screen input{
+      width: 100%;
+      padding: 12px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(0,0,0,0.28);
+      color: var(--chalk-white);
+      outline: none;
+      font-size: 1rem;
+    }
+    #p2p-screen input::placeholder{ color: rgba(238,238,238,0.55); }
+
+    #p2p-screen .row{
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+
+    #p2p-screen .btn{
+      flex: 1;
+      min-width: 140px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(0,0,0,0.22);
+      color: var(--chalk-white);
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, background 120ms ease;
+    }
+    #p2p-screen .btn:hover{ transform: translateY(-1px); background: rgba(0,0,0,0.30); }
+    #p2p-screen .btn:active{ transform: translateY(0px) scale(0.99); }
+
+    #p2p-screen .btn.primary{
+      background: rgba(255, 214, 102, 0.16);
+      border-color: rgba(255, 214, 102, 0.38);
+    }
+    #p2p-screen .btn.danger{
+      background: rgba(255, 99, 99, 0.16);
+      border-color: rgba(255, 99, 99, 0.38);
+    }
+
+    #p2p-screen .muted{
+      margin-top: 10px;
+      opacity: 0.8;
+      font-size: 0.95rem;
+      line-height: 1.35;
+    }
+
+    #p2p-screen .players-list{
+      margin: 8px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    #p2p-screen .players-list li{
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.18);
+      border: 1px solid rgba(255,255,255,0.10);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
     /* --- BRANDING / LOGO --- */
     .logo-wrap {
       display: flex;
