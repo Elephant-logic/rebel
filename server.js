@@ -1,131 +1,100 @@
-const path = require('path');
+// Rebel Messenger - Render-ready signalling + static server
+
 const express = require('express');
 const http = require('http');
-const WebSocket = require('ws');
-
-const PORT = process.env.PORT || 9100;
+const path = require('path');
+const { Server } = require('socket.io');
 
 const app = express();
-
-// Serve the client folder
-app.use(express.static(path.join(__dirname, '..', 'client')));
-
-// Simple health check
-app.get('/health', (req, res) => {
-  res.json({ ok: true, version: '0.4' });
-});
-
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server, path: '/signal' });
-
-// roomCode => Set of clients
-const rooms = new Map();
-
-function joinRoom(ws, room) {
-  if (!rooms.has(room)) {
-    rooms.set(room, new Set());
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
   }
-  const set = rooms.get(room);
+});
 
-  // Hard‑limit to 2 peers for now
-  if (set.size >= 2) {
-    ws.send(JSON.stringify({ type: 'room-full', room }));
-    return;
-  }
+// Serve static client
+const publicPath = path.join(__dirname, 'public');
+app.use(express.static(publicPath));
 
-  set.add(ws);
-  ws.room = room;
+app.get('/', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'));
+});
 
-  ws.send(JSON.stringify({ type: 'joined', room }));
+// ---- Socket.io signalling + chat + file meta ----
 
-  // If we now have 2 peers, tell both that the room is ready
-  if (set.size === 2) {
-    for (const client of set) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'room-ready', room }));
-      }
-    }
-  }
-}
+io.on('connection', (socket) => {
+  console.log('Client connected', socket.id);
 
-function leaveRoom(ws) {
-  const room = ws.room;
-  if (!room || !rooms.has(room)) return;
+  socket.on('join-room', ({ room, name }) => {
+    socket.join(room);
+    socket.data.room = room;
+    socket.data.name = name || 'Guest';
 
-  const set = rooms.get(room);
-  set.delete(ws);
-
-  if (set.size === 0) {
-    rooms.delete(room);
-  } else {
-    // Tell remaining peer that the other side left
-    for (const client of set) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'peer-left', room }));
-      }
-    }
-  }
-}
-
-wss.on('connection', (ws) => {
-  ws.on('message', (data) => {
-    let msg;
-    try {
-      msg = JSON.parse(data.toString());
-    } catch (err) {
-      console.error('Bad JSON from client:', err);
-      return;
-    }
-
-    const { type, room, payload } = msg;
-
-    switch (type) {
-      case 'join':
-        joinRoom(ws, room);
-        break;
-
-      case 'signal': {
-        const set = rooms.get(room);
-        if (!set) return;
-        for (const client of set) {
-          if (client !== ws && client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ type: 'signal', room, payload }));
-          }
-        }
-        break;
-      }
-
-      case 'chat': {
-        const set = rooms.get(room);
-        if (!set) return;
-        for (const client of set) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-              type: 'chat',
-              room,
-              from: payload.from || 'peer',
-              text: payload.text || ''
-            }));
-          }
-        }
-        break;
-      }
-
-      default:
-        console.warn('Unhandled message type:', type);
-    }
+    // Notify others
+    socket.to(room).emit('system-message', `${socket.data.name} joined the room`);
+    console.log(`${socket.data.name} joined room ${room}`);
   });
 
-  ws.on('close', () => {
-    leaveRoom(ws);
+  socket.on('leave-room', () => {
+    const room = socket.data.room;
+    if (!room) return;
+    socket.leave(room);
+    socket.to(room).emit('system-message', `${socket.data.name} left the room`);
+    socket.data.room = null;
   });
 
-  ws.on('error', (err) => {
-    console.error('Socket error:', err);
-    leaveRoom(ws);
+  // Text chat
+  socket.on('chat-message', ({ room, name, text }) => {
+    if (!room) return;
+    io.to(room).emit('chat-message', {
+      name,
+      text,
+      ts: Date.now()
+    });
+  });
+
+  // File share (in-memory relay)
+  socket.on('file-share', ({ room, name, fileName, fileType, fileSize, fileData }) => {
+    if (!room) return;
+    // relay to everyone else in room
+    socket.to(room).emit('file-share', {
+      from: name,
+      fileName,
+      fileType,
+      fileSize,
+      fileData // base64 string
+    });
+  });
+
+  // WebRTC signalling
+  socket.on('webrtc-offer', ({ room, sdp }) => {
+    socket.to(room).emit('webrtc-offer', { sdp });
+  });
+
+  socket.on('webrtc-answer', ({ room, sdp }) => {
+    socket.to(room).emit('webrtc-answer', { sdp });
+  });
+
+  socket.on('webrtc-ice-candidate', ({ room, candidate }) => {
+    socket.to(room).emit('webrtc-ice-candidate', { candidate });
+  });
+
+  socket.on('disconnect', () => {
+    const room = socket.data.room;
+    if (room) {
+      socket.to(room).emit('system-message', `${socket.data.name} disconnected`);
+      console.log(`${socket.data.name} disconnected from room ${room}`);
+    } else {
+      console.log('Client disconnected', socket.id);
+    }
   });
 });
 
+// ---- Start server ----
+
+const PORT = process.env.PORT || 9100;
 server.listen(PORT, () => {
-  console.log(`Rebel Messenger signalling server v0.4 listening on port ${PORT}`);
+  console.log(`Rebel Messenger signalling server listening on port ${PORT}`);
 });
