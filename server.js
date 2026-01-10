@@ -118,4 +118,4 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Rebel Messenger server listening on port ${PORT}`);
-});; full code was given above
+});;
