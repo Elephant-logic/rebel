@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rebel Messenger v0.4</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div>
+        <h1>Rebel Messenger</h1>
+        <p class="subtitle">LAN · P2P · 1:1 · Encrypted via WebRTC</p>
+      </div>
+      <div class="badge-row">
+        <span class="badge" id="signalBadge">Signal: offline</span>
+        <span class="badge soft" id="roomBadge">No room</span>
+      </div>
+    </header>
+
+    <section class="join-bar">
+      <input id="roomInput" placeholder="Room (e.g. kitchen)" />
+      <button id="joinBtn">Join</button>
+      <button id="leaveBtn" class="secondary">Leave</button>
+    </section>
+
+    <main class="main-layout">
+      <section class="video-column">
+        <h2>You</h2>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </section>
+
+      <section class="video-column">
+        <h2>Peer</h2>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </section>
+    </main>
+
+    <section class="controls">
+      <button id="startCallBtn">Start Call</button>
+      <button id="endCallBtn" class="secondary">End Call</button>
+      <button id="muteBtn" class="secondary">Mute</button>
+      <button id="cameraBtn" class="secondary">Camera Off</button>
+    </section>
+
+    <section class="chat-panel">
+      <div class="chat-header">
+        <h3>Text Chat</h3>
+      </div>
+      <div id="chatLog" class="chat-log"></div>
+      <div class="chat-input-row">
+        <input id="chatInput" placeholder="Type message…" />
+        <button id="chatSendBtn">Send</button>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span id="statusLine">Ready.</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
