@@ -1,315 +1,125 @@
-const signalBadge = document.getElementById('signalBadge');
-const roomBadge = document.getElementById('roomBadge');
-const statusLine = document.getElementById('statusLine');
+// Rebel Messenger client
+// Handles: socket.io signalling, chat, emojis, file relay, WebRTC AV
 
+const socket = io({
+  autoConnect: false
+});
+
+let currentRoom = null;
+let userName = null;
+
+const signalStatusEl = document.getElementById('signalStatus');
+const roomInfoEl = document.getElementById('roomInfo');
+const nameInput = document.getElementById('nameInput');
 const roomInput = document.getElementById('roomInput');
 const joinBtn = document.getElementById('joinBtn');
 const leaveBtn = document.getElementById('leaveBtn');
 
-const startCallBtn = document.getElementById('startCallBtn');
-const endCallBtn = document.getElementById('endCallBtn');
-const muteBtn = document.getElementById('muteBtn');
-const cameraBtn = document.getElementById('cameraBtn');
+const chatLog = document.getElementById('chatLog');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+
+const emojiStrip = document.getElementById('emojiStrip');
+
+const fileInput = document.getElementById('fileInput');
+const sendFileBtn = document.getElementById('sendFileBtn');
+const fileNameLabel = document.getElementById('fileNameLabel');
 
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
+const startCallBtn = document.getElementById('startCallBtn');
+const hangupBtn = document.getElementById('hangupBtn');
+const toggleCamBtn = document.getElementById('toggleCamBtn');
+const toggleMicBtn = document.getElementById('toggleMicBtn');
 
-const chatLog = document.getElementById('chatLog');
-const chatInput = document.getElementById('chatInput');
-const chatSendBtn = document.getElementById('chatSendBtn');
+// -------- Socket connection --------
 
-const DEFAULT_SIGNAL_URL =
-  (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/signal';
+socket.on('connect', () => {
+  setSignalStatus(true);
+});
 
-let ws;
-let currentRoom = null;
-let roomReady = false;
+socket.on('disconnect', () => {
+  setSignalStatus(false);
+});
 
-let localStream = null;
-let pc = null;
-let audioMuted = false;
-let videoMuted = false;
+socket.on('system-message', (text) => {
+  appendSystem(text);
+});
 
-function logStatus(msg) {
-  console.log('[RM]', msg);
-  statusLine.textContent = msg;
-}
+socket.on('chat-message', ({ name, text, ts }) => {
+  appendChat(name, text, ts);
+});
 
-function setSignalState(online) {
-  if (online) {
-    signalBadge.textContent = 'Signal: connected';
-    signalBadge.style.borderColor = '#3effa2';
-    signalBadge.style.color = '#3effa2';
-  } else {
-    signalBadge.textContent = 'Signal: offline';
-    signalBadge.style.borderColor = '#ff4b6e';
-    signalBadge.style.color = '#ffb0c3';
+socket.on('file-share', handleIncomingFile);
+
+// WebRTC signalling
+socket.on('webrtc-offer', async ({ sdp }) => {
+  if (!pc) {
+    await createPeerConnection(false); // we are answerer
   }
-}
-
-function setRoom(room) {
-  currentRoom = room;
-  if (room) {
-    roomBadge.textContent = 'Room: ' + room;
-  } else {
-    roomBadge.textContent = 'No room';
-  }
-}
-
-function appendChatLine(from, text, self = false) {
-  const div = document.createElement('div');
-  div.className = 'chat-line ' + (self ? 'self' : 'peer');
-  const fromSpan = document.createElement('span');
-  fromSpan.className = 'from';
-  fromSpan.textContent = from + ':';
-  const textSpan = document.createElement('span');
-  textSpan.className = 'text';
-  textSpan.textContent = ' ' + text;
-  div.appendChild(fromSpan);
-  div.appendChild(textSpan);
-  chatLog.appendChild(div);
-  chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-function ensureSignalSocket() {
-  if (ws && ws.readyState === WebSocket.OPEN) return;
-
-  ws = new WebSocket(DEFAULT_SIGNAL_URL);
-
-  ws.onopen = () => {
-    setSignalState(true);
-    logStatus('Signal connected.');
-    if (currentRoom) {
-      ws.send(JSON.stringify({ type: 'join', room: currentRoom }));
-    }
-  };
-
-  ws.onclose = () => {
-    setSignalState(false);
-    logStatus('Signal disconnected.');
-  };
-
-  ws.onerror = (err) => {
-    console.error('WS error', err);
-  };
-
-  ws.onmessage = async (event) => {
-    const msg = JSON.parse(event.data);
-    switch (msg.type) {
-      case 'joined':
-        logStatus('Joined room ' + msg.room + '. Waiting for peer…');
-        break;
-
-      case 'room-ready':
-        roomReady = true;
-        logStatus('Peer connected. You can start a call.');
-        break;
-
-      case 'peer-left':
-        logStatus('Peer left the room.');
-        roomReady = false;
-        teardownPeerConnection();
-        break;
-
-      case 'signal':
-        await handleSignal(msg.payload);
-        break;
-
-      case 'chat':
-        appendChatLine(msg.from || 'peer', msg.text || '', false);
-        break;
-
-      case 'room-full':
-        logStatus('Room already has 2 peers. Pick another name.');
-        break;
-
-      default:
-        console.log('WS message', msg);
-    }
-  };
-}
-
-async function getLocalStream() {
-  if (localStream) return localStream;
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: true,
-    });
-    localVideo.srcObject = localStream;
-    return localStream;
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('webrtc-answer', { room: currentRoom, sdp: pc.localDescription });
   } catch (err) {
-    console.error('getUserMedia failed', err);
-    alert('Could not access camera/mic: ' + err.message);
-    throw err;
+    console.error('Error handling offer:', err);
   }
-}
+});
 
-function createPeerConnection() {
-  if (pc) return pc;
-
-  const config = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-    ],
-  };
-
-  pc = new RTCPeerConnection(config);
-
-  pc.onicecandidate = (event) => {
-    if (event.candidate && currentRoom && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(
-        JSON.stringify({
-          type: 'signal',
-          room: currentRoom,
-          payload: { type: 'candidate', candidate: event.candidate },
-        }),
-      );
-    }
-  };
-
-  pc.ontrack = (event) => {
-    console.log('Remote track received');
-    remoteVideo.srcObject = event.streams[0];
-  };
-
-  pc.onconnectionstatechange = () => {
-    console.log('PC state', pc.connectionState);
-    if (pc.connectionState === 'connected') {
-      logStatus('Call connected.');
-    } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-      logStatus('Call ended.');
-    }
-  };
-
-  return pc;
-}
-
-async function startOfferFlow() {
-  if (!currentRoom) {
-    alert('Join a room first.');
-    return;
+socket.on('webrtc-answer', async ({ sdp }) => {
+  if (!pc) return;
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  } catch (err) {
+    console.error('Error handling answer:', err);
   }
-  if (!roomReady) {
-    logStatus('Waiting for peer to join before starting call…');
-    return;
+});
+
+socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+  if (!pc || !candidate) return;
+  try {
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (err) {
+    console.error('Error adding ICE candidate:', err);
   }
-  ensureSignalSocket();
-  const stream = await getLocalStream();
-  const pcLocal = createPeerConnection();
+});
 
-  stream.getTracks().forEach((track) => {
-    pcLocal.addTrack(track, stream);
-  });
-
-  const offer = await pcLocal.createOffer();
-  await pcLocal.setLocalDescription(offer);
-
-  ws.send(
-    JSON.stringify({
-      type: 'signal',
-      room: currentRoom,
-      payload: offer,
-    }),
-  );
-
-  logStatus('Offer sent. Waiting for answer…');
-}
-
-async function handleSignal(payload) {
-  if (!pc && payload.type !== 'offer' && payload.type !== 'answer' && payload.type !== 'candidate') {
-    return;
-  }
-
-  if (payload.type === 'offer') {
-    ensureSignalSocket();
-    const stream = await getLocalStream();
-    const pcLocal = createPeerConnection();
-    stream.getTracks().forEach((track) => pcLocal.addTrack(track, stream));
-
-    await pcLocal.setRemoteDescription(new RTCSessionDescription(payload));
-    const answer = await pcLocal.createAnswer();
-    await pcLocal.setLocalDescription(answer);
-
-    ws.send(
-      JSON.stringify({
-        type: 'signal',
-        room: currentRoom,
-        payload: answer,
-      }),
-    );
-    logStatus('Answer sent.');
-  } else if (payload.type === 'answer') {
-    if (!pc) return;
-    await pc.setRemoteDescription(new RTCSessionDescription(payload));
-    logStatus('Answer received. Connecting…');
-  } else if (payload.type === 'candidate') {
-    if (!pc) return;
-    try {
-      await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-    } catch (err) {
-      console.error('Error adding ice candidate', err);
-    }
-  }
-}
-
-function teardownPeerConnection() {
-  if (pc) {
-    pc.close();
-    pc = null;
-  }
-  if (remoteVideo.srcObject) {
-    remoteVideo.srcObject.getTracks().forEach((t) => t.stop());
-    remoteVideo.srcObject = null;
-  }
-}
-
-// --- UI bindings -----------------------------------------------------------
+// -------- UI actions --------
 
 joinBtn.addEventListener('click', () => {
   const room = roomInput.value.trim();
+  const name = nameInput.value.trim() || 'Guest';
+
   if (!room) {
-    alert('Enter a room name.');
+    alert('Enter a room name');
     return;
   }
-  ensureSignalSocket();
-  roomReady = false;
-  setRoom(room);
-  ws.send(JSON.stringify({ type: 'join', room }));
-  logStatus('Joining room ' + room + '…');
+
+  if (socket.disconnected) {
+    socket.connect();
+  }
+
+  userName = name;
+  currentRoom = room;
+
+  socket.emit('join-room', { room, name });
+  roomInfoEl.textContent = `Room: ${room}`;
+  joinBtn.disabled = true;
+  leaveBtn.disabled = false;
 });
 
 leaveBtn.addEventListener('click', () => {
-  setRoom(null);
-  roomReady = false;
-  teardownPeerConnection();
-  logStatus('Left room.');
+  if (!currentRoom) return;
+  socket.emit('leave-room');
+  currentRoom = null;
+  roomInfoEl.textContent = 'No room';
+  joinBtn.disabled = false;
+  leaveBtn.disabled = true;
 });
 
-startCallBtn.addEventListener('click', () => {
-  startOfferFlow().catch((err) => console.error(err));
-});
-
-endCallBtn.addEventListener('click', () => {
-  teardownPeerConnection();
-  logStatus('Call ended.');
-});
-
-muteBtn.addEventListener('click', () => {
-  if (!localStream) return;
-  audioMuted = !audioMuted;
-  localStream.getAudioTracks().forEach((t) => (t.enabled = !audioMuted));
-  muteBtn.textContent = audioMuted ? 'Unmute' : 'Mute';
-});
-
-cameraBtn.addEventListener('click', () => {
-  if (!localStream) return;
-  videoMuted = !videoMuted;
-  localStream.getVideoTracks().forEach((t) => (t.enabled = !videoMuted));
-  cameraBtn.textContent = videoMuted ? 'Camera On' : 'Camera Off';
-});
-
-chatSendBtn.addEventListener('click', sendChat);
+// Chat
+sendBtn.addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
@@ -319,19 +129,220 @@ chatInput.addEventListener('keydown', (e) => {
 
 function sendChat() {
   const text = chatInput.value.trim();
-  if (!text || !currentRoom || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(
-    JSON.stringify({
-      type: 'chat',
-      room: currentRoom,
-      payload: { from: 'you', text },
-    }),
-  );
-  appendChatLine('you', text, true);
+  if (!text || !currentRoom) return;
+
+  socket.emit('chat-message', { room: currentRoom, name: userName, text });
+  appendChat(userName, text, Date.now()); // echo locally
   chatInput.value = '';
 }
 
-window.addEventListener('load', () => {
-  setSignalState(false);
-  logStatus('Ready. Join a room to begin.');
+// Emojis
+emojiStrip.addEventListener('click', (e) => {
+  if (!e.target.classList.contains('emoji')) return;
+  chatInput.value += e.target.textContent;
+  chatInput.focus();
 });
+
+// Files
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files[0];
+  if (!file) {
+    fileNameLabel.textContent = 'No file selected';
+    sendFileBtn.disabled = true;
+  } else {
+    fileNameLabel.textContent = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+    sendFileBtn.disabled = false;
+  }
+});
+
+sendFileBtn.addEventListener('click', () => {
+  const file = fileInput.files[0];
+  if (!file || !currentRoom) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64Data = reader.result.split(',')[1]; // remove data URL header
+    socket.emit('file-share', {
+      room: currentRoom,
+      name: userName,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      fileData: base64Data
+    });
+
+    appendSystem(`Sent file: ${file.name}`);
+    fileInput.value = '';
+    fileNameLabel.textContent = 'No file selected';
+    sendFileBtn.disabled = true;
+  };
+  reader.readAsDataURL(file);
+});
+
+function handleIncomingFile({ from, fileName, fileType, fileSize, fileData }) {
+  const bytes = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: fileType || 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+
+  const line = document.createElement('div');
+  line.className = 'chat-line';
+
+  const meta = document.createElement('span');
+  meta.className = 'meta';
+  meta.textContent = `${from} sent file:`;
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName || 'file';
+  link.textContent = `${fileName} (${Math.round(fileSize / 1024)} KB)`;
+  link.style.color = '#4af3a3';
+
+  line.appendChild(meta);
+  line.appendChild(link);
+  chatLog.appendChild(line);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+// -------- WebRTC audio / video --------
+
+let pc = null;
+let localStream = null;
+let camOn = true;
+let micOn = true;
+
+const iceConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+    // If you get your own TURN later, add here.
+  ]
+};
+
+startCallBtn.addEventListener('click', async () => {
+  if (!currentRoom) {
+    alert('Join a room first');
+    return;
+  }
+  await createPeerConnection(true); // we are caller
+});
+
+hangupBtn.addEventListener('click', () => {
+  endCall();
+});
+
+toggleCamBtn.addEventListener('click', () => {
+  if (!localStream) return;
+  camOn = !camOn;
+  localStream.getVideoTracks().forEach(t => t.enabled = camOn);
+  toggleCamBtn.textContent = camOn ? 'Camera Off' : 'Camera On';
+});
+
+toggleMicBtn.addEventListener('click', () => {
+  if (!localStream) return;
+  micOn = !micOn;
+  localStream.getAudioTracks().forEach(t => t.enabled = micOn);
+  toggleMicBtn.textContent = micOn ? 'Mute' : 'Unmute';
+});
+
+async function createPeerConnection(isCaller) {
+  if (pc) {
+    endCall();
+  }
+
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
+    localVideo.srcObject = localStream;
+  } catch (err) {
+    console.error('Error getting media:', err);
+    alert('Could not access camera/microphone');
+    return;
+  }
+
+  pc = new RTCPeerConnection(iceConfig);
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && currentRoom) {
+      socket.emit('webrtc-ice-candidate', {
+        room: currentRoom,
+        candidate: event.candidate
+      });
+    }
+  };
+
+  pc.ontrack = (event) => {
+    remoteVideo.srcObject = event.streams[0];
+  };
+
+  localStream.getTracks().forEach(track => {
+    pc.addTrack(track, localStream);
+  });
+
+  if (isCaller) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('webrtc-offer', { room: currentRoom, sdp: pc.localDescription });
+  }
+
+  startCallBtn.disabled = true;
+  hangupBtn.disabled = false;
+}
+
+function endCall() {
+  if (pc) {
+    pc.ontrack = null;
+    pc.onicecandidate = null;
+    pc.close();
+    pc = null;
+  }
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+    localVideo.srcObject = null;
+  }
+  remoteVideo.srcObject = null;
+  startCallBtn.disabled = false;
+  hangupBtn.disabled = true;
+}
+
+// -------- Helpers --------
+
+function setSignalStatus(connected) {
+  if (connected) {
+    signalStatusEl.textContent = 'Connected';
+    signalStatusEl.classList.remove('status-disconnected');
+    signalStatusEl.classList.add('status-connected');
+  } else {
+    signalStatusEl.textContent = 'Disconnected';
+    signalStatusEl.classList.remove('status-connected');
+    signalStatusEl.classList.add('status-disconnected');
+  }
+}
+
+function appendChat(name, text, ts) {
+  const line = document.createElement('div');
+  line.className = 'chat-line';
+
+  const meta = document.createElement('span');
+  meta.className = 'meta';
+  const time = ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  meta.textContent = `${name} • ${time}:`;
+
+  const body = document.createElement('span');
+  body.textContent = ' ' + text;
+
+  line.appendChild(meta);
+  line.appendChild(body);
+  chatLog.appendChild(line);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function appendSystem(text) {
+  const line = document.createElement('div');
+  line.className = 'chat-line system';
+  line.textContent = text;
+  chatLog.appendChild(line);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
