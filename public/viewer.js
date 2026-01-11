@@ -1,4 +1,4 @@
-// viewer.js - Updated with Chat & Controls
+// viewer.js - STABLE VIEWER
 const socket = io({ autoConnect: false });
 
 let pc = null;
@@ -11,7 +11,6 @@ const videoContainer = document.getElementById('videoContainer');
 const statusEl = document.getElementById('viewerStatus');
 const unmuteBtn = document.getElementById('unmuteBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
-
 const chatLog = document.getElementById('chatLog');
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
@@ -28,17 +27,13 @@ if (room) {
   socket.connect();
   setStatus('Connecting...');
 } else {
-  setStatus('No Room ID');
+  setStatus('No Room ID in URL');
 }
 
 socket.on('connect', () => {
-  setStatus('Joining...');
+  setStatus('Joined Room. Waiting for Stream...');
+  // Only join ONCE. Do not retry automatically.
   socket.emit('join-room', { room: currentRoom, name: myName });
-  
-  // Poke host if needed
-  setTimeout(() => {
-    if (!pc) socket.emit('join-room', { room: currentRoom, name: myName });
-  }, 1500);
 });
 
 socket.on('disconnect', () => setStatus('Disconnected'));
@@ -46,15 +41,15 @@ socket.on('disconnect', () => setStatus('Disconnected'));
 // --- 2. VIDEO LOGIC ---
 
 socket.on('webrtc-offer', async ({ sdp }) => {
-  setStatus('Live');
+  setStatus('Signal Received...');
   
   if (pc) pc.close();
   pc = new RTCPeerConnection(iceConfig);
 
   pc.ontrack = (event) => {
     viewerVideo.srcObject = event.streams[0];
-    setStatus('LIVE (Signal)');
-    statusEl.classList.add('status-live');
+    setStatus('LIVE');
+    if (statusEl) statusEl.classList.add('status-live');
   };
 
   pc.onicecandidate = (event) => {
@@ -69,7 +64,7 @@ socket.on('webrtc-offer', async ({ sdp }) => {
     await pc.setLocalDescription(answer);
     socket.emit('webrtc-answer', { room: currentRoom, sdp: pc.localDescription });
   } catch (err) {
-    console.error(err);
+    console.error("Offer Error:", err);
   }
 });
 
@@ -79,21 +74,23 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
 
 // --- 3. CONTROLS ---
 
-// Fullscreen
-fullscreenBtn.addEventListener('click', () => {
-  if (!document.fullscreenElement) {
-    if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
-    else if (viewerVideo.webkitEnterFullscreen) viewerVideo.webkitEnterFullscreen(); // iOS
-  } else {
-    document.exitFullscreen();
-  }
-});
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
+      else if (viewerVideo.webkitEnterFullscreen) viewerVideo.webkitEnterFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  });
+}
 
-// Unmute
-unmuteBtn.addEventListener('click', () => {
-  viewerVideo.muted = !viewerVideo.muted;
-  unmuteBtn.textContent = viewerVideo.muted ? '🔇 Unmute' : '🔊 Mute';
-});
+if (unmuteBtn) {
+  unmuteBtn.addEventListener('click', () => {
+    viewerVideo.muted = !viewerVideo.muted;
+    unmuteBtn.textContent = viewerVideo.muted ? '🔇 Unmute' : '🔊 Mute';
+  });
+}
 
 // --- 4. CHAT LOGIC ---
 
@@ -101,23 +98,23 @@ socket.on('chat-message', ({ name, text, ts }) => {
   appendChat(name, text, ts);
 });
 
-sendBtn.addEventListener('click', sendChat);
-chatInput.addEventListener('keydown', (e) => {
+if (sendBtn) sendBtn.addEventListener('click', sendChat);
+if (chatInput) chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendChat();
 });
 
-// Emojis
-emojiStrip.addEventListener('click', e => {
-  if (e.target.classList.contains('emoji')) {
-    chatInput.value += e.target.textContent;
-    chatInput.focus();
-  }
-});
+if (emojiStrip) {
+  emojiStrip.addEventListener('click', e => {
+    if (e.target.classList.contains('emoji')) {
+      chatInput.value += e.target.textContent;
+      chatInput.focus();
+    }
+  });
+}
 
 function sendChat() {
   const text = chatInput.value.trim();
   if (!text || !currentRoom) return;
-  
   socket.emit('chat-message', { room: currentRoom, name: myName, text });
   appendChat('You', text, Date.now());
   chatInput.value = '';
@@ -127,18 +124,14 @@ function appendChat(name, text, ts) {
   const line = document.createElement('div');
   line.className = 'chat-line';
   line.style.marginBottom = '4px';
-  
   const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  
-  // Color code "You" vs others
   const color = name === 'You' ? '#4af3a3' : '#9ba3c0';
-  
   line.innerHTML = `<span style="color:${color}; font-size:0.75rem;">${name} • ${time}</span><br>${text}`;
-  
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
 function setStatus(text) {
-  statusEl.textContent = text;
+  if (statusEl) statusEl.textContent = text;
+  console.log(text);
 }
