@@ -1,4 +1,4 @@
-// HOST - FULL FEATURES + GOOGLE STUN
+// HOST - STABLE + MANUAL RESTART
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -7,8 +7,9 @@ let pc = null;
 let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
+let isRestarting = false; // Prevents crash loops
 
-// FIX: Force Google STUN (Fixes Mobile Black Screen)
+// FORCE GOOGLE STUN (Best for Mobile)
 const iceConfig = { 
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -73,28 +74,49 @@ if (joinBtn) {
   });
 }
 
-// 3. CAMERA
+// 3. START / RESTART CAMERA (The Fix)
 if (startCallBtn) {
   startCallBtn.addEventListener('click', async () => {
     if (!currentRoom) return alert("Join Room First");
-    try {
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      if (localVideo) {
-        localVideo.srcObject = localStream;
-        localVideo.muted = true;
-      }
-      startCallBtn.disabled = true;
-      startCallBtn.textContent = "Streaming Active";
-      if (hangupBtn) hangupBtn.disabled = false;
-    } catch (err) { alert(err.message); }
+    
+    // 1. If camera isn't on, turn it on
+    if (!localStream) {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          if (localVideo) {
+            localVideo.srcObject = localStream;
+            localVideo.muted = true;
+          }
+          if (hangupBtn) hangupBtn.disabled = false;
+        } catch (err) { return alert(err.message); }
+    }
+
+    // 2. Force a Connection Restart
+    console.log("Manual Restart Triggered");
+    startCallBtn.textContent = "Restarting...";
+    startCallBtn.disabled = true;
+    
+    await restartConnection();
+    
+    // Re-enable button after 2 seconds so you can click it again if needed
+    setTimeout(() => {
+        startCallBtn.textContent = "Restart Stream";
+        startCallBtn.disabled = false;
+    }, 2000);
   });
 }
 
-// 4. AUTO-CONNECT
+// 4. AUTO-CONNECT (With Safety Delay)
 socket.on('user-joined', () => {
-  if (localStream) {
-    console.log("Viewer joined. Restarting...");
-    restartConnection();
+  if (localStream && !isRestarting) {
+    console.log("Viewer joined. Waiting 1s to connect...");
+    isRestarting = true;
+    
+    // Wait 1 second before connecting to let the viewer "settle"
+    setTimeout(async () => {
+        await restartConnection();
+        isRestarting = false;
+    }, 1000);
   }
 });
 
@@ -113,10 +135,11 @@ async function restartConnection() {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('webrtc-offer', { room: currentRoom, sdp: pc.localDescription });
+    console.log("Offer sent!");
   } catch (e) { console.error(e); }
 }
 
-// 5. CHAT & EMOJIS (Restored)
+// 5. CHAT & EMOJIS
 socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 if (sendBtn) sendBtn.addEventListener('click', sendChat);
 if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
@@ -185,14 +208,6 @@ socket.on('file-share', ({ from, fileName, fileType, fileSize, fileData }) => {
     appendChat(from, `Sent a file: ${link}`, Date.now());
 });
 
-// Signals
-socket.on('webrtc-answer', async ({ sdp }) => {
-  if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-});
-socket.on('webrtc-ice-candidate', async ({ candidate }) => {
-  if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
-});
-
 // Buttons
 if (toggleCamBtn) toggleCamBtn.addEventListener('click', () => {
   if (!localStream) return;
@@ -208,4 +223,42 @@ if (hangupBtn) hangupBtn.addEventListener('click', () => {
   if (localVideo) localVideo.srcObject = null;
   startCallBtn.disabled = false;
   startCallBtn.textContent = 'Start Call';
+});
+// Screen Share
+if (shareScreenBtn) shareScreenBtn.addEventListener('click', async () => {
+    if (!localStream) return alert('Start camera first!');
+    if (!isScreenSharing) {
+        try {
+            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            const screenTrack = screenStream.getVideoTracks()[0];
+            if (pc) {
+                const sender = pc.getSenders().find(s => s.track.kind === 'video');
+                if (sender) sender.replaceTrack(screenTrack);
+            }
+            if (localVideo) localVideo.srcObject = screenStream;
+            isScreenSharing = true;
+            shareScreenBtn.textContent = 'Stop Screen';
+            screenTrack.onended = () => stopScreenShare();
+        } catch (e) { console.error(e); }
+    } else { stopScreenShare(); }
+});
+function stopScreenShare() {
+    if (!isScreenSharing) return;
+    if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+    if (localStream && pc) {
+        const sender = pc.getSenders().find(s => s.track.kind === 'video');
+        const camTrack = localStream.getVideoTracks()[0];
+        if (sender && camTrack) sender.replaceTrack(camTrack);
+        if (localVideo) localVideo.srcObject = localStream;
+    }
+    isScreenSharing = false;
+    if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
+}
+
+// Signals
+socket.on('webrtc-answer', async ({ sdp }) => {
+  if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+});
+socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+  if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
