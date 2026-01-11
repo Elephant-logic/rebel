@@ -38,6 +38,10 @@ function joinRoom(socket, room, name) {
   }
   rooms.get(room).add(socket.id);
 
+  // --- FIX START: Notify others that a specific user joined ---
+  socket.to(room).emit('user-joined', socket.id);
+  // --- FIX END ---
+
   socket.to(room).emit('system-message', `${socket.data.name} joined`);
   io.to(socket.id).emit('system-message', `Joined room: ${room}`);
 }
