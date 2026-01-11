@@ -14,6 +14,8 @@
   --shadow-soft: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 
+/* GLOBAL ----------------------------------------------------- */
+
 *,
 *::before,
 *::after {
@@ -35,6 +37,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 16px;
+  gap: 14px;
 }
 
 /* TOP BAR ---------------------------------------------------- */
@@ -87,63 +90,37 @@ body {
   color: var(--danger);
 }
 
-.room-info {
-  padding: 4px 8px;
+.room-label {
+  padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(12, 18, 40, 0.9);
   border: 1px solid var(--border);
+  background: rgba(10, 14, 30, 0.9);
+  font-size: 0.8rem;
 }
 
-/* LAYOUT GRID ------------------------------------------------ */
+/* CONNECTION PANEL ------------------------------------------- */
 
-.layout {
-  margin-top: 14px;
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 14px;
-  align-items: stretch;
-}
-
-/* SIDEBAR ---------------------------------------------------- */
-
-.sidebar {
-  background: var(--panel);
+.connection-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
   border-radius: var(--radius-xl);
-  padding: 14px 14px 16px;
+  background: #0c1020;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-soft);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
-.sidebar h2 {
-  margin: 0 0 4px;
-  font-size: 0.96rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.field label {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.field input {
+.text-input {
   padding: 7px 9px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: #0b1020;
+  border: 1px solid #262d44;
+  background: #050814;
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
 
-.field input::placeholder {
+.text-input::placeholder {
   color: rgba(155, 163, 192, 0.7);
 }
 
@@ -165,9 +142,15 @@ body {
 }
 
 .btn.primary {
-  background: linear-gradient(135deg, #2fd890, #4af3a3);
+  background: linear-gradient(135deg, #4af3a3, #00c3ff);
   color: #050814;
   font-weight: 600;
+}
+
+.btn.danger {
+  background: #3a1b27;
+  border-color: rgba(255, 75, 106, 0.4);
+  color: #ffd7e0;
 }
 
 .btn:hover:not(:disabled) {
@@ -184,35 +167,36 @@ body {
   cursor: default;
 }
 
-/* MAIN PANEL ------------------------------------------------- */
+/* MAIN GRID -------------------------------------------------- */
 
-.main-panel {
+.main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* VIDEO COLUMN ----------------------------------------------- */
+
+.video-column {
   background: var(--panel-soft);
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-soft);
-  padding: 12px 14px 14px;
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-/* VIDEO ROW -------------------------------------------------- */
-
-.video-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .video-card {
   background: radial-gradient(circle at top left, rgba(74, 243, 163, 0.18), rgba(5, 8, 20, 0.95));
   border-radius: var(--radius-lg);
   border: 1px solid rgba(74, 243, 163, 0.22);
-  padding: 8px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .video-card h2 {
@@ -242,7 +226,7 @@ body {
   border: 1px solid var(--border);
 }
 
-/* FILE / STREAM LINK ROW ------------------------------------- */
+/* STREAM LINK / FILE ROW ------------------------------------- */
 
 .file-row {
   display: flex;
@@ -280,22 +264,28 @@ body {
   font-size: 0.8rem;
 }
 
-/* CHAT PANEL ------------------------------------------------- */
+/* CHAT COLUMN ------------------------------------------------ */
 
-.chat-panel {
-  margin-top: 4px;
-  background: #0c1020;
-  border-radius: var(--radius-lg);
+.chat-column {
+  background: var(--panel);
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border);
-  padding: 8px 8px 10px;
+  box-shadow: var(--shadow-soft);
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+.chat-header h2 {
+  margin: 0;
+  font-size: 0.96rem;
+}
+
 .chat-log {
-  max-height: 230px;
-  min-height: 160px;
+  flex: 1;
+  min-height: 180px;
+  max-height: 260px;
   overflow-y: auto;
   background: #050814;
   border-radius: var(--radius-sm);
@@ -345,37 +335,20 @@ body {
   gap: 6px;
 }
 
-#chatInput {
+.chat-input-row .text-input {
   flex: 1;
-  padding: 7px 9px;
-  border-radius: var(--radius-sm);
-  border: 1px solid #262d44;
-  background: #050814;
-  color: var(--text);
-  font-size: 0.82rem;
 }
 
-#chatInput::placeholder {
-  color: rgba(155, 163, 192, 0.7);
-}
-
-.file-upload-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.file-upload-row label.btn {
-  cursor: pointer;
-}
-
-.file-upload-row .file-name {
+.file-row .file-name {
   font-size: 0.75rem;
   color: var(--muted);
 }
 
-/* SCROLLBARS ------------------------------------------------ */
+.file-row input[type="file"] {
+  display: none;
+}
+
+/* SCROLLBAR ------------------------------------------------- */
 
 .chat-log::-webkit-scrollbar {
   width: 6px;
@@ -388,7 +361,10 @@ body {
 /* RESPONSIVE ------------------------------------------------ */
 
 @media (max-width: 900px) {
-  .layout {
+  .app-shell {
+    padding: 10px;
+  }
+  .main-grid {
     grid-template-columns: 1fr;
   }
   .video-card video {
@@ -397,14 +373,12 @@ body {
 }
 
 @media (max-width: 600px) {
-  .app-shell {
-    padding: 10px;
-  }
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+    gap: 8px;
   }
-  .call-controls {
-    justify-content: flex-start;
+  .connection-panel {
+    flex-direction: column;
   }
 }
