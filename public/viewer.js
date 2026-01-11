@@ -1,11 +1,11 @@
-// VIEWER - FULL FEATURES + GOOGLE STUN
+// VIEWER - STABLE + AUTO-RETRY
 const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
 let myName = `Viewer-${Math.floor(Math.random()*1000)}`;
 
-// FIX: Force Google STUN
+// FORCE GOOGLE STUN
 const iceConfig = { 
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -41,7 +41,7 @@ socket.on('connect', () => {
 });
 socket.on('disconnect', () => setStatus('Disconnected'));
 
-// 2. VIDEO
+// 2. VIDEO LOGIC
 socket.on('webrtc-offer', async ({ sdp }) => {
   setStatus('Stream Found!');
   if (pc) pc.close();
@@ -54,6 +54,7 @@ socket.on('webrtc-offer', async ({ sdp }) => {
        statusEl.style.background = '#4af3a3';
        statusEl.style.color = '#000';
     }
+    // Attempt Auto-Play
     viewerVideo.play().catch(e => console.log("Autoplay blocked"));
   };
 
@@ -93,11 +94,10 @@ if (toggleChatBtn) toggleChatBtn.addEventListener('click', () => {
     toggleChatBtn.textContent = isHidden ? 'Show Chat' : 'Hide Chat';
 });
 
-// 4. CHAT & EMOJIS (Restored)
+// 4. CHAT
 socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 if (sendBtn) sendBtn.addEventListener('click', sendChat);
 if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
-
 if (emojiStrip) emojiStrip.addEventListener('click', e => {
   if (e.target.classList.contains('emoji')) {
     chatInput.value += e.target.textContent;
