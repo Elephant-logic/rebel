@@ -13,12 +13,8 @@ const room = urlParams.get('room') || 'main';
 
 const iceConfig = { iceServers: ICE_SERVERS || [] };
 
-function setStatus(text, connected) {
-  if (viewerStatusEl) {
-    viewerStatusEl.textContent = text;
-    viewerStatusEl.classList.toggle('status-connected', !!connected);
-    viewerStatusEl.classList.toggle('status-disconnected', !connected);
-  }
+function setStatus(text) {
+  if (viewerStatusEl) viewerStatusEl.textContent = text;
 }
 
 async function ensureConnected() {
@@ -35,7 +31,7 @@ async function joinRoom() {
   const name = `Viewer-${Math.floor(Math.random() * 10000)}`;
   socket.emit('join-room', { room, name });
   if (viewerRoomEl) viewerRoomEl.textContent = `Room: ${room}`;
-  setStatus('Waiting for host…', true);
+  setStatus('Waiting for host…');
 }
 
 async function createPeerConnection() {
@@ -59,17 +55,17 @@ async function createPeerConnection() {
 
   pc.ontrack = (event) => {
     viewerVideo.srcObject = event.streams[0];
-    setStatus('Live', true);
+    setStatus('Live');
   };
 }
 
-async function handleOffer(offer) {
+async function handleOffer({ sdp }) {
   await createPeerConnection();
-  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  socket.emit('webrtc-answer', { room: currentRoom, answer });
-  setStatus('Connected', true);
+  socket.emit('webrtc-answer', { room: currentRoom, answer: pc.localDescription });
+  setStatus('Connected');
 }
 
 function handleIceCandidate(candidate) {
@@ -80,13 +76,13 @@ function handleIceCandidate(candidate) {
   }
 }
 
-socket.on('connect', () => setStatus('Connected to server', true));
-socket.on('disconnect', () => setStatus('Disconnected', false));
+socket.on('connect', () => setStatus('Connected to signal server'));
+socket.on('disconnect', () => setStatus('Disconnected'));
 
-socket.on('webrtc-offer', ({ offer }) => {
-  handleOffer(offer).catch(err => {
+socket.on('webrtc-offer', (payload) => {
+  handleOffer(payload).catch(err => {
     console.error('Viewer offer error', err);
-    setStatus('Error receiving stream', false);
+    setStatus('Error receiving stream');
   });
 });
 
@@ -96,5 +92,5 @@ socket.on('webrtc-ice-candidate', ({ candidate }) => {
 
 joinRoom().catch(err => {
   console.error('Viewer join error', err);
-  setStatus('Error joining room', false);
+  setStatus('Error joining room');
 });
