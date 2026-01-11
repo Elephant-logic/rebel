@@ -1,4 +1,4 @@
-// VIEWER – RECONNECTABLE
+// REBEL STREAM VIEWER (STATUS + FULLSCREEN FIXED)
 const socket = io({ autoConnect: false });
 
 let pc = null;
@@ -15,18 +15,19 @@ const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
     };
 
 // DOM
-const viewerVideo      = document.getElementById('viewerVideo');
-const viewerStatus     = document.getElementById('viewerStatus');
-const viewerStatusMirror = document.getElementById('viewerStatusMirror');
-const toggleChatBtn    = document.getElementById('toggleChatBtn');
-const unmuteBtn        = document.getElementById('unmuteBtn');
-const fullscreenBtn    = document.getElementById('fullscreenBtn');
+const viewerVideo       = document.getElementById('viewerVideo');
+const videoContainer    = document.getElementById('videoContainer');
+const viewerStatus      = document.getElementById('viewerStatus');
+const viewerStatusMirror= document.getElementById('viewerStatusMirror');
+const toggleChatBtn     = document.getElementById('toggleChatBtn');
+const unmuteBtn         = document.getElementById('unmuteBtn');
+const fullscreenBtn     = document.getElementById('fullscreenBtn');
 
-const chatLog          = document.getElementById('chatLog');
-const chatInput        = document.getElementById('chatInput');
-const sendBtn          = document.getElementById('sendBtn');
-const emojiStrip       = document.getElementById('emojiStrip');
-const chatSection      = document.querySelector('.chat-section');
+const chatLog           = document.getElementById('chatLog');
+const chatInput         = document.getElementById('chatInput');
+const sendBtn           = document.getElementById('sendBtn');
+const emojiStrip        = document.getElementById('emojiStrip');
+const chatSection       = document.querySelector('.chat-section');
 
 let muted = true;
 let chatVisible = true;
@@ -41,11 +42,15 @@ function appendChat(name, text, ts = Date.now()) {
   if (!chatLog) return;
   const line = document.createElement('div');
   line.className = 'chat-line';
-  const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = new Date(ts).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
   const who = name === 'You'
     ? `<span style="color:#4af3a3">${name}</span>`
     : `<strong>${name}</strong>`;
-  line.innerHTML = `${who} <small>${t}</small>: ${text}`;
+
+  line.innerHTML = `${who} <small>${time}</small>: ${text}`;
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
@@ -56,8 +61,8 @@ async function createViewerPC() {
   }
   pc = new RTCPeerConnection(iceConfig);
 
-  pc.ontrack = (ev) => {
-    const stream = ev.streams[0];
+  pc.ontrack = (event) => {
+    const stream = event.streams[0];
     if (viewerVideo) {
       viewerVideo.srcObject = stream;
       viewerVideo.muted = muted;
@@ -74,11 +79,12 @@ async function createViewerPC() {
     }
   };
 
+  // Don’t aggressively flip to "Disconnected" if we already have video
   pc.onconnectionstatechange = () => {
     if (!pc) return;
-    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+    if ((pc.connectionState === 'failed' || pc.connectionState === 'disconnected')
+        && (!viewerVideo || !viewerVideo.srcObject)) {
       setStatus('Disconnected');
-      // we don't auto-recreate here; host will send a new offer when ready
     }
   };
 
@@ -87,6 +93,7 @@ async function createViewerPC() {
 
 // ---------- Socket events ----------
 socket.on('connect', () => {
+  // Socket up, just waiting for host’s offer
   setStatus('Waiting for stream…');
 });
 
@@ -120,16 +127,16 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   try {
     await pc.addIceCandidate(new RTCIceCandidate(candidate));
   } catch (e) {
-    console.error('Viewer ICE add error:', e);
+    console.error('Viewer ICE error:', e);
   }
 });
 
-// Chat from host / other viewers
+// Chat from host / others
 socket.on('chat-message', ({ name, text, ts }) => {
   appendChat(name, text, ts);
 });
 
-// ---------- UI ----------
+// ---------- UI events ----------
 if (unmuteBtn) {
   unmuteBtn.addEventListener('click', () => {
     muted = !muted;
@@ -170,7 +177,9 @@ function sendChat() {
   chatInput.value = '';
 }
 
-if (sendBtn) sendBtn.addEventListener('click', sendChat);
+if (sendBtn) {
+  sendBtn.addEventListener('click', sendChat);
+}
 if (chatInput) {
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChat();
