@@ -28,6 +28,7 @@ const toggleCamBtn = document.getElementById('toggleCamBtn');
 const toggleMicBtn = document.getElementById('toggleMicBtn');
 const shareScreenBtn = document.getElementById('shareScreenBtn');
 const streamLinkInput = document.getElementById('streamLinkInput');
+const openStreamBtn = document.getElementById('openStreamBtn');
 
 // WebRTC vars
 let pc = null;
@@ -376,4 +377,20 @@ function appendSystem(text) {
   line.textContent = text;
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+
+if (openStreamBtn) {
+  openStreamBtn.addEventListener('click', () => {
+    if (!streamLinkInput || !streamLinkInput.value) {
+      alert('Join a room first to generate the stream link.');
+      return;
+    }
+    try {
+      window.open(streamLinkInput.value, '_blank');
+    } catch (err) {
+      console.error('Could not open stream link', err);
+      alert('Copy the link and open it in a new tab.');
+    }
+  });
 }
