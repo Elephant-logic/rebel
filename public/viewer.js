@@ -2,7 +2,6 @@
 const socket = io({ autoConnect: false });
 
 let pc = null;
-let isViewer = true;
 let currentRoom = null;
 
 const viewerVideo = document.getElementById('viewerVideo');
@@ -14,8 +13,12 @@ const room = urlParams.get('room') || 'main';
 
 const iceConfig = { iceServers: ICE_SERVERS || [] };
 
-function setStatus(text) {
-  if (viewerStatusEl) viewerStatusEl.textContent = text;
+function setStatus(text, connected) {
+  if (viewerStatusEl) {
+    viewerStatusEl.textContent = text;
+    viewerStatusEl.classList.toggle('status-connected', !!connected);
+    viewerStatusEl.classList.toggle('status-disconnected', !connected);
+  }
 }
 
 async function ensureConnected() {
@@ -32,7 +35,7 @@ async function joinRoom() {
   const name = `Viewer-${Math.floor(Math.random() * 10000)}`;
   socket.emit('join-room', { room, name });
   if (viewerRoomEl) viewerRoomEl.textContent = `Room: ${room}`;
-  setStatus('Waiting for host…');
+  setStatus('Waiting for host…', true);
 }
 
 async function createPeerConnection() {
@@ -56,7 +59,7 @@ async function createPeerConnection() {
 
   pc.ontrack = (event) => {
     viewerVideo.srcObject = event.streams[0];
-    setStatus('Live');
+    setStatus('Live', true);
   };
 }
 
@@ -66,7 +69,7 @@ async function handleOffer(offer) {
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   socket.emit('webrtc-answer', { room: currentRoom, answer });
-  setStatus('Connected');
+  setStatus('Connected', true);
 }
 
 function handleIceCandidate(candidate) {
@@ -77,13 +80,13 @@ function handleIceCandidate(candidate) {
   }
 }
 
-socket.on('connect', () => setStatus('Connected to signal server'));
-socket.on('disconnect', () => setStatus('Disconnected'));
+socket.on('connect', () => setStatus('Connected to server', true));
+socket.on('disconnect', () => setStatus('Disconnected', false));
 
 socket.on('webrtc-offer', ({ offer }) => {
   handleOffer(offer).catch(err => {
     console.error('Viewer offer error', err);
-    setStatus('Error receiving stream');
+    setStatus('Error receiving stream', false);
   });
 });
 
@@ -93,5 +96,5 @@ socket.on('webrtc-ice-candidate', ({ candidate }) => {
 
 joinRoom().catch(err => {
   console.error('Viewer join error', err);
-  setStatus('Error joining room');
+  setStatus('Error joining room', false);
 });
