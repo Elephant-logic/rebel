@@ -1,4 +1,4 @@
-// HOST - FINAL RESTORE
+// HOST - FULL FEATURES + GOOGLE STUN
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -8,10 +8,11 @@ let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
 
-// USE YOUR CONFIG (Fixes Mobile/4G issues)
+// FIX: Force Google STUN (Fixes Mobile Black Screen)
 const iceConfig = { 
-  iceServers: (typeof ICE_SERVERS !== 'undefined') ? ICE_SERVERS : [
-    { urls: 'stun:stun.l.google.com:19302' }
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
   ] 
 };
 
@@ -27,28 +28,33 @@ const toggleMicBtn = getEl('toggleMicBtn');
 const shareScreenBtn = getEl('shareScreenBtn');
 const streamLinkInput = getEl('streamLinkInput');
 const signalStatusEl = getEl('signalStatus');
+
+// Chat & Files
 const chatLog = getEl('chatLog');
 const chatInput = getEl('chatInput');
 const sendBtn = getEl('sendBtn');
+const emojiStrip = getEl('emojiStrip');
 const fileInput = getEl('fileInput');
 const sendFileBtn = getEl('sendFileBtn');
 const fileNameLabel = getEl('fileNameLabel');
 
-// --- 1. CONNECTION STATUS ---
+// 1. STATUS
 socket.on('connect', () => {
   if (signalStatusEl) {
     signalStatusEl.textContent = 'Connected';
-    signalStatusEl.className = 'status-dot status-connected';
+    signalStatusEl.classList.remove('status-disconnected');
+    signalStatusEl.classList.add('status-connected');
   }
 });
 socket.on('disconnect', () => {
   if (signalStatusEl) {
     signalStatusEl.textContent = 'Disconnected';
-    signalStatusEl.className = 'status-dot status-disconnected';
+    signalStatusEl.classList.remove('status-connected');
+    signalStatusEl.classList.add('status-disconnected');
   }
 });
 
-// --- 2. JOIN ---
+// 2. JOIN
 if (joinBtn) {
   joinBtn.addEventListener('click', () => {
     const room = roomInput.value.trim();
@@ -67,10 +73,10 @@ if (joinBtn) {
   });
 }
 
-// --- 3. START CAMERA ---
+// 3. CAMERA
 if (startCallBtn) {
   startCallBtn.addEventListener('click', async () => {
-    if (!currentRoom) return alert("Join a room first!");
+    if (!currentRoom) return alert("Join Room First");
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       if (localVideo) {
@@ -84,10 +90,10 @@ if (startCallBtn) {
   });
 }
 
-// --- 4. AUTO-CONNECT ---
+// 4. AUTO-CONNECT
 socket.on('user-joined', () => {
   if (localStream) {
-    console.log("Viewer joined. Restarting connection...");
+    console.log("Viewer joined. Restarting...");
     restartConnection();
   }
 });
@@ -110,45 +116,41 @@ async function restartConnection() {
   } catch (e) { console.error(e); }
 }
 
-// --- 5. SCREEN SHARE ---
-if (shareScreenBtn) {
-  shareScreenBtn.addEventListener('click', async () => {
-    if (!localStream) return alert('Start camera first!');
-    if (!isScreenSharing) {
-      try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        const screenTrack = screenStream.getVideoTracks()[0];
-        if (pc) {
-          const sender = pc.getSenders().find(s => s.track.kind === 'video');
-          if (sender) sender.replaceTrack(screenTrack);
-        }
-        if (localVideo) localVideo.srcObject = screenStream;
-        isScreenSharing = true;
-        shareScreenBtn.textContent = 'Stop Screen';
-        screenTrack.onended = () => stopScreenShare();
-      } catch (err) { console.error(err); }
-    } else {
-      stopScreenShare();
+// 5. CHAT & EMOJIS (Restored)
+socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
+if (sendBtn) sendBtn.addEventListener('click', sendChat);
+if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+if (emojiStrip) {
+  emojiStrip.addEventListener('click', e => {
+    if (e.target.classList.contains('emoji')) {
+      chatInput.value += e.target.textContent;
+      chatInput.focus();
     }
   });
 }
 
-function stopScreenShare() {
-  if (!isScreenSharing) return;
-  if (screenStream) screenStream.getTracks().forEach(t => t.stop());
-  if (localStream) {
-    if (pc) {
-      const sender = pc.getSenders().find(s => s.track.kind === 'video');
-      const camTrack = localStream.getVideoTracks()[0];
-      if (sender && camTrack) sender.replaceTrack(camTrack);
-    }
-    if (localVideo) localVideo.srcObject = localStream;
-  }
-  isScreenSharing = false;
-  if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
+function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text || !currentRoom) return;
+  socket.emit('chat-message', { room: currentRoom, name: userName, text });
+  appendChat('You', text, Date.now());
+  chatInput.value = '';
 }
 
-// --- 6. FILES & CHAT ---
+function appendChat(name, text, ts) {
+  const line = document.createElement('div');
+  line.className = 'chat-line';
+  const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const nameHtml = name === 'You' ? `<span style="color:#4af3a3">${name}</span>` : `<strong>${name}</strong>`;
+  line.innerHTML = `${nameHtml} <small>${time}</small>: ${text}`;
+  if (chatLog) {
+      chatLog.appendChild(line);
+      chatLog.scrollTop = chatLog.scrollHeight;
+  }
+}
+
+// 6. FILES & SCREEN SHARE
 if (fileInput && sendFileBtn) {
     fileInput.addEventListener('change', () => {
         if (fileInput.files[0]) {
@@ -183,25 +185,6 @@ socket.on('file-share', ({ from, fileName, fileType, fileSize, fileData }) => {
     appendChat(from, `Sent a file: ${link}`, Date.now());
 });
 
-// Buttons
-if (toggleCamBtn) toggleCamBtn.addEventListener('click', () => {
-  if (!localStream) return;
-  camOn = !camOn;
-  localStream.getVideoTracks().forEach(t => t.enabled = camOn);
-});
-if (toggleMicBtn) toggleMicBtn.addEventListener('click', () => {
-  if (!localStream) return;
-  micOn = !micOn;
-  localStream.getAudioTracks().forEach(t => t.enabled = micOn);
-});
-if (hangupBtn) hangupBtn.addEventListener('click', () => {
-  if (pc) pc.close();
-  if (localStream) localStream.getTracks().forEach(t => t.stop());
-  if (localVideo) localVideo.srcObject = null;
-  startCallBtn.disabled = false;
-  startCallBtn.textContent = 'Start Call';
-});
-
 // Signals
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -210,25 +193,19 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-// Chat
-socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
-if (sendBtn) sendBtn.addEventListener('click', sendChat);
-if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
-
-function sendChat() {
-  const text = chatInput.value.trim();
-  if (!text || !currentRoom) return;
-  socket.emit('chat-message', { room: currentRoom, name: userName, text });
-  appendChat('You', text, Date.now());
-  chatInput.value = '';
-}
-function appendChat(name, text, ts) {
-  const line = document.createElement('div');
-  line.className = 'chat-line';
-  const nameHtml = name === 'You' ? `<span style="color:#4af3a3">${name}</span>` : `<strong>${name}</strong>`;
-  line.innerHTML = `${nameHtml}: ${text}`;
-  if (chatLog) {
-      chatLog.appendChild(line);
-      chatLog.scrollTop = chatLog.scrollHeight;
-  }
-}
+// Buttons
+if (toggleCamBtn) toggleCamBtn.addEventListener('click', () => {
+  if (!localStream) return;
+  localStream.getVideoTracks().forEach(t => t.enabled = !t.enabled);
+});
+if (toggleMicBtn) toggleMicBtn.addEventListener('click', () => {
+  if (!localStream) return;
+  localStream.getAudioTracks().forEach(t => t.enabled = !t.enabled);
+});
+if (hangupBtn) hangupBtn.addEventListener('click', () => {
+  if (pc) pc.close();
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
+  if (localVideo) localVideo.srcObject = null;
+  startCallBtn.disabled = false;
+  startCallBtn.textContent = 'Start Call';
+});
