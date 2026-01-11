@@ -1,4 +1,4 @@
-// HOST CLIENT - FIXED STREAM & CHAT
+// HOST CLIENT - FINAL WORKING VERSION
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -10,10 +10,11 @@ let isScreenSharing = false;
 let camOn = true;
 let micOn = true;
 
-// FIX: Use the servers from ice.js if available, otherwise fallback
+// FIX: Force Google STUN (The setting that worked)
 const iceConfig = { 
-  iceServers: (typeof ICE_SERVERS !== 'undefined') ? ICE_SERVERS : [
-    { urls: 'stun:stun.l.google.com:19302' }
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
   ] 
 };
 
