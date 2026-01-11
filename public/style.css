@@ -274,6 +274,33 @@ video {
   padding: 6px 8px 8px;
 }
 
+/* Host / presence bar */
+
+.presence-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  background: rgba(15, 21, 41, 0.8);
+  border: 1px solid var(--border);
+}
+
+.presence-host {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.presence-host .crown {
+  font-size: 0.9rem;
+}
+
+/* Chat header / tabs */
+
 .chat-header {
   display: flex;
   justify-content: space-between;
