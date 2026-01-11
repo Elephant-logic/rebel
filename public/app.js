@@ -5,57 +5,69 @@ const socket = io({ autoConnect: false });
 
 // elements
 const $ = id => document.getElementById(id);
-const nameInput = $('nameInput');
-const roomInput = $('roomInput');
-const joinBtn = $('joinBtn');
-const leaveBtn = $('leaveBtn');
-const startCallBtn = $('startCallBtn');
-const shareScreenBtn = $('shareScreenBtn');
-const hangupBtn = $('hangupBtn');
-const toggleCamBtn = $('toggleCamBtn');
-const toggleMicBtn = $('toggleMicBtn');
-const openStreamBtn = $('openStreamBtn');
+const nameInput       = $('nameInput');
+const roomInput       = $('roomInput');
+const joinBtn         = $('joinBtn');
+const leaveBtn        = $('leaveBtn');
+const startCallBtn    = $('startCallBtn');
+const startStreamBtn  = $('startStreamBtn');
+const shareScreenBtn  = $('shareScreenBtn');
+const hangupBtn       = $('hangupBtn');
+const toggleCamBtn    = $('toggleCamBtn');
+const toggleMicBtn    = $('toggleMicBtn');
+const openStreamBtn   = $('openStreamBtn');
 const streamLinkInput = $('streamLinkInput');
-const signalStatus = $('signalStatus');
-const roomInfo = $('roomInfo');
-const userListEl = $('userList');
-const peerTilesEl = $('peerTiles');
-const localVideo = $('localVideo');
-const focusVideo = $('focusVideo');
-const focusLabel = $('focusLabel');
-const chatLog = $('chatLog');
-const chatInput = $('chatInput');
-const sendBtn = $('sendBtn');
-const fileInput = $('fileInput');
-const sendFileBtn = $('sendFileBtn');
-const fileNameLabel = $('fileNameLabel');
-const emojiStrip = $('emojiStrip');
+const signalStatus    = $('signalStatus');
+const roomInfo        = $('roomInfo');
+const userListEl      = $('userList');
+const peerTilesEl     = $('peerTiles');
+const localVideo      = $('localVideo');
+const focusVideo      = $('focusVideo');
+const focusLabel      = $('focusLabel');
+const chatLog         = $('chatLog');
+const chatInput       = $('chatInput');
+const sendBtn         = $('sendBtn');
+const fileInput       = $('fileInput');
+const sendFileBtn     = $('sendFileBtn');
+const fileNameLabel   = $('fileNameLabel');
+const emojiStrip      = $('emojiStrip');
 
 // state
-let currentRoom = null;
-let userName = null;
-let localStream = null;
-let screenStream = null;
-let camEnabled = true;
-let micEnabled = true;
+let currentRoom   = null;
+let userName      = null;
+let localStream   = null;
+let screenStream  = null;
+let camEnabled    = true;
+let micEnabled    = true;
 let isScreenSharing = false;
 
 const peers = {}; // id -> { pc, stream, name }
 let focusedPeerId = null;
 
 let streamRoom = null;
-let streamPC = null;
+let streamPC   = null;
+let streaming  = false; // <--- NEW: stream toggle
 
+// ringing
+let audioCtx        = null;
+let ringOsc         = null;
+let ringGain        = null;
+let ringTimeoutId   = null;
+
+// ICE config
 const iceConfig = {
   iceServers: (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
     ? ICE_SERVERS
     : [{ urls: 'stun:stun.l.google.com:19302' }]
 };
 
-// helpers
+// =====================================
+// Helpers
+// =====================================
 function setSignal(ok) {
   signalStatus.textContent = ok ? 'Connected' : 'Disconnected';
-  signalStatus.className = ok ? 'status-dot status-connected' : 'status-dot status-disconnected';
+  signalStatus.className   = ok ? 'status-dot status-connected'
+                                : 'status-dot status-disconnected';
 }
 
 function addChatLine(name, text) {
@@ -75,7 +87,6 @@ async function getLocalStream() {
   return localStream;
 }
 
-// user list
 function renderUsers(users) {
   userListEl.innerHTML = '';
   users.forEach(u => {
@@ -96,7 +107,54 @@ function renderUsers(users) {
   });
 }
 
-// peer connections
+// ========== Ringing ==========
+function startRinging() {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (ringOsc) return; // already ringing
+
+    ringOsc = audioCtx.createOscillator();
+    ringGain = audioCtx.createGain();
+    ringOsc.type = 'sine';
+    ringOsc.frequency.value = 650; // simple beep
+    ringGain.gain.value = 0.15;
+
+    ringOsc.connect(ringGain).connect(audioCtx.destination);
+    ringOsc.start();
+
+    // safety stop after 6s
+    if (ringTimeoutId) clearTimeout(ringTimeoutId);
+    ringTimeoutId = setTimeout(stopRinging, 6000);
+  } catch (e) {
+    console.warn('Ringing error:', e);
+  }
+}
+
+function stopRinging() {
+  try {
+    if (ringOsc) {
+      ringOsc.stop();
+      ringOsc.disconnect();
+      ringOsc = null;
+    }
+    if (ringGain) {
+      ringGain.disconnect();
+      ringGain = null;
+    }
+    if (ringTimeoutId) {
+      clearTimeout(ringTimeoutId);
+      ringTimeoutId = null;
+    }
+  } catch (e) {
+    console.warn('Stop ringing error:', e);
+  }
+}
+
+// =====================================
+// Peer connections
+// =====================================
 function createPeerConnection(peerId, peerName) {
   const pc = new RTCPeerConnection(iceConfig);
 
@@ -161,15 +219,21 @@ async function callPeer(peerId, peerName) {
   if (!peers[peerId].pc) peers[peerId].pc = createPeerConnection(peerId, peerName);
 
   const pc = peers[peerId].pc;
+
+  // outgoing ring
+  startRinging();
+
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
   socket.emit('webrtc-offer-call', { targetId: peerId, sdp: offer });
 }
 
-// broadcast to viewers
+// =====================================
+// Broadcast to viewers (stream)
+// =====================================
 async function broadcastFocused() {
-  if (!currentRoom) return;
+  if (!currentRoom || !streaming) return;
 
   let stream = null;
   if (focusedPeerId && peers[focusedPeerId] && peers[focusedPeerId].stream) {
@@ -185,7 +249,10 @@ async function broadcastFocused() {
     streamPC = new RTCPeerConnection(iceConfig);
     streamPC.onicecandidate = e => {
       if (e.candidate) {
-        socket.emit('webrtc-ice-stream', { candidate: e.candidate, streamRoom });
+        socket.emit('webrtc-ice-stream', {
+          candidate: e.candidate,
+          streamRoom
+        });
       }
     };
   } else {
@@ -196,11 +263,12 @@ async function broadcastFocused() {
 
   const offer = await streamPC.createOffer();
   await streamPC.setLocalDescription(offer);
-
   socket.emit('webrtc-offer-stream', { sdp: offer, streamRoom });
 }
 
+// =====================================
 // UI events
+// =====================================
 joinBtn.onclick = async () => {
   const room = roomInput.value.trim();
   userName = nameInput.value.trim() || `User-${String(Math.random()).slice(2,6)}`;
@@ -214,8 +282,7 @@ joinBtn.onclick = async () => {
   leaveBtn.disabled = false;
   roomInfo.textContent = `Room: ${room}`;
 
-  await getLocalStream();         // cam on when joining
-  broadcastFocused();             // start broadcast
+  await getLocalStream(); // cam on, but NOT streaming yet
 
   streamRoom = `stream-${room}`;
   streamLinkInput.value = `${location.origin}/view.html?room=${room}`;
@@ -227,6 +294,20 @@ startCallBtn.onclick = async () => {
   await getLocalStream();
   startCallBtn.disabled = true;
   hangupBtn.disabled = false;
+};
+
+startStreamBtn.onclick = () => {
+  streaming = !streaming;
+  startStreamBtn.textContent = streaming ? 'Stop Stream' : 'Start Stream';
+
+  if (!streaming) {
+    if (streamPC) {
+      try { streamPC.close(); } catch (e) {}
+      streamPC = null;
+    }
+    return;
+  }
+
   broadcastFocused();
 };
 
@@ -245,8 +326,16 @@ hangupBtn.onclick = () => {
     screenStream = null;
   }
 
+  if (streamPC) {
+    try { streamPC.close(); } catch (e) {}
+    streamPC = null;
+  }
+
+  streaming = false;
+  startStreamBtn.textContent = 'Start Stream';
   startCallBtn.disabled = false;
   hangupBtn.disabled = true;
+  stopRinging();
 };
 
 shareScreenBtn.onclick = async () => {
@@ -326,13 +415,19 @@ sendFileBtn.onclick = () => {
   sendFileBtn.disabled = true;
 };
 
-// socket handlers
+// =====================================
+// Socket events
+// =====================================
 socket.on('connect', () => setSignal(true));
 socket.on('disconnect', () => setSignal(false));
 
 socket.on('room-users', renderUsers);
 
+// incoming offer (ring here)
 socket.on('webrtc-offer-call', async ({ fromId, sdp }) => {
+  // incoming ring
+  startRinging();
+
   await getLocalStream();
   const peerName = '[Peer]';
   if (!peers[fromId]) peers[fromId] = { pc: null, stream: null, name: peerName };
@@ -345,6 +440,9 @@ socket.on('webrtc-offer-call', async ({ fromId, sdp }) => {
 
   socket.emit('webrtc-answer-call', { targetId: fromId, sdp: ans });
   focusPeer(fromId);
+
+  // stop ring once we’ve answered
+  stopRinging();
 });
 
 socket.on('webrtc-answer-call', async ({ fromId, sdp }) => {
@@ -352,6 +450,8 @@ socket.on('webrtc-answer-call', async ({ fromId, sdp }) => {
   if (entry && entry.pc) {
     await entry.pc.setRemoteDescription(new RTCSessionDescription(sdp));
   }
+  // stop outgoing ring when they answer
+  stopRinging();
 });
 
 socket.on('webrtc-ice-call', async ({ fromId, candidate }) => {
@@ -361,7 +461,7 @@ socket.on('webrtc-ice-call', async ({ fromId, candidate }) => {
   }
 });
 
-// viewer joined → (re)broadcast
+// viewer joined → (re)broadcast if streaming
 socket.on('viewer-joined', () => {
   broadcastFocused();
 });
