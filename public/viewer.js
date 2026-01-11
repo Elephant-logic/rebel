@@ -1,171 +1,119 @@
-// VIEWER – STREAM + CHAT
-const socket = io({ autoConnect: false });
+const socket = io();
 
-let pc = null;
-let currentRoom = null;
-let myName = `Viewer-${Math.floor(Math.random() * 1000)}`;
+// figure out room from /view.html?room=xxx or /room/xxx
+const url = new URL(window.location.href);
+let roomId;
 
-// Use ICE_SERVERS from config/ice.js if available
-const iceConfig = {
-  iceServers: (typeof ICE_SERVERS !== "undefined" && ICE_SERVERS.length)
-    ? ICE_SERVERS
-    : [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" }
-      ]
-};
+if (url.pathname.startsWith("/room/")) {
+  roomId = url.pathname.split("/").pop();
+} else {
+  roomId = url.searchParams.get("room") || "default";
+}
 
-// Elements from view.html
-const viewerVideo  = document.getElementById("viewerVideo");
-const statusEl     = document.getElementById("statusText");
-const chatLog      = document.getElementById("chatLog");
-const chatInput    = document.getElementById("chatInput");
-const sendBtn      = document.getElementById("sendBtn");
-const emojiStrip   = document.getElementById("emojiStrip");
-const hideChatBtn  = document.getElementById("hideChatBtn");
-const muteBtn      = document.getElementById("muteBtn");
+const name = url.searchParams.get("name") || "Viewer";
 
-// ---- ROOM SETUP ----
-(function initRoom() {
-  const url = new URL(window.location.href);
-  const room = url.searchParams.get("room") || "default";
-  const name = url.searchParams.get("name") || myName;
-  currentRoom = room;
-  myName = name;
+const vRoomLabel = document.getElementById("vRoomLabel");
+const vViewerCount = document.getElementById("vViewerCount");
+const vMsgs = document.getElementById("vMsgs");
+const vMsg = document.getElementById("vMsg");
+const vSend = document.getElementById("vSend");
+const waitingMsg = document.getElementById("waitingMsg");
+const streamVideo = document.getElementById("streamVideo");
 
-  const roomTitle = document.getElementById("roomTitle");
-  if (roomTitle) roomTitle.textContent = `Room: ${currentRoom}`;
+vRoomLabel.textContent = `Room: ${roomId}`;
 
-  setStatus(`Connecting to room: ${currentRoom}...`);
+// join as viewer
+socket.emit("join-room", { roomId, name });
 
-  socket.connect();
-  socket.emit("join-room", { room: currentRoom, name: myName });
+socket.on("room-locked", () => {
+  alert("This room is locked by the host.");
+  document.body.innerHTML = "<h1>Room Locked</h1>";
+});
 
-  // VERY IMPORTANT: tell host we need a fresh stream offer
-  socket.emit("stream-hello", { room: currentRoom });
-})();
+socket.on("viewer-count", (count) => {
+  vViewerCount.textContent = `${count} watching`;
+});
 
-// ---- WEBRTC HANDLING ----
-async function ensurePc() {
-  if (pc) return pc;
-  pc = new RTCPeerConnection(iceConfig);
+// ask host for stream once we know we're viewer
+socket.on("role", (r) => {
+  if (r === "viewer") {
+    console.log("Asking host for stream");
+    socket.emit("viewer-wants-stream");
+  }
+});
 
-  pc.ontrack = (event) => {
-    const [stream] = event.streams;
-    if (viewerVideo) {
-      viewerVideo.srcObject = stream;
-      viewerVideo.play().catch(() => {});
-    }
-    setStatus("Live");
+// --- CHAT ---
+
+function appendChat(html) {
+  const div = document.createElement("div");
+  div.className = "chat-line";
+  div.innerHTML = html;
+  vMsgs.appendChild(div);
+  vMsgs.scrollTop = vMsgs.scrollHeight;
+}
+
+vSend.onclick = () => sendChat();
+vMsg.addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+
+function sendChat() {
+  const text = vMsg.value.trim();
+  if (!text) return;
+  socket.emit("chat", { text });
+  vMsg.value = "";
+}
+
+socket.on("chat", msg => {
+  const who = msg.from === socket.id ? "You" : msg.from.slice(0, 5);
+  const t = new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  appendChat(
+    `<span class="meta">${who}</span><span class="meta">${t}</span>${msg.text}`
+  );
+});
+
+// --- WEBRTC RECEIVER ---
+
+let pc;
+const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+
+socket.on("webrtc-offer", async ({ from, description, kind }) => {
+  if (kind !== "stream") return;
+
+  waitingMsg.style.display = "none";
+
+  pc = new RTCPeerConnection({ iceServers });
+
+  pc.ontrack = (e) => {
+    streamVideo.srcObject = e.streams[0];
   };
 
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit("webrtc-ice-candidate", {
-        room: currentRoom,
-        candidate: event.candidate
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      socket.emit("webrtc-ice", {
+        to: from,
+        candidate: e.candidate,
+        kind: "stream"
       });
     }
   };
 
-  return pc;
-}
+  await pc.setRemoteDescription(description);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
 
-socket.on("webrtc-offer", async ({ room, sdp }) => {
-  if (room !== currentRoom) return;
-
-  try {
-    const pcLocal = await ensurePc();
-    await pcLocal.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pcLocal.createAnswer();
-    await pcLocal.setLocalDescription(answer);
-    socket.emit("webrtc-answer", {
-      room: currentRoom,
-      sdp: pcLocal.localDescription
-    });
-  } catch (err) {
-    console.error("Error handling offer:", err);
-    setStatus("Error connecting");
-  }
+  socket.emit("webrtc-answer", {
+    to: from,
+    description: pc.localDescription,
+    kind: "stream"
+  });
 });
 
-socket.on("webrtc-ice-candidate", async ({ room, candidate }) => {
-  if (room !== currentRoom || !pc || !candidate) return;
-  try {
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  } catch (err) {
-    console.error("ICE error:", err);
-  }
+socket.on("webrtc-ice", async ({ from, candidate, kind }) => {
+  if (kind !== "stream") return;
+  if (!pc) return;
+  await pc.addIceCandidate(candidate);
 });
 
-// If host leaves / room empties you could listen for user-left here if you want
-
-// ---- CHAT ----
-if (sendBtn) sendBtn.addEventListener("click", sendChat);
-if (chatInput) {
-  chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") sendChat();
-  });
-}
-if (emojiStrip && chatInput) {
-  emojiStrip.addEventListener("click", (e) => {
-    if (!e.target.classList.contains("emoji")) return;
-    chatInput.value += e.target.textContent;
-    chatInput.focus();
-  });
-}
-
-function sendChat() {
-  const text = chatInput.value.trim();
-  if (!text || !currentRoom) return;
-  const ts = Date.now();
-  socket.emit("chat-message", { room: currentRoom, name: myName, text, ts });
-  appendChat("You", text, ts);
-  chatInput.value = "";
-}
-
-socket.on("chat-message", ({ name, text, ts }) => {
-  appendChat(name || "Host", text, ts);
+socket.on("room-ended", () => {
+  alert("Broadcast ended.");
+  location.reload();
 });
-
-function appendChat(name, text, ts) {
-  if (!chatLog) return;
-  const line = document.createElement("div");
-  line.className = "chat-line";
-
-  const time = new Date(ts || Date.now()).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-
-  const who = name === "You"
-    ? `<span class="meta">You</span>`
-    : `<span class="meta">${name}</span>`;
-
-  line.innerHTML = `${who} <span class="meta">${time}</span> ${text}`;
-  chatLog.appendChild(line);
-  chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-// ---- SIMPLE UI CONTROLS (Hide chat / mute) ----
-if (hideChatBtn && chatLog) {
-  const chatWrapper = document.getElementById("chatWrapper");
-  hideChatBtn.addEventListener("click", () => {
-    const hidden = chatWrapper.classList.toggle("hidden");
-    hideChatBtn.textContent = hidden ? "Show Chat" : "Hide Chat";
-  });
-}
-
-if (muteBtn && viewerVideo) {
-  viewerVideo.muted = true;
-  muteBtn.textContent = "Unmute";
-  muteBtn.addEventListener("click", () => {
-    viewerVideo.muted = !viewerVideo.muted;
-    muteBtn.textContent = viewerVideo.muted ? "Unmute" : "Mute";
-  });
-}
-
-// ---- STATUS HELPER ----
-function setStatus(text) {
-  if (statusEl) statusEl.textContent = text;
-}
