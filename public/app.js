@@ -26,12 +26,15 @@ const startCallBtn = document.getElementById('startCallBtn');
 const hangupBtn = document.getElementById('hangupBtn');
 const toggleCamBtn = document.getElementById('toggleCamBtn');
 const toggleMicBtn = document.getElementById('toggleMicBtn');
+const shareScreenBtn = document.getElementById('shareScreenBtn');
 
 // WebRTC vars
 let pc = null;
 let localStream = null;
 let camOn = true;
 let micOn = true;
+let screenStream = null;
+let isScreenSharing = false;
 
 socket.on('connect', () => setSignalStatus(true));
 socket.on('disconnect', () => setSignalStatus(false));
@@ -210,6 +213,60 @@ toggleMicBtn.addEventListener('click', () => {
   localStream.getAudioTracks().forEach(t => t.enabled = micOn);
   toggleMicBtn.textContent = micOn ? 'Mute' : 'Unmute';
 });
+
+shareScreenBtn.addEventListener('click', async () => {
+  if (!pc || !localStream) {
+    alert('Start a call before sharing your screen');
+    return;
+  }
+
+  if (!isScreenSharing) {
+    try {
+      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if (sender && screenTrack) {
+        await sender.replaceTrack(screenTrack);
+      }
+      screenTrack.onended = () => {
+        stopScreenShare();
+      };
+      localVideo.srcObject = screenStream;
+      isScreenSharing = true;
+      shareScreenBtn.textContent = 'Stop Screen';
+    } catch (err) {
+      console.error('Screen share error', err);
+      alert('Could not start screen share');
+    }
+  } else {
+    stopScreenShare();
+  }
+});
+
+function stopScreenShare() {
+  if (!isScreenSharing) return;
+
+  if (screenStream) {
+    screenStream.getTracks().forEach(t => t.stop());
+    screenStream = null;
+  }
+
+  // revert back to camera video if we still have it
+  if (localStream) {
+    const camTrack = localStream.getVideoTracks()[0];
+    const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'video');
+    if (sender && camTrack) {
+      sender.replaceTrack(camTrack);
+    }
+    localVideo.srcObject = localStream;
+  } else {
+    localVideo.srcObject = null;
+  }
+
+  isScreenSharing = false;
+  shareScreenBtn.textContent = 'Share Screen';
+}
+
 
 async function createPeerConnection(isCaller) {
   if (pc) endCall();
