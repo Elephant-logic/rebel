@@ -36,7 +36,6 @@ html, body {
   padding: 12px;
 }
 
-/* TOP BAR */
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -89,7 +88,6 @@ html, body {
   color: var(--muted);
 }
 
-/* JOIN PANEL */
 .connection-panel {
   margin-top: 12px;
   display: flex;
@@ -117,7 +115,6 @@ html, body {
   box-shadow: 0 0 0 1px rgba(74,243,163,0.4);
 }
 
-/* BUTTONS */
 .btn {
   padding: 8px 14px;
   border-radius: 999px;
@@ -151,7 +148,6 @@ html, body {
   border-color: transparent;
 }
 
-/* MAIN GRID */
 .main-grid {
   margin-top: 16px;
   display: grid;
@@ -159,7 +155,6 @@ html, body {
   gap: 16px;
 }
 
-/* VIDEO SECTION */
 .video-column {
   background: var(--panel);
   border-radius: var(--radius-xl);
@@ -196,7 +191,6 @@ video {
   object-fit: cover;
 }
 
-/* SCROLL PEER TILES */
 .peer-scroll {
   margin-top: 10px;
   display: flex;
@@ -232,7 +226,6 @@ video {
   border-radius: 6px;
 }
 
-/* CALL CONTROLS */
 .call-controls {
   margin-top: 10px;
   display: flex;
@@ -240,7 +233,6 @@ video {
   gap: 10px;
 }
 
-/* CHAT SECTION */
 .chat-column {
   background: var(--panel);
   border-radius: var(--radius-xl);
@@ -276,7 +268,6 @@ video {
   color: var(--muted);
 }
 
-/* EMOJIS */
 .emoji-strip {
   margin-bottom: 8px;
   padding: 4px 6px;
@@ -298,7 +289,6 @@ video {
   transform: scale(1.25);
 }
 
-/* USER LIST */
 .user-list {
   margin-bottom: 8px;
   padding: 8px;
@@ -329,7 +319,6 @@ video {
   padding: 3px 8px;
 }
 
-/* FILE SHARE */
 .file-row {
   margin-top: 8px;
   display: flex;
@@ -350,7 +339,6 @@ video {
   color: var(--muted);
 }
 
-/* RESPONSIVE */
 @media (max-width: 900px) {
   .main-grid {
     grid-template-columns: 1fr;
