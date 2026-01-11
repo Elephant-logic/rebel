@@ -27,6 +27,15 @@ const hangupBtn = document.getElementById('hangupBtn');
 const toggleCamBtn = document.getElementById('toggleCamBtn');
 const toggleMicBtn = document.getElementById('toggleMicBtn');
 const shareScreenBtn = document.getElementById('shareScreenBtn');
+const streamLinkInput = document.getElementById('streamLinkInput');
+
+// Pre-fill room from ?room= query param
+const urlParams = new URLSearchParams(window.location.search);
+const preRoom = urlParams.get('room');
+if (preRoom && roomInput) {
+  roomInput.value = preRoom;
+}
+
 
 // WebRTC vars
 let pc = null;
@@ -94,6 +103,11 @@ joinBtn.addEventListener('click', () => {
   currentRoom = room;
   socket.emit('join-room', { room, name });
   roomInfoEl.textContent = `Room: ${room}`;
+  if (streamLinkInput) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('room', room);
+    streamLinkInput.value = url.toString();
+  }
   joinBtn.disabled = true;
   leaveBtn.disabled = false;
 });
@@ -214,34 +228,36 @@ toggleMicBtn.addEventListener('click', () => {
   toggleMicBtn.textContent = micOn ? 'Mute' : 'Unmute';
 });
 
-shareScreenBtn.addEventListener('click', async () => {
-  if (!pc || !localStream) {
-    alert('Start a call before sharing your screen');
-    return;
-  }
-
-  if (!isScreenSharing) {
-    try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      const screenTrack = screenStream.getVideoTracks()[0];
-      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-      if (sender && screenTrack) {
-        await sender.replaceTrack(screenTrack);
-      }
-      screenTrack.onended = () => {
-        stopScreenShare();
-      };
-      localVideo.srcObject = screenStream;
-      isScreenSharing = true;
-      shareScreenBtn.textContent = 'Stop Screen';
-    } catch (err) {
-      console.error('Screen share error', err);
-      alert('Could not start screen share');
+if (shareScreenBtn) {
+  shareScreenBtn.addEventListener('click', async () => {
+    if (!pc || !localStream) {
+      alert('Start a call before sharing your screen');
+      return;
     }
-  } else {
-    stopScreenShare();
-  }
-});
+
+    if (!isScreenSharing) {
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = screenStream.getVideoTracks()[0];
+        const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+        if (sender && screenTrack) {
+          await sender.replaceTrack(screenTrack);
+        }
+        screenTrack.onended = () => {
+          stopScreenShare();
+        };
+        localVideo.srcObject = screenStream;
+        isScreenSharing = true;
+        shareScreenBtn.textContent = 'Stop Screen';
+      } catch (err) {
+        console.error('Screen share error', err);
+        alert('Could not start screen share');
+      }
+    } else {
+      stopScreenShare();
+    }
+  });
+}
 
 function stopScreenShare() {
   if (!isScreenSharing) return;
@@ -251,7 +267,6 @@ function stopScreenShare() {
     screenStream = null;
   }
 
-  // revert back to camera video if we still have it
   if (localStream) {
     const camTrack = localStream.getVideoTracks()[0];
     const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'video');
@@ -264,9 +279,10 @@ function stopScreenShare() {
   }
 
   isScreenSharing = false;
-  shareScreenBtn.textContent = 'Share Screen';
+  if (shareScreenBtn) {
+    shareScreenBtn.textContent = 'Share Screen';
+  }
 }
-
 
 async function createPeerConnection(isCaller) {
   if (pc) endCall();
@@ -316,6 +332,14 @@ function endCall() {
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
+  }
+  if (screenStream) {
+    screenStream.getTracks().forEach(t => t.stop());
+    screenStream = null;
+  }
+  isScreenSharing = false;
+  if (shareScreenBtn) {
+    shareScreenBtn.textContent = 'Share Screen';
   }
   localVideo.srcObject = null;
   remoteVideo.srcObject = null;
