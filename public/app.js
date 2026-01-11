@@ -45,6 +45,18 @@ socket.on('system-message', txt => appendSystem(txt));
 socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 socket.on('file-share', handleIncomingFile);
 
+// --- FIX START: Restart stream when new user joins ---
+socket.on('user-joined', async () => {
+  // If we are currently in a call (Host), we need to restart 
+  // the connection logic so the new person gets an Offer.
+  if (pc) {
+    console.log('New user detected. Restarting stream to connect...');
+    // Note: If you were screen sharing, this simple reset might revert to camera.
+    await createPeerConnection(true); 
+  }
+});
+// --- FIX END ---
+
 socket.on('webrtc-offer', async ({ sdp }) => {
   if (!pc) await createPeerConnection(false);
   try {
@@ -281,7 +293,9 @@ function stopScreenShare() {
 
 
 async function createPeerConnection(isCaller) {
+  // If restarting, close previous to avoid ghosts
   if (pc) endCall();
+  
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
