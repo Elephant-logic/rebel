@@ -2,92 +2,55 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Rebel Stream</title>
+  <title>Rebel Stream Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <link rel="stylesheet" href="style.css" />
-  <style>
-    body { 
-      background: #000; color: #fff; height: 100vh; 
-      display: flex; flex-direction: column; overflow: hidden; margin: 0;
-    }
-    .viewer-shell { 
-      flex: 1; display: flex; flex-direction: column; 
-      width: 100%; max-width: 900px; margin: 0 auto; padding: 10px; gap: 10px; 
-    }
-    
-    .video-container { 
-      position: relative; background: #111; border-radius: 12px; 
-      overflow: hidden; flex-shrink: 0; 
-      transition: all 0.3s ease;
-    }
-    video { 
-      width: 100%; display: block; max-height: 40vh; 
-      object-fit: contain; background: #000;
-    }
-    
-    /* Fullscreen Fixes */
-    .video-container:fullscreen video { max-height: 100vh !important; height: 100% !important; }
-    .video-container:-webkit-full-screen video { max-height: 100vh !important; height: 100% !important; }
-
-    .controls-overlay { 
-      position: absolute; bottom: 10px; right: 10px; display: flex; gap: 8px; z-index: 10;
-    }
-    .control-btn { 
-      background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.2); 
-      padding: 6px 12px; border-radius: 6px; cursor: pointer; backdrop-filter: blur(4px);
-    }
-
-    .chat-section { 
-      flex: 1; display: flex; flex-direction: column; 
-      background: #101524; border-radius: 12px; overflow: hidden; 
-      border: 1px solid #262d44; min-height: 0; 
-    }
-    .chat-header { padding: 10px; background: #151c2f; border-bottom: 1px solid #262d44; font-weight: bold; display: flex; justify-content: space-between; }
-    .chat-log { flex: 1; overflow-y: auto; padding: 10px; font-size: 0.9rem; background: #0b0f19; }
-    .chat-controls { padding: 10px; background: #151c2f; border-top: 1px solid #262d44; }
-    
-    .chat-input-row { display: flex; gap: 8px; margin-top: 8px; }
-    .text-input { flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #050814; color: #fff; }
-    
-    /* Theater Mode (Hide Chat) */
-    body.theater-mode .chat-section { display: none !important; }
-    body.theater-mode .video-container { flex: 1; height: 100%; }
-    body.theater-mode video { max-height: 90vh; }
-    
-    .emoji-strip { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 5px; }
-    .emoji { cursor: pointer; font-size: 1.2rem; }
-  </style>
 </head>
 <body>
-  <div class="viewer-shell">
-    <div class="video-container" id="videoContainer">
-      <video id="viewerVideo" autoplay playsinline muted></video>
-      <div class="controls-overlay">
-        <button id="toggleChatBtn" class="control-btn">Hide Chat</button>
-        <button id="unmuteBtn" class="control-btn">🔇 Unmute</button>
-        <button id="fullscreenBtn" class="control-btn">⛶ Fullscreen</button>
+  <div class="app-shell">
+
+    <header class="topbar">
+      <div>
+        <h1>LIVE STREAM</h1>
+        <p class="subtitle" id="streamStatus">Waiting for host…</p>
       </div>
-    </div>
-    <div class="chat-section">
-      <div class="chat-header">
-        <span>Live Chat</span>
-        <span id="viewerStatus" class="status-badge">Connecting...</span>
+      <div class="status-block">
+        <div id="viewerStatus" class="status-dot status-disconnected">Connecting</div>
       </div>
-      <div id="chatLog" class="chat-log"></div>
-      <div class="chat-controls">
-        <div class="emoji-strip" id="emojiStrip">
-          <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
-          <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
+    </header>
+
+    <main class="main-grid">
+      <section class="video-column">
+        <div class="video-card">
+          <h2>Broadcast</h2>
+          <video id="viewerVideo" autoplay playsinline></video>
         </div>
+
+        <div class="call-controls">
+          <button id="muteBtn" class="btn primary">Unmute</button>
+          <button id="fullscreenBtn" class="btn">Fullscreen</button>
+        </div>
+      </section>
+
+      <section class="chat-column">
+        <div class="chat-header">
+          <h2>Chat</h2>
+        </div>
+
+        <div id="viewChatLog" class="chat-log"></div>
+
         <div class="chat-input-row">
-          <input id="chatInput" class="text-input" placeholder="Say something..." />
-          <button id="sendBtn" class="btn primary">Send</button>
+          <input id="viewChatInput" class="text-input" placeholder="Say something…" />
+          <button id="viewSendBtn" class="btn primary">Send</button>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
+
   </div>
+
+  <!-- JS -->
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="config/ice.js"></script>
+  <script src="ice.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>
