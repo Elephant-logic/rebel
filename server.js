@@ -1,75 +1,115 @@
+// server.js - Full File
 const path = require('path');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 9100;
+
 const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// serve static files from /public
+const publicPath = path.join(__dirname, 'public');
+app.use(express.static(publicPath));
 
+// simple health check
 app.get('/health', (req, res) => {
-  res.json({ ok: true, version: 'rebel-broadcast' });
+  res.json({ ok: true, version: 'rebel-messenger' });
 });
 
-// Room State
+// roomId -> Set(socketId)
 const rooms = new Map();
 
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  console.log('Client connected', socket.id);
 
   socket.on('join-room', ({ room, name }) => {
+    if (!room) return;
     socket.join(room);
     socket.data.room = room;
     socket.data.name = name || 'Guest';
-    
-    // Notify ONLY the host/others that a new user is here
-    // The Host will use this ID to start a specific connection
-    socket.to(room).emit('user-joined', socket.id);
-    console.log(`User ${socket.id} joined room ${room}`);
+
+    if (!rooms.has(room)) {
+      rooms.set(room, new Set());
+    }
+    rooms.get(room).add(socket.id);
+
+    // --- CRITICAL FIX: Notify Host that someone joined ---
+    socket.to(room).emit('user-joined', socket.id); 
+    // ----------------------------------------------------
+
+    socket.to(room).emit('system-message', `${socket.data.name} joined`);
+    io.to(socket.id).emit('system-message', `Joined room: ${room}`);
   });
 
   socket.on('leave-room', () => {
-    const room = socket.data.room;
-    if (room) {
-      socket.leave(room);
-      socket.to(room).emit('user-left', socket.id);
-    }
+    leaveRoom(socket);
   });
 
-  socket.on('disconnect', () => {
-    const room = socket.data.room;
-    if (room) {
-      socket.to(room).emit('user-left', socket.id);
-    }
-  });
-
-  // --- GENERIC SIGNALING (The Switchboard) ---
-  // We use this for Offer, Answer, and ICE Candidates
-  // It routes the message specifically to 'target' socket
-  socket.on('signal', ({ target, type, payload }) => {
-    io.to(target).emit('signal', {
-      from: socket.id,
-      type,
-      payload
+  socket.on('chat-message', ({ room, name, text }) => {
+    if (!room || !text) return;
+    io.to(room).emit('chat-message', {
+      name: name || socket.data.name || 'Guest',
+      text,
+      ts: Date.now()
     });
   });
 
-  // Chat and Files (Broadcast to room)
-  socket.on('chat-message', (data) => {
-    if (data.room) io.to(data.room).emit('chat-message', { ...data, ts: Date.now() });
+  // simple file relay
+  socket.on('file-share', ({ room, name, fileName, fileType, fileSize, fileData }) => {
+    if (!room || !fileName || !fileData) return;
+    socket.to(room).emit('file-share', {
+      from: name || socket.data.name || 'Guest',
+      fileName,
+      fileType,
+      fileSize,
+      fileData
+    });
   });
 
-  socket.on('file-share', (data) => {
-    if (data.room) socket.to(data.room).emit('file-share', data);
+  // WebRTC signalling relays
+  socket.on('webrtc-offer', ({ room, sdp }) => {
+    if (!room || !sdp) return;
+    socket.to(room).emit('webrtc-offer', { sdp });
+  });
+
+  socket.on('webrtc-answer', ({ room, sdp }) => {
+    if (!room || !sdp) return;
+    socket.to(room).emit('webrtc-answer', { sdp });
+  });
+
+  socket.on('webrtc-ice-candidate', ({ room, candidate }) => {
+    if (!room || !candidate) return;
+    socket.to(room).emit('webrtc-ice-candidate', { candidate });
+  });
+
+  socket.on('disconnect', () => {
+    leaveRoom(socket);
+    console.log('Client disconnected', socket.id);
   });
 });
 
+function leaveRoom(socket) {
+  const room = socket.data.room;
+  if (!room) return;
+  socket.leave(room);
+  const set = rooms.get(room);
+  if (set) {
+    set.delete(socket.id);
+    if (set.size === 0) rooms.delete(room);
+  }
+  socket.to(room).emit('system-message', `${socket.data.name} left`);
+  socket.data.room = null;
+}
+
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Rebel Broadcast server running on port ${PORT}`);
+  console.log(`Rebel Messenger server listening on port ${PORT}`);
 });
