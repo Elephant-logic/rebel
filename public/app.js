@@ -1,4 +1,4 @@
-// HOST - STABLE + MANUAL RESTART
+// HOST - RESTARTABLE VERSION
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -7,9 +7,8 @@ let pc = null;
 let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
-let isRestarting = false; // Prevents crash loops
 
-// FORCE GOOGLE STUN (Best for Mobile)
+// GOOGLE STUN
 const iceConfig = { 
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -29,8 +28,7 @@ const toggleMicBtn = getEl('toggleMicBtn');
 const shareScreenBtn = getEl('shareScreenBtn');
 const streamLinkInput = getEl('streamLinkInput');
 const signalStatusEl = getEl('signalStatus');
-
-// Chat & Files
+// Chat
 const chatLog = getEl('chatLog');
 const chatInput = getEl('chatInput');
 const sendBtn = getEl('sendBtn');
@@ -41,18 +39,18 @@ const fileNameLabel = getEl('fileNameLabel');
 
 // 1. STATUS
 socket.on('connect', () => {
-  if (signalStatusEl) {
-    signalStatusEl.textContent = 'Connected';
-    signalStatusEl.classList.remove('status-disconnected');
-    signalStatusEl.classList.add('status-connected');
-  }
+    if (signalStatusEl) {
+        signalStatusEl.textContent = 'Connected';
+        signalStatusEl.classList.add('status-connected');
+        signalStatusEl.classList.remove('status-disconnected');
+    }
 });
 socket.on('disconnect', () => {
-  if (signalStatusEl) {
-    signalStatusEl.textContent = 'Disconnected';
-    signalStatusEl.classList.remove('status-connected');
-    signalStatusEl.classList.add('status-disconnected');
-  }
+    if (signalStatusEl) {
+        signalStatusEl.textContent = 'Disconnected';
+        signalStatusEl.classList.add('status-disconnected');
+        signalStatusEl.classList.remove('status-connected');
+    }
 });
 
 // 2. JOIN
@@ -74,12 +72,12 @@ if (joinBtn) {
   });
 }
 
-// 3. START / RESTART CAMERA (The Fix)
+// 3. START / RESTART LOGIC (The Fix)
 if (startCallBtn) {
   startCallBtn.addEventListener('click', async () => {
     if (!currentRoom) return alert("Join Room First");
     
-    // 1. If camera isn't on, turn it on
+    // Always get a FRESH stream if we don't have one
     if (!localStream) {
         try {
           localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -87,36 +85,51 @@ if (startCallBtn) {
             localVideo.srcObject = localStream;
             localVideo.muted = true;
           }
-          if (hangupBtn) hangupBtn.disabled = false;
-        } catch (err) { return alert(err.message); }
+        } catch (err) { return alert("Camera Error: " + err.message); }
     }
-
-    // 2. Force a Connection Restart
-    console.log("Manual Restart Triggered");
-    startCallBtn.textContent = "Restarting...";
+    
+    // Enable Buttons
     startCallBtn.disabled = true;
+    startCallBtn.textContent = "Streaming Active";
+    if (hangupBtn) hangupBtn.disabled = false;
     
-    await restartConnection();
-    
-    // Re-enable button after 2 seconds so you can click it again if needed
-    setTimeout(() => {
-        startCallBtn.textContent = "Restart Stream";
-        startCallBtn.disabled = false;
-    }, 2000);
+    // Force Connection
+    console.log("Starting Stream...");
+    restartConnection();
   });
 }
 
-// 4. AUTO-CONNECT (With Safety Delay)
+// 4. HANG UP (The Fix)
+if (hangupBtn) {
+    hangupBtn.addEventListener('click', () => {
+        // 1. Kill Connection
+        if (pc) { pc.close(); pc = null; }
+        
+        // 2. Kill Camera (So the light goes off)
+        if (localStream) {
+            localStream.getTracks().forEach(t => t.stop());
+            localStream = null;
+        }
+        if (screenStream) {
+            screenStream.getTracks().forEach(t => t.stop());
+            screenStream = null;
+        }
+
+        // 3. Reset UI so you can click Start again
+        if (localVideo) localVideo.srcObject = null;
+        startCallBtn.disabled = false;
+        startCallBtn.textContent = 'Start Camera';
+        hangupBtn.disabled = true;
+        isScreenSharing = false;
+        if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
+    });
+}
+
+// 5. AUTO-CONNECT (Viewer Joins/Rejoins)
 socket.on('user-joined', () => {
-  if (localStream && !isRestarting) {
-    console.log("Viewer joined. Waiting 1s to connect...");
-    isRestarting = true;
-    
-    // Wait 1 second before connecting to let the viewer "settle"
-    setTimeout(async () => {
-        await restartConnection();
-        isRestarting = false;
-    }, 1000);
+  if (localStream) {
+    console.log("Viewer joined/rejoined. Connecting...");
+    restartConnection();
   }
 });
 
@@ -129,17 +142,19 @@ async function restartConnection() {
   };
   
   const stream = isScreenSharing ? screenStream : localStream;
-  if (stream) stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  // Safety check
+  if (stream) {
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  }
 
   try {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('webrtc-offer', { room: currentRoom, sdp: pc.localDescription });
-    console.log("Offer sent!");
   } catch (e) { console.error(e); }
 }
 
-// 5. CHAT & EMOJIS
+// 6. CHAT & FEATURES
 socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 if (sendBtn) sendBtn.addEventListener('click', sendChat);
 if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
@@ -160,20 +175,21 @@ function sendChat() {
   appendChat('You', text, Date.now());
   chatInput.value = '';
 }
-
 function appendChat(name, text, ts) {
   const line = document.createElement('div');
   line.className = 'chat-line';
-  const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const nameHtml = name === 'You' ? `<span style="color:#4af3a3">${name}</span>` : `<strong>${name}</strong>`;
-  line.innerHTML = `${nameHtml} <small>${time}</small>: ${text}`;
+  line.innerHTML = `${nameHtml} <small>${timeString(ts)}</small>: ${text}`;
   if (chatLog) {
       chatLog.appendChild(line);
       chatLog.scrollTop = chatLog.scrollHeight;
   }
 }
+function timeString(ts) {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
-// 6. FILES & SCREEN SHARE
+// File Share
 if (fileInput && sendFileBtn) {
     fileInput.addEventListener('change', () => {
         if (fileInput.files[0]) {
@@ -217,13 +233,7 @@ if (toggleMicBtn) toggleMicBtn.addEventListener('click', () => {
   if (!localStream) return;
   localStream.getAudioTracks().forEach(t => t.enabled = !t.enabled);
 });
-if (hangupBtn) hangupBtn.addEventListener('click', () => {
-  if (pc) pc.close();
-  if (localStream) localStream.getTracks().forEach(t => t.stop());
-  if (localVideo) localVideo.srcObject = null;
-  startCallBtn.disabled = false;
-  startCallBtn.textContent = 'Start Call';
-});
+
 // Screen Share
 if (shareScreenBtn) shareScreenBtn.addEventListener('click', async () => {
     if (!localStream) return alert('Start camera first!');
