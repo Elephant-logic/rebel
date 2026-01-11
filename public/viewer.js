@@ -1,4 +1,4 @@
-// VIEWER CLIENT - NICE UI + SIMPLE LOGIC
+// VIEWER CLIENT - VIDEO + CHAT
 const socket = io({ autoConnect: false });
 
 let pc = null;
@@ -17,7 +17,7 @@ const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
 const emojiStrip = document.getElementById('emojiStrip');
 
-// 1. JOIN (Immediate)
+// 1. JOIN LOGIC
 const params = new URLSearchParams(window.location.search);
 const room = params.get('room');
 
@@ -25,6 +25,8 @@ if (room) {
   currentRoom = room;
   socket.connect();
   setStatus('Connecting...');
+} else {
+  setStatus('No Room ID');
 }
 
 socket.on('connect', () => {
@@ -32,7 +34,9 @@ socket.on('connect', () => {
   socket.emit('join-room', { room: currentRoom, name: myName });
 });
 
-// 2. VIDEO LOGIC (Simple)
+socket.on('disconnect', () => setStatus('Disconnected'));
+
+// 2. VIDEO LOGIC (The Simple/Stable Version)
 socket.on('webrtc-offer', async ({ sdp }) => {
   setStatus('Stream Found!');
   
@@ -42,8 +46,10 @@ socket.on('webrtc-offer', async ({ sdp }) => {
   pc.ontrack = (event) => {
     viewerVideo.srcObject = event.streams[0];
     setStatus('LIVE');
-    statusEl.style.background = '#4af3a3';
-    statusEl.style.color = '#000';
+    if (statusEl) {
+        statusEl.style.background = '#4af3a3';
+        statusEl.style.color = '#000';
+    }
   };
 
   pc.onicecandidate = (event) => {
@@ -67,7 +73,9 @@ fullscreenBtn.addEventListener('click', () => {
   if (!document.fullscreenElement) {
     if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
     else if (viewerVideo.webkitEnterFullscreen) viewerVideo.webkitEnterFullscreen();
-  } else { document.exitFullscreen(); }
+  } else {
+    document.exitFullscreen();
+  }
 });
 
 unmuteBtn.addEventListener('click', () => {
@@ -76,9 +84,14 @@ unmuteBtn.addEventListener('click', () => {
 });
 
 // 4. CHAT LOGIC
-socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
+socket.on('chat-message', ({ name, text, ts }) => {
+  appendChat(name, text, ts);
+});
+
 sendBtn.addEventListener('click', sendChat);
-chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendChat();
+});
 
 emojiStrip.addEventListener('click', e => {
   if (e.target.classList.contains('emoji')) {
@@ -90,6 +103,7 @@ emojiStrip.addEventListener('click', e => {
 function sendChat() {
   const text = chatInput.value.trim();
   if (!text || !currentRoom) return;
+  
   socket.emit('chat-message', { room: currentRoom, name: myName, text });
   appendChat('You', text, Date.now());
   chatInput.value = '';
@@ -97,10 +111,14 @@ function sendChat() {
 
 function appendChat(name, text, ts) {
   const line = document.createElement('div');
-  line.style.marginBottom = '4px';
+  line.style.marginBottom = '6px';
+  line.style.wordBreak = 'break-word';
+  
   const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const color = name === 'You' ? '#4af3a3' : '#9ba3c0';
-  line.innerHTML = `<span style="color:${color}; font-size:0.75rem;">${name} • ${time}</span><br>${text}`;
+  
+  line.innerHTML = `<span style="color:${color}; font-size:0.75rem; font-weight:bold;">${name} • ${time}</span><br>${text}`;
+  
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
