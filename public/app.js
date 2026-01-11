@@ -20,7 +20,7 @@ let audioDevices = [];
 let currentVideoDeviceId = null;
 let currentAudioDeviceId = null;
 
-// ICE config (you already have stun in config/ice.js if needed)
+// ICE config
 const iceConfig = { 
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -38,6 +38,7 @@ const roomInput = $('roomInput');
 const nameInput = $('nameInput');
 const signalStatusEl = $('signalStatus');
 const roomInfo = $('roomInfo');
+const hostNameLabel = $('hostNameLabel');
 
 const localVideo = $('localVideo');
 const remoteVideo = $('remoteVideo');
@@ -94,6 +95,11 @@ if (joinBtn) {
     const name = nameInput.value.trim();
     if (!room) return alert('Enter main room name');
     userName = name || 'Host';
+
+    // update host label
+    if (hostNameLabel) {
+      hostNameLabel.textContent = `${userName} (Host)`;
+    }
 
     currentRoom = room;
     socket.connect();
@@ -530,7 +536,7 @@ async function refreshDevices() {
 }
 
 async function applyDeviceSelection() {
-  if (!navigator.mediaDevices || !currentRoom) return;
+  if (!navigator.mediaDevices) return;
   try {
     const constraints = {
       video: currentVideoDeviceId ? { deviceId: { exact: currentVideoDeviceId } } : true,
