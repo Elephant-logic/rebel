@@ -5,6 +5,40 @@
   <title>Rebel Stream Viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <link rel="stylesheet" href="style.css" />
+  <style>
+    /* popup fullscreen overlay */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .overlay.hidden {
+      display: none;
+    }
+    .overlay video {
+      width: 96vw;
+      max-width: 900px;
+      height: auto;
+      max-height: 80vh;
+      border-radius: 18px;
+      background: #000;
+    }
+    .overlay-close {
+      position: absolute;
+      top: 14px;
+      right: 18px;
+      font-size: 1.4rem;
+      border: none;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +61,7 @@
 
         <div class="call-controls">
           <button id="muteBtn" class="btn primary">Unmute</button>
-          <button id="fullscreenBtn" class="btn">Fullscreen</button>
+          <button id="popupBtn" class="btn">Popup Fullscreen</button>
         </div>
       </section>
 
@@ -38,6 +72,12 @@
 
         <div id="viewChatLog" class="chat-log"></div>
 
+        <div id="viewEmojiStrip" class="emoji-strip">
+          <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
+          <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
+          <span class="emoji">🤘</span><span class="emoji">🎉</span><span class="emoji">🥳</span>
+        </div>
+
         <div class="chat-input-row">
           <input id="viewChatInput" class="text-input" placeholder="Say something…" />
           <button id="viewSendBtn" class="btn primary">Send</button>
@@ -46,8 +86,14 @@
     </main>
   </div>
 
+  <!-- Popup overlay -->
+  <div id="videoOverlay" class="overlay hidden">
+    <button id="overlayClose" class="overlay-close">✕</button>
+    <video id="overlayVideo" autoplay playsinline></video>
+  </div>
+
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="ice.js"></script>
+  <script src="config/ice.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>
