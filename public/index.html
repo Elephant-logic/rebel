@@ -42,7 +42,8 @@
         <div id="peerTiles" class="peer-scroll"></div>
 
         <div class="call-controls">
-          <button id="startCallBtn" class="btn primary">Start Camera</button>
+          <button id="startCallBtn" class="btn primary">Enable Calls</button>
+          <button id="startStreamBtn" class="btn">Start Stream</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="hangupBtn" class="btn danger" disabled>End</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
@@ -88,7 +89,8 @@
   </div>
 
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="ice.js"></script>
+  <!-- ICE config lives in /public/config/ice.js -->
+  <script src="config/ice.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
