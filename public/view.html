@@ -2,16 +2,30 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Rebel Viewer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Rebel Stream Viewer</title>
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
   <div id="viewerApp">
-    <div id="viewerTop">
-      <span id="viewerStatus">Loading...</span>
+    <header id="vTop">
+      <span id="vRoomLabel">Connecting...</span>
+      <span id="vViewerCount">0 watching</span>
+    </header>
+
+    <div id="vVideoWrapper">
+      <video id="streamVideo" autoplay playsinline controls></video>
+      <div id="waitingMsg">Waiting for host...</div>
     </div>
-    <video id="viewerVideo" autoplay playsinline controls></video>
+
+    <section id="vChatBox">
+      <div id="vMsgs"></div>
+      <div id="vInputRow">
+        <input id="vMsg" placeholder="Say something...">
+        <button id="vSend">Send</button>
+      </div>
+    </section>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
