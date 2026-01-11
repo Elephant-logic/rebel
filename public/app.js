@@ -129,8 +129,9 @@ joinBtn.addEventListener('click', () => {
   roomInfoEl.textContent = `Room: ${room}`;
   if (streamLinkInput) {
     const url = new URL(window.location.href);
+    url.pathname = '/view.html';
+    url.search = '';
     url.searchParams.set('room', room);
-    url.searchParams.set('view', '1');
     streamLinkInput.value = url.toString();
   }
   joinBtn.disabled = true;
