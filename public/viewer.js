@@ -1,11 +1,11 @@
-// VIEWER CLIENT - FINAL WORKING
+// VIEWER CLIENT - FINAL LAYOUT FIX
 const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
 let myName = `Viewer-${Math.floor(Math.random()*1000)}`;
 
-// FIX: Force Google STUN here too
+// FIX: Force Google STUN (Reliable)
 const iceConfig = { 
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -23,6 +23,7 @@ const sendBtn = document.getElementById('sendBtn');
 const emojiStrip = document.getElementById('emojiStrip');
 const unmuteBtn = document.getElementById('unmuteBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const toggleChatBtn = document.getElementById('toggleChatBtn');
 
 // 1. JOIN
 const params = new URLSearchParams(window.location.search);
@@ -87,6 +88,15 @@ if (unmuteBtn) unmuteBtn.addEventListener('click', () => {
   viewerVideo.muted = !viewerVideo.muted;
   unmuteBtn.textContent = viewerVideo.muted ? '🔇 Unmute' : '🔊 Mute';
 });
+
+// NEW: Toggle Chat Button
+if (toggleChatBtn) {
+  toggleChatBtn.addEventListener('click', () => {
+    document.body.classList.toggle('theater-mode');
+    const isHidden = document.body.classList.contains('theater-mode');
+    toggleChatBtn.textContent = isHidden ? 'Show Chat' : 'Hide Chat';
+  });
+}
 
 // 4. CHAT
 socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
