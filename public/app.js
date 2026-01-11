@@ -106,7 +106,7 @@ if (joinBtn) {
     socket.emit('join-room', { room: currentRoom, name: userName });
 
     joinBtn.disabled = true;
-    leaveBtn.disabled = false;
+    if (leaveBtn) leaveBtn.disabled = false;
     if (roomInfo) roomInfo.textContent = `Room: ${currentRoom}`;
   });
 }
@@ -124,7 +124,7 @@ if (leaveBtn) {
     currentRoom = null;
     streamRoom = null;
 
-    joinBtn.disabled = false;
+    if (joinBtn) joinBtn.disabled = false;
     leaveBtn.disabled = true;
     if (roomInfo) roomInfo.textContent = 'No room';
     if (streamLinkInput) streamLinkInput.value = '';
@@ -195,7 +195,7 @@ if (startCallBtn) {
 
     startCallBtn.disabled = true;
     startCallBtn.textContent = 'Call Active';
-    hangupBtn.disabled = false;
+    if (hangupBtn) hangupBtn.disabled = false;
   });
 }
 
@@ -410,6 +410,7 @@ if (emojiStrip && chatInput) {
 }
 
 function sendChat() {
+  if (!chatInput) return;
   const text = chatInput.value.trim();
   if (!text || !currentRoom) return;
   socket.emit('chat-message', { room: currentRoom, name: userName, text });
@@ -605,6 +606,22 @@ if (swapCamBtn) {
     await applyDeviceSelection();
   });
 }
+
+// ---------- AUTO-RECONNECT WHEN SOMEONE JOINS (call + stream) ----------
+
+socket.on('user-joined', () => {
+  // If the separate stream is live, re-send offer on the streamRoom
+  if (streamRoom && startStreamBtn && startStreamBtn.dataset.active === '1') {
+    console.log('Viewer joined stream room, refreshing stream offer...');
+    startStreamConnection();
+  }
+
+  // If the main call is live, re-send offer on the main room
+  if (currentRoom && callPc && localStream) {
+    console.log('Peer joined call room, refreshing call offer...');
+    startCallConnection();
+  }
+});
 
 // ---------- Signalling answers/ICE (call + stream separated by room) ----------
 
