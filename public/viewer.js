@@ -1,24 +1,12 @@
-// viewer.js - STABLE VIEWER
 const socket = io({ autoConnect: false });
-
 let pc = null;
 let currentRoom = null;
-let myName = `Viewer-${Math.floor(Math.random()*1000)}`;
-
-// Elements
-const viewerVideo = document.getElementById('viewerVideo');
-const videoContainer = document.getElementById('videoContainer');
-const statusEl = document.getElementById('viewerStatus');
-const unmuteBtn = document.getElementById('unmuteBtn');
-const fullscreenBtn = document.getElementById('fullscreenBtn');
-const chatLog = document.getElementById('chatLog');
-const chatInput = document.getElementById('chatInput');
-const sendBtn = document.getElementById('sendBtn');
-const emojiStrip = document.getElementById('emojiStrip');
-
 const iceConfig = { iceServers: ICE_SERVERS || [] };
 
-// --- 1. SETUP ---
+const viewerVideo = document.getElementById('viewerVideo');
+const statusEl = document.getElementById('viewerStatus');
+
+// Join from URL
 const params = new URLSearchParams(window.location.search);
 const room = params.get('room');
 
@@ -26,30 +14,23 @@ if (room) {
   currentRoom = room;
   socket.connect();
   setStatus('Connecting...');
-} else {
-  setStatus('No Room ID in URL');
 }
 
 socket.on('connect', () => {
-  setStatus('Joined Room. Waiting for Stream...');
-  // Only join ONCE. Do not retry automatically.
-  socket.emit('join-room', { room: currentRoom, name: myName });
+  setStatus('Waiting for stream...');
+  socket.emit('join-room', { room: currentRoom, name: 'Viewer' });
 });
 
-socket.on('disconnect', () => setStatus('Disconnected'));
-
-// --- 2. VIDEO LOGIC ---
-
+// Listen for Offer
 socket.on('webrtc-offer', async ({ sdp }) => {
-  setStatus('Signal Received...');
+  setStatus('Stream found!');
   
   if (pc) pc.close();
   pc = new RTCPeerConnection(iceConfig);
 
   pc.ontrack = (event) => {
     viewerVideo.srcObject = event.streams[0];
-    setStatus('LIVE');
-    if (statusEl) statusEl.classList.add('status-live');
+    setStatus('Live');
   };
 
   pc.onicecandidate = (event) => {
@@ -58,78 +39,15 @@ socket.on('webrtc-offer', async ({ sdp }) => {
     }
   };
 
-  try {
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit('webrtc-answer', { room: currentRoom, sdp: pc.localDescription });
-  } catch (err) {
-    console.error("Offer Error:", err);
-  }
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit('webrtc-answer', { room: currentRoom, sdp: pc.localDescription });
 });
 
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
-
-// --- 3. CONTROLS ---
-
-if (fullscreenBtn) {
-  fullscreenBtn.addEventListener('click', () => {
-    if (!document.fullscreenElement) {
-      if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
-      else if (viewerVideo.webkitEnterFullscreen) viewerVideo.webkitEnterFullscreen();
-    } else {
-      document.exitFullscreen();
-    }
-  });
-}
-
-if (unmuteBtn) {
-  unmuteBtn.addEventListener('click', () => {
-    viewerVideo.muted = !viewerVideo.muted;
-    unmuteBtn.textContent = viewerVideo.muted ? '🔇 Unmute' : '🔊 Mute';
-  });
-}
-
-// --- 4. CHAT LOGIC ---
-
-socket.on('chat-message', ({ name, text, ts }) => {
-  appendChat(name, text, ts);
-});
-
-if (sendBtn) sendBtn.addEventListener('click', sendChat);
-if (chatInput) chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendChat();
-});
-
-if (emojiStrip) {
-  emojiStrip.addEventListener('click', e => {
-    if (e.target.classList.contains('emoji')) {
-      chatInput.value += e.target.textContent;
-      chatInput.focus();
-    }
-  });
-}
-
-function sendChat() {
-  const text = chatInput.value.trim();
-  if (!text || !currentRoom) return;
-  socket.emit('chat-message', { room: currentRoom, name: myName, text });
-  appendChat('You', text, Date.now());
-  chatInput.value = '';
-}
-
-function appendChat(name, text, ts) {
-  const line = document.createElement('div');
-  line.className = 'chat-line';
-  line.style.marginBottom = '4px';
-  const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const color = name === 'You' ? '#4af3a3' : '#9ba3c0';
-  line.innerHTML = `<span style="color:${color}; font-size:0.75rem;">${name} • ${time}</span><br>${text}`;
-  chatLog.appendChild(line);
-  chatLog.scrollTop = chatLog.scrollHeight;
-}
 
 function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
