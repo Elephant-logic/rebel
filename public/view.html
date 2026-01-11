@@ -25,9 +25,10 @@
       margin: 0 auto; 
       padding: 10px; 
       gap: 10px; 
+      transition: all 0.3s ease;
     }
     
-    /* Video Section */
+    /* VIDEO SECTION */
     .video-container { 
       position: relative; 
       background: #111; 
@@ -35,32 +36,52 @@
       overflow: hidden; 
       flex-shrink: 0; 
       box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      transition: all 0.3s ease;
     }
+    
     video { 
       width: 100%; 
       display: block; 
-      max-height: 40vh; /* Keeps space for chat on mobile */
+      /* Default: Share space with chat */
+      max-height: 40vh; 
       object-fit: contain; 
+      background: #000;
+      transition: all 0.3s ease;
     }
-    
+
+    /* --- FULLSCREEN FIXES --- */
+    /* When the container is fullscreen, force video to fill it */
+    .video-container:fullscreen video {
+      max-height: 100vh !important;
+      height: 100% !important;
+      width: 100% !important;
+    }
+    .video-container:-webkit-full-screen video {
+      max-height: 100vh !important;
+      height: 100% !important;
+    }
+
+    /* CONTROLS OVERLAY */
     .controls-overlay { 
       position: absolute; 
       bottom: 10px; 
       right: 10px; 
       display: flex; 
       gap: 8px; 
+      z-index: 10;
     }
     .control-btn { 
       background: rgba(0,0,0,0.6); 
       color: #fff; 
       border: 1px solid rgba(255,255,255,0.2); 
-      padding: 5px 10px; 
+      padding: 6px 12px; 
       border-radius: 6px; 
       cursor: pointer; 
       font-size: 0.8rem;
+      backdrop-filter: blur(4px);
     }
 
-    /* Chat Section */
+    /* CHAT SECTION */
     .chat-section { 
       flex: 1; 
       display: flex; 
@@ -70,6 +91,7 @@
       overflow: hidden; 
       border: 1px solid #262d44; 
       min-height: 0; 
+      transition: all 0.3s ease;
     }
     .chat-header { 
       padding: 10px; 
@@ -113,8 +135,19 @@
       background: #333; 
       color: #aaa;
     }
+
+    /* --- THEATER MODE (Hide Chat) --- */
+    body.theater-mode .chat-section {
+      display: none !important;
+    }
+    body.theater-mode .video-container {
+      flex: 1; /* Take all available height */
+      height: 100%;
+    }
+    body.theater-mode video {
+      max-height: 90vh; /* Grow to fill screen */
+    }
     
-    /* Shared Emoji styles from style.css usually, but forced here just in case */
     .emoji-strip {
       display: flex;
       gap: 5px;
@@ -129,12 +162,13 @@
     <div class="video-container" id="videoContainer">
       <video id="viewerVideo" autoplay playsinline muted></video>
       <div class="controls-overlay">
+        <button id="toggleChatBtn" class="control-btn">Hide Chat</button>
         <button id="unmuteBtn" class="control-btn">🔇 Unmute</button>
         <button id="fullscreenBtn" class="control-btn">⛶ Fullscreen</button>
       </div>
     </div>
 
-    <div class="chat-section">
+    <div class="chat-section" id="chatSection">
       <div class="chat-header">
         <span>Live Chat</span>
         <span id="viewerStatus" class="status-badge">Connecting...</span>
