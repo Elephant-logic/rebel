@@ -1,4 +1,4 @@
-// app.js - STABLE HOST
+// Rebel Host (Fixed Buttons + Stable)
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -15,6 +15,9 @@ const joinBtn = document.getElementById('joinBtn');
 const roomInput = document.getElementById('roomInput');
 const nameInput = document.getElementById('nameInput');
 const startCallBtn = document.getElementById('startCallBtn');
+const hangupBtn = document.getElementById('hangupBtn');
+const toggleCamBtn = document.getElementById('toggleCamBtn');
+const toggleMicBtn = document.getElementById('toggleMicBtn');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const chatLog = document.getElementById('chatLog');
@@ -25,7 +28,7 @@ const streamLinkInput = document.getElementById('streamLinkInput');
 
 const iceConfig = { iceServers: ICE_SERVERS || [] };
 
-// 1. Join
+// --- 1. Join ---
 joinBtn.addEventListener('click', () => {
   const room = roomInput.value.trim();
   const name = nameInput.value.trim() || 'Host';
@@ -46,21 +49,57 @@ joinBtn.addEventListener('click', () => {
   if (streamLinkInput) streamLinkInput.value = url.toString();
 });
 
-// 2. Start Camera
+// --- 2. Start Camera ---
 startCallBtn.addEventListener('click', async () => {
   if (!currentRoom) return alert('Join Room First');
   await startCamera();
   startCallBtn.disabled = true;
+  hangupBtn.disabled = false;
   startCallBtn.textContent = 'Streaming Active';
 });
 
-// 3. STABLE AUTO-CONNECT
-socket.on('user-joined', () => {
-  // If we are already busy connecting, IGNORE this signal
-  if (isNegotiating) return;
+// --- 3. Button Actions (RESTORED) ---
 
+// Toggle Camera
+toggleCamBtn.addEventListener('click', () => {
+  if (!localStream) return;
+  camOn = !camOn;
+  localStream.getVideoTracks().forEach(t => t.enabled = camOn);
+  toggleCamBtn.textContent = camOn ? 'Camera Off' : 'Camera On';
+  toggleCamBtn.classList.toggle('danger', !camOn);
+});
+
+// Toggle Mic
+toggleMicBtn.addEventListener('click', () => {
+  if (!localStream) return;
+  micOn = !micOn;
+  localStream.getAudioTracks().forEach(t => t.enabled = micOn);
+  toggleMicBtn.textContent = micOn ? 'Mute' : 'Unmute';
+  toggleMicBtn.classList.toggle('danger', !micOn);
+});
+
+// End Call
+hangupBtn.addEventListener('click', () => {
+  if (pc) {
+    pc.close();
+    pc = null;
+  }
+  // Stop camera fully
   if (localStream) {
-    console.log('User joined. Starting stable connection...');
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  localVideo.srcObject = null;
+  startCallBtn.disabled = false;
+  hangupBtn.disabled = true;
+  startCallBtn.textContent = 'Start Call';
+});
+
+// --- 4. Auto-Connect Logic ---
+socket.on('user-joined', () => {
+  if (isNegotiating) return; // Ignore if busy
+  if (localStream) {
+    console.log('User joined. Connecting...');
     restartConnection();
   }
 });
@@ -70,14 +109,19 @@ async function startCamera() {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
-    localVideo.muted = true; 
+    localVideo.muted = true; // Local mute to prevent echo
+    
+    // Reset button states
+    camOn = true;
+    micOn = true;
+    toggleCamBtn.textContent = 'Camera Off';
+    toggleMicBtn.textContent = 'Mute';
   } catch (err) {
     alert('Camera Error: ' + err.message);
   }
 }
 
 async function restartConnection() {
-  // 1. Set Lock
   isNegotiating = true;
 
   if (pc) pc.close();
@@ -87,10 +131,8 @@ async function restartConnection() {
     if (e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
   };
   
-  // Add Tracks
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-  // Offer
   try {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -99,13 +141,11 @@ async function restartConnection() {
     console.error(err);
   }
 
-  // 2. Remove Lock after 3 seconds (allows system to settle)
-  setTimeout(() => {
-    isNegotiating = false;
-  }, 3000);
+  // Release lock after 3s
+  setTimeout(() => { isNegotiating = false; }, 3000);
 }
 
-// 4. Signaling & Chat
+// --- 5. Signaling & Chat ---
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
 });
