@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Rebel Stream View</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      background: radial-gradient(circle at top, #1b2940 0, #050812 60%, #000 100%);
+      color: #f8fafc;
+    }
+    .viewer-shell {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+    .viewer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .viewer-title {
+      font-size: 1.4rem;
+      font-weight: 600;
+    }
+    .viewer-room {
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+    .viewer-card {
+      background: rgba(15,23,42,0.9);
+      border-radius: 1rem;
+      padding: 1rem;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+      border: 1px solid rgba(148,163,184,0.25);
+    }
+    .viewer-video {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #020617;
+      border-radius: 0.75rem;
+      overflow: hidden;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #020617;
+    }
+    .viewer-footer {
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      opacity: 0.7;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="viewer-shell">
+    <div class="viewer-header">
+      <div>
+        <div class="viewer-title">Rebel Live Stream</div>
+        <div id="viewerRoom" class="viewer-room">Connecting…</div>
+      </div>
+      <div id="viewerStatus" class="viewer-room">Disconnected</div>
+    </div>
+    <div class="viewer-card">
+      <div class="viewer-video">
+        <video id="viewerVideo" autoplay playsinline></video>
+      </div>
+      <div class="viewer-footer">
+        <span id="viewerHint">If you see a black screen, wait for the host to start the stream.</span>
+        <span>Powered by Rebel</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="config/ice.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>
