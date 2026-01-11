@@ -14,34 +14,6 @@ const leaveBtn = document.getElementById('leaveBtn');
 const chatLog = document.getElementById('chatLog');
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
-
- // URL params for room + viewer mode
-const urlParams = new URLSearchParams(window.location.search);
-const preRoom = urlParams.get('room');
-const viewMode = urlParams.get('view');
-if (preRoom && roomInput) {
-  roomInput.value = preRoom;
-}
-if (viewMode === '1') {
-  isViewer = true;
-}
-if (isViewer) {
-  if (nameInput) {
-    nameInput.placeholder = 'Viewer';
-  }
-  if (startCallBtn) startCallBtn.style.display = 'none';
-  if (toggleCamBtn) toggleCamBtn.style.display = 'none';
-  if (toggleMicBtn) toggleMicBtn.style.display = 'none';
-  if (hangupBtn) hangupBtn.style.display = 'none';
-}
-
-// auto-join viewer if link has room & view=1
-if (isViewer && preRoom && joinBtn) {
-  window.addEventListener('load', () => {
-    joinBtn.click();
-  });
-}
-
 const emojiStrip = document.getElementById('emojiStrip');
 
 const fileInput = document.getElementById('fileInput');
@@ -54,8 +26,8 @@ const startCallBtn = document.getElementById('startCallBtn');
 const hangupBtn = document.getElementById('hangupBtn');
 const toggleCamBtn = document.getElementById('toggleCamBtn');
 const toggleMicBtn = document.getElementById('toggleMicBtn');
-const streamLinkInput = document.getElementById('streamLinkInput');
 const shareScreenBtn = document.getElementById('shareScreenBtn');
+const streamLinkInput = document.getElementById('streamLinkInput');
 
 // WebRTC vars
 let pc = null;
@@ -64,7 +36,6 @@ let camOn = true;
 let micOn = true;
 let screenStream = null;
 let isScreenSharing = false;
-let isViewer = false;
 
 socket.on('connect', () => setSignalStatus(true));
 socket.on('disconnect', () => setSignalStatus(false));
@@ -106,9 +77,6 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
 joinBtn.addEventListener('click', () => {
   const room = roomInput.value.trim();
   let name = nameInput.value.trim();
-  if (isViewer && !name) {
-    name = `Viewer-${Math.floor(Math.random() * 10000)}`;
-  }
   if (!room) {
     alert('Enter room code');
     return;
@@ -256,36 +224,33 @@ toggleMicBtn.addEventListener('click', () => {
 
 if (shareScreenBtn) {
   shareScreenBtn.addEventListener('click', async () => {
-
-  if (!pc || !localStream) {
-    alert('Start a call before sharing your screen');
-    return;
-  }
-
-  if (!isScreenSharing) {
-    try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      const screenTrack = screenStream.getVideoTracks()[0];
-      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-      if (sender && screenTrack) {
-        await sender.replaceTrack(screenTrack);
-      }
-      screenTrack.onended = () => {
-        stopScreenShare();
-      };
-      localVideo.srcObject = screenStream;
-      isScreenSharing = true;
-      shareScreenBtn.textContent = 'Stop Screen';
-    } catch (err) {
-      console.error('Screen share error', err);
-      alert('Could not start screen share');
+    if (!pc || !localStream) {
+      alert('Start a call before sharing your screen');
+      return;
     }
-  } else {
-    stopScreenShare();
-  }
-});
 
-
+    if (!isScreenSharing) {
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = screenStream.getVideoTracks()[0];
+        const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+        if (sender && screenTrack) {
+          await sender.replaceTrack(screenTrack);
+        }
+        screenTrack.onended = () => {
+          stopScreenShare();
+        };
+        localVideo.srcObject = screenStream;
+        isScreenSharing = true;
+        shareScreenBtn.textContent = 'Stop Screen';
+      } catch (err) {
+        console.error('Screen share error', err);
+        alert('Could not start screen share');
+      }
+    } else {
+      stopScreenShare();
+    }
+  });
 }
 
 function stopScreenShare() {
@@ -296,7 +261,6 @@ function stopScreenShare() {
     screenStream = null;
   }
 
-  // revert back to camera video if we still have it
   if (localStream) {
     const camTrack = localStream.getVideoTracks()[0];
     const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'video');
@@ -317,16 +281,13 @@ function stopScreenShare() {
 
 async function createPeerConnection(isCaller) {
   if (pc) endCall();
-
-  if (!isViewer) {
-    try {
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localVideo.srcObject = localStream;
-    } catch (err) {
-      console.error('Media error', err);
-      alert('Could not access camera/mic');
-      return;
-    }
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideo.srcObject = localStream;
+  } catch (err) {
+    console.error('Media error', err);
+    alert('Could not access camera/mic');
+    return;
   }
 
   pc = new RTCPeerConnection(iceConfig);
@@ -344,9 +305,7 @@ async function createPeerConnection(isCaller) {
     remoteVideo.srcObject = event.streams[0];
   };
 
-  if (!isViewer && localStream) {
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-  }
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
   if (isCaller) {
     const offer = await pc.createOffer();
@@ -368,6 +327,14 @@ function endCall() {
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
+  }
+  if (screenStream) {
+    screenStream.getTracks().forEach(t => t.stop());
+    screenStream = null;
+  }
+  isScreenSharing = false;
+  if (shareScreenBtn) {
+    shareScreenBtn.textContent = 'Share Screen';
   }
   localVideo.srcObject = null;
   remoteVideo.srcObject = null;
