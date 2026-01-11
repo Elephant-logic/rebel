@@ -1,15 +1,14 @@
-// VIEWER CLIENT - FINAL LAYOUT FIX
+// VIEWER - FINAL FIX
 const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
 let myName = `Viewer-${Math.floor(Math.random()*1000)}`;
 
-// FIX: Force Google STUN (Reliable)
+// USE YOUR CONFIG (Fixes Mobile)
 const iceConfig = { 
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+  iceServers: (typeof ICE_SERVERS !== 'undefined') ? ICE_SERVERS : [
+    { urls: 'stun:stun.l.google.com:19302' }
   ] 
 };
 
@@ -20,7 +19,6 @@ const statusEl = document.getElementById('viewerStatus');
 const chatLog = document.getElementById('chatLog');
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
-const emojiStrip = document.getElementById('emojiStrip');
 const unmuteBtn = document.getElementById('unmuteBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const toggleChatBtn = document.getElementById('toggleChatBtn');
@@ -33,15 +31,12 @@ if (room) {
   currentRoom = room;
   socket.connect();
   setStatus('Connecting...');
-} else {
-  setStatus('No Room ID');
-}
+} else { setStatus('No Room ID'); }
 
 socket.on('connect', () => {
   setStatus('Waiting for Stream...');
   socket.emit('join-room', { room: currentRoom, name: myName });
 });
-
 socket.on('disconnect', () => setStatus('Disconnected'));
 
 // 2. VIDEO LOGIC
@@ -58,6 +53,8 @@ socket.on('webrtc-offer', async ({ sdp }) => {
        statusEl.style.background = '#4af3a3';
        statusEl.style.color = '#000';
     }
+    // FORCE PLAY (Fixes Black Screen)
+    viewerVideo.play().catch(e => console.log("Autoplay blocked, waiting for click"));
   };
 
   pc.onicecandidate = (event) => {
@@ -87,26 +84,20 @@ if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => {
 if (unmuteBtn) unmuteBtn.addEventListener('click', () => {
   viewerVideo.muted = !viewerVideo.muted;
   unmuteBtn.textContent = viewerVideo.muted ? '🔇 Unmute' : '🔊 Mute';
+  // Also force play on click
+  viewerVideo.play();
 });
 
-// NEW: Toggle Chat Button
-if (toggleChatBtn) {
-  toggleChatBtn.addEventListener('click', () => {
+if (toggleChatBtn) toggleChatBtn.addEventListener('click', () => {
     document.body.classList.toggle('theater-mode');
     const isHidden = document.body.classList.contains('theater-mode');
     toggleChatBtn.textContent = isHidden ? 'Show Chat' : 'Hide Chat';
-  });
-}
+});
 
 // 4. CHAT
 socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 if (sendBtn) sendBtn.addEventListener('click', sendChat);
-if (emojiStrip) emojiStrip.addEventListener('click', e => {
-  if (e.target.classList.contains('emoji')) {
-    chatInput.value += e.target.textContent;
-    chatInput.focus();
-  }
-});
+if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
 function sendChat() {
   const text = chatInput.value.trim();
@@ -115,17 +106,16 @@ function sendChat() {
   appendChat('You', text, Date.now());
   chatInput.value = '';
 }
-
 function appendChat(name, text, ts) {
   const line = document.createElement('div');
   line.style.marginBottom = '5px';
-  const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const nameHtml = name === 'You' ? `<span style="color:#4af3a3">${name}</span>` : `<strong>${name}</strong>`;
-  line.innerHTML = `${nameHtml} <small>${time}</small>: ${text}`;
-  chatLog.appendChild(line);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  line.innerHTML = `${nameHtml}: ${text}`;
+  if (chatLog) {
+      chatLog.appendChild(line);
+      chatLog.scrollTop = chatLog.scrollHeight;
+  }
 }
-
 function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
 }
