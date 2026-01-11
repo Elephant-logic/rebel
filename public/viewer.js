@@ -1,14 +1,15 @@
-// VIEWER - FINAL FIX
+// VIEWER - FULL FEATURES + GOOGLE STUN
 const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
 let myName = `Viewer-${Math.floor(Math.random()*1000)}`;
 
-// USE YOUR CONFIG (Fixes Mobile)
+// FIX: Force Google STUN
 const iceConfig = { 
-  iceServers: (typeof ICE_SERVERS !== 'undefined') ? ICE_SERVERS : [
-    { urls: 'stun:stun.l.google.com:19302' }
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
   ] 
 };
 
@@ -19,6 +20,7 @@ const statusEl = document.getElementById('viewerStatus');
 const chatLog = document.getElementById('chatLog');
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
+const emojiStrip = document.getElementById('emojiStrip');
 const unmuteBtn = document.getElementById('unmuteBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const toggleChatBtn = document.getElementById('toggleChatBtn');
@@ -39,10 +41,9 @@ socket.on('connect', () => {
 });
 socket.on('disconnect', () => setStatus('Disconnected'));
 
-// 2. VIDEO LOGIC
+// 2. VIDEO
 socket.on('webrtc-offer', async ({ sdp }) => {
   setStatus('Stream Found!');
-  
   if (pc) pc.close();
   pc = new RTCPeerConnection(iceConfig);
 
@@ -53,8 +54,7 @@ socket.on('webrtc-offer', async ({ sdp }) => {
        statusEl.style.background = '#4af3a3';
        statusEl.style.color = '#000';
     }
-    // FORCE PLAY (Fixes Black Screen)
-    viewerVideo.play().catch(e => console.log("Autoplay blocked, waiting for click"));
+    viewerVideo.play().catch(e => console.log("Autoplay blocked"));
   };
 
   pc.onicecandidate = (event) => {
@@ -73,7 +73,7 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-// 3. UI CONTROLS
+// 3. CONTROLS
 if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => {
   if (!document.fullscreenElement) {
     if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
@@ -84,7 +84,6 @@ if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => {
 if (unmuteBtn) unmuteBtn.addEventListener('click', () => {
   viewerVideo.muted = !viewerVideo.muted;
   unmuteBtn.textContent = viewerVideo.muted ? '🔇 Unmute' : '🔊 Mute';
-  // Also force play on click
   viewerVideo.play();
 });
 
@@ -94,10 +93,17 @@ if (toggleChatBtn) toggleChatBtn.addEventListener('click', () => {
     toggleChatBtn.textContent = isHidden ? 'Show Chat' : 'Hide Chat';
 });
 
-// 4. CHAT
+// 4. CHAT & EMOJIS (Restored)
 socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 if (sendBtn) sendBtn.addEventListener('click', sendChat);
 if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+if (emojiStrip) emojiStrip.addEventListener('click', e => {
+  if (e.target.classList.contains('emoji')) {
+    chatInput.value += e.target.textContent;
+    chatInput.focus();
+  }
+});
 
 function sendChat() {
   const text = chatInput.value.trim();
