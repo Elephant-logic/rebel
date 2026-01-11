@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Rebel Messenger</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -14,14 +15,16 @@
         <p class="subtitle">P2P chat · calls · files</p>
       </div>
       <div class="status-block">
-        <div id="signalStatus" class="status-dot status-disconnected">Disconnected</div>
-        <div class="room-label">Room: <span id="roomInfo">—</span></div>
+        <span id="signalStatus" class="status-dot status-disconnected">Disconnected</span>
+        <span class="room-label">Room: <span id="roomInfo">—</span></span>
       </div>
     </header>
 
     <section class="connection-panel">
-      <input id="nameInput" class="text-input" placeholder="Your name" />
-      <input id="roomInput" class="text-input" placeholder="Room name" />
+      <input id="nameInput" class="text-input"
+             placeholder="Your name (or blank for codename)" />
+      <input id="roomInput" class="text-input"
+             placeholder="Room code (e.g. beef100)" />
       <button id="joinBtn" class="btn primary">Join</button>
       <button id="leaveBtn" class="btn danger" disabled>Leave</button>
     </section>
@@ -36,13 +39,17 @@
           <h2>Peer</h2>
           <video id="remoteVideo" autoplay playsinline></video>
         </div>
+
         <div class="call-controls">
           <button id="startCallBtn" class="btn primary">Start Call</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="hangupBtn" class="btn" disabled>End Call</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
+          <button id="changeCamBtn" class="btn">Change Cam</button>
+          <button id="settingsBtn" class="btn">Settings</button>
         </div>
+
         <div class="file-row">
           <span class="file-label">Stream Link:</span>
           <input id="streamLinkInput" class="file-name" readonly />
@@ -64,17 +71,18 @@
           <span class="emoji">🔥</span>
           <span class="emoji">🤯</span>
           <span class="emoji">💀</span>
+          <span class="emoji">🤘</span>
         </div>
 
         <div class="chat-input-row">
-          <input id="chatInput" class="text-input" placeholder="Type a message…" />
+          <input id="chatInput" class="text-input" placeholder="Type message…" />
           <button id="sendBtn" class="btn primary">Send</button>
         </div>
 
         <div class="file-row">
           <span class="file-label">File:</span>
           <label class="btn">
-            <input id="fileInput" type="file" hidden />
+            <input type="file" id="fileInput" hidden />
             📎 Attach
           </label>
           <span id="fileNameLabel" class="file-name">No file</span>
