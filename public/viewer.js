@@ -1,11 +1,11 @@
-// VIEWER - STABLE + AUTO-RETRY
+// VIEWER - HANDLES REJOINS
 const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
 let myName = `Viewer-${Math.floor(Math.random()*1000)}`;
 
-// FORCE GOOGLE STUN
+// GOOGLE STUN
 const iceConfig = { 
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -25,7 +25,7 @@ const unmuteBtn = document.getElementById('unmuteBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const toggleChatBtn = document.getElementById('toggleChatBtn');
 
-// 1. JOIN
+// 1. JOIN LOGIC
 const params = new URLSearchParams(window.location.search);
 const room = params.get('room');
 
@@ -44,7 +44,10 @@ socket.on('disconnect', () => setStatus('Disconnected'));
 // 2. VIDEO LOGIC
 socket.on('webrtc-offer', async ({ sdp }) => {
   setStatus('Stream Found!');
-  if (pc) pc.close();
+  
+  // Clean up old connection if exists
+  if (pc) { pc.close(); pc = null; }
+  
   pc = new RTCPeerConnection(iceConfig);
 
   pc.ontrack = (event) => {
@@ -54,7 +57,6 @@ socket.on('webrtc-offer', async ({ sdp }) => {
        statusEl.style.background = '#4af3a3';
        statusEl.style.color = '#000';
     }
-    // Attempt Auto-Play
     viewerVideo.play().catch(e => console.log("Autoplay blocked"));
   };
 
@@ -74,7 +76,7 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-// 3. CONTROLS
+// 3. UI
 if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => {
   if (!document.fullscreenElement) {
     if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
