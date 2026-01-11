@@ -20,9 +20,13 @@
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
   padding: 0;
+  height: 100%;
+}
+
+body {
   background: radial-gradient(circle at top, #0b1020 0, #02030a 55%, #000 100%);
   color: var(--text);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -225,7 +229,7 @@ body {
   border: 1px solid var(--border);
 }
 
-/* STREAM LINK ROW */
+/* STREAM LINK / FILE ROW */
 
 .file-row {
   display: flex;
