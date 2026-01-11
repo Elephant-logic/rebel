@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Rebel Messenger</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Rebel Host</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="app-shell">
+
     <header class="topbar">
       <div>
-        <h1>Rebel Messenger</h1>
-        <p class="subtitle">P2P chat · calls · files</p>
+        <h1>Rebel Host</h1>
+        <p class="subtitle">Multi-call + Live Stream</p>
       </div>
       <div class="status-block">
         <div id="signalStatus" class="status-dot status-disconnected">Disconnected</div>
@@ -19,59 +20,79 @@
       </div>
     </header>
 
+    <!-- JOIN PANEL -->
     <section class="connection-panel">
-      <input id="nameInput" class="text-input" placeholder="Your name (or blank for codename)" />
+      <input id="nameInput" class="text-input" placeholder="Your name" />
       <input id="roomInput" class="text-input" placeholder="Room code (e.g. beef100)" />
       <button id="joinBtn" class="btn primary">Join</button>
       <button id="leaveBtn" class="btn danger" disabled>Leave</button>
     </section>
 
+    <!-- MAIN GRID -->
     <main class="main-grid">
+
+      <!-- VIDEO COLUMN -->
       <section class="video-column">
-        <div class="video-card">
-          <h2>You</h2>
-          <video id="localVideo" autoplay playsinline muted></video>
+
+        <!-- TOP ROW: YOU + FOCUSED PEER -->
+        <div class="video-row">
+          <div class="video-card">
+            <h2>You</h2>
+            <video id="localVideo" autoplay playsinline muted></video>
+          </div>
+          <div class="video-card">
+            <h2 id="focusLabel">Focused</h2>
+            <video id="focusVideo" autoplay playsinline></video>
+          </div>
         </div>
-        <div class="video-card">
-          <h2>Peer</h2>
-          <video id="remoteVideo" autoplay playsinline></video>
-        </div>
+
+        <!-- SCROLL PEER TILE ROW -->
+        <div id="peerTiles" class="peer-scroll"></div>
+
+        <!-- CALL CONTROLS -->
         <div class="call-controls">
-          <button id="startCallBtn" class="btn primary">Start Call</button>
+          <button id="startCallBtn" class="btn primary">Start Camera</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
-          <button id="hangupBtn" class="btn" disabled>End Call</button>
+          <button id="hangupBtn" class="btn danger" disabled>End</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
         </div>
+
+        <!-- STREAM OUTPUT LINK -->
         <div class="file-row">
-          <span class="file-label">Stream Link:</span>
+          <span class="file-label">Viewer Link:</span>
           <input id="streamLinkInput" class="file-name" readonly />
           <button id="openStreamBtn" class="btn">Open</button>
         </div>
+
       </section>
 
+      <!-- CHAT + USERS COLUMN -->
       <section class="chat-column">
+
         <div class="chat-header">
-          <h2>Chat</h2>
+          <h2>Chat & Calls</h2>
         </div>
+
+        <!-- USER LIST (CALL TARGETS) -->
+        <div id="userList" class="user-list"></div>
+
+        <!-- CHAT LOG -->
         <div id="chatLog" class="chat-log"></div>
 
-        <div class="emoji-strip" id="emojiStrip">
-          <span class="emoji">😀</span>
-          <span class="emoji">😂</span>
-          <span class="emoji">😍</span>
-          <span class="emoji">👍</span>
-          <span class="emoji">🔥</span>
-          <span class="emoji">🤯</span>
-          <span class="emoji">💀</span>
-          <span class="emoji">🤘</span>
+        <!-- EMOJIS -->
+        <div id="emojiStrip" class="emoji-strip">
+          <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
+          <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">🤘</span>
         </div>
 
+        <!-- CHAT INPUT -->
         <div class="chat-input-row">
           <input id="chatInput" class="text-input" placeholder="Type message…" />
           <button id="sendBtn" class="btn primary">Send</button>
         </div>
 
+        <!-- FILE SHARE -->
         <div class="file-row">
           <label class="file-label">
             <input type="file" id="fileInput" hidden />
@@ -80,12 +101,14 @@
           <span id="fileNameLabel" class="file-name">No file</span>
           <button id="sendFileBtn" class="btn" disabled>Send File</button>
         </div>
+
       </section>
     </main>
   </div>
 
+  <!-- SOCKET + ICE + LOGIC -->
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="config/ice.js"></script>
+  <script src="ice.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
