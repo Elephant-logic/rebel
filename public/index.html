@@ -12,17 +12,19 @@
     <header class="topbar">
       <div>
         <h1>Rebel Messenger</h1>
-        <p class="subtitle">P2P chat · calls · files</p>
+        <p class="subtitle">P2P chat · calls · stream · files</p>
       </div>
       <div class="status-block">
         <span id="signalStatus" class="status-dot status-disconnected">Disconnected</span>
-        <span class="room-label">Room: <span id="roomInfo">—</span></span>
+        <span class="room-label">
+          Room: <span id="roomInfo">—</span>
+        </span>
       </div>
     </header>
 
     <section class="connection-panel">
       <input id="nameInput" class="text-input"
-             placeholder="Your name (or blank for codename)" />
+             placeholder="Your name (blank = codename)" />
       <input id="roomInput" class="text-input"
              placeholder="Room code (e.g. beef100)" />
       <button id="joinBtn" class="btn primary">Join</button>
@@ -42,6 +44,7 @@
 
         <div class="call-controls">
           <button id="startCallBtn" class="btn primary">Start Call</button>
+          <button id="startStreamBtn" class="btn">Start Stream</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="hangupBtn" class="btn" disabled>End Call</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
@@ -75,7 +78,7 @@
         </div>
 
         <div class="chat-input-row">
-          <input id="chatInput" class="text-input" placeholder="Type message…" />
+          <input id="chatInput" class="text-input" placeholder="Type a message…" />
           <button id="sendBtn" class="btn primary">Send</button>
         </div>
 
