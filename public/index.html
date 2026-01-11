@@ -1,126 +1,83 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Rebel Messenger</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="style.css" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app-shell">
-    <header class="topbar">
-      <div>
-        <h1>Rebel Messenger</h1>
-        <p class="subtitle">P2P chat · calls · stream</p>
-      </div>
-      <div class="status-block">
-        <div id="signalStatus" class="status-dot status-disconnected">Disconnected</div>
-        <div id="roomInfo" class="room-label">No room</div>
-      </div>
+  <div id="app">
+    <header id="topBar">
+      <span id="roomLabel">Disconnected</span>
+      <span id="viewerCount">0 watching</span>
+      <span id="lockStatus">Unlocked</span>
     </header>
 
-    <section class="connection-panel">
-      <input id="nameInput" class="text-input" placeholder="Your name (or blank for codename)" />
-      <input id="roomInput" class="text-input" placeholder="Main room (for chat/call)" />
-      <button id="joinBtn" class="btn primary">Join</button>
-      <button id="leaveBtn" class="btn danger" disabled>Leave</button>
+    <section id="joinBar">
+      <input id="nameInput"
+             placeholder="Your name (or blank for codename)">
+      <input id="roomInput"
+             placeholder="Main room (for chat/call)">
+      <button id="joinBtn">Join</button>
+      <button id="leaveBtn" disabled>Leave</button>
     </section>
 
-    <main class="main-grid">
-      <section class="video-column">
-        <div class="video-card">
-          <h2>You</h2>
-          <video id="localVideo" autoplay playsinline muted></video>
-        </div>
-        <div class="video-card">
-          <h2>Peer</h2>
-          <video id="remoteVideo" autoplay playsinline></video>
-        </div>
-        <div class="call-controls">
-          <button id="startCallBtn" class="btn primary">Start Call</button>
-          <button id="startStreamBtn" class="btn">Start Stream</button>
-          <button id="shareScreenBtn" class="btn">Share Screen</button>
-          <button id="swapCamBtn" class="btn">Swap Cam</button>
-          <button id="hangupBtn" class="btn" disabled>End Call</button>
-          <button id="toggleCamBtn" class="btn">Camera Off</button>
-          <button id="toggleMicBtn" class="btn">Mute</button>
-          <button id="settingsBtn" class="btn">Settings</button>
-        </div>
-
-        <div class="file-row">
-          <span class="file-label">Stream Link:</span>
-          <input id="streamLinkInput" class="file-name" readonly />
-          <button id="openStreamBtn" class="btn">Open</button>
-        </div>
-      </section>
-
-      <section class="chat-column">
-        <!-- Host / presence bar -->
-        <div class="presence-bar">
-          <div class="presence-host">
-            <span class="crown">👑</span>
-            <span id="hostNameLabel">You (Host)</span>
-          </div>
-        </div>
-
-        <div class="chat-header">
-          <div class="chat-tabs">
-            <button id="chatTabChat" class="chat-tab active-tab">Chat</button>
-            <button id="chatTabShared" class="chat-tab">Shared View</button>
-          </div>
-        </div>
-
-        <div class="chat-panels">
-          <div id="chatLog" class="chat-log"></div>
-          <div id="sharedPanel" class="shared-panel hidden">
-            <video id="sharedPreview" autoplay playsinline muted></video>
-            <p class="shared-hint">Preview of what you are sending (camera or screen).</p>
-          </div>
-        </div>
-
-        <div class="emoji-strip" id="emojiStrip">
-          <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
-          <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">🤯</span>
-          <span class="emoji">💀</span><span class="emoji">🤘</span>
-        </div>
-
-        <div class="chat-input-row">
-          <input id="chatInput" class="text-input" placeholder="Type message…" />
-          <button id="sendBtn" class="btn primary">Send</button>
-        </div>
-
-        <div class="file-row">
-          <label class="file-label">
-            <input type="file" id="fileInput" hidden />
-            📎 Attach
-          </label>
-          <span id="fileNameLabel" class="file-name">No file</span>
-          <button id="sendFileBtn" class="btn" disabled>Send File</button>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <!-- Settings Modal -->
-  <div id="settingsModal" class="settings-modal hidden">
-    <div class="settings-panel">
-      <h3>Stream Settings</h3>
-      <label>
-        Camera
-        <select id="cameraSelect"></select>
-      </label>
-      <label>
-        Microphone
-        <select id="micSelect"></select>
-      </label>
-      <div class="settings-actions">
-        <button id="settingsCloseBtn" class="btn">Close</button>
+    <div id="videoPane">
+      <div class="videoCol">
+        <div class="label">You</div>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+      <div class="videoCol">
+        <div class="label">Peer</div>
+        <video id="remoteVideo" autoplay playsinline></video>
       </div>
     </div>
+
+    <section id="controls">
+      <button id="btnCall">Start Call</button>
+      <button id="btnStream">Start Stream</button>
+      <button id="btnScreen">Share Screen</button>
+      <button id="btnSwapCam">Swap Cam</button>
+      <button id="btnLock">Lock Room</button>
+      <button id="btnCamToggle">Camera Off</button>
+      <button id="btnMute">Mute</button>
+    </section>
+
+    <section id="streamLinkRow">
+      <span>Stream Link:</span>
+      <input id="streamLink" readonly>
+      <button id="btnOpenStream">Open</button>
+    </section>
+
+    <section id="chatPane">
+      <div id="chatTabs">
+        <button id="tabChat" class="activeTab">Chat</button>
+        <button id="tabShared">Shared View</button>
+      </div>
+
+      <div id="chatMessages"></div>
+
+      <div id="sharedPanel" class="hidden">
+        <video id="sharedPreview" autoplay playsinline muted></video>
+      </div>
+
+      <div id="chatInputRow">
+        <div id="emojiStrip">
+          <span class="emoji">🙂</span>
+          <span class="emoji">🔥</span>
+          <span class="emoji">👍</span>
+          <span class="emoji">😂</span>
+          <span class="emoji">💀</span>
+        </div>
+        <input id="msgBox" placeholder="Say something...">
+        <button id="btnSend">Send</button>
+      </div>
+    </section>
   </div>
 
-  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="config/ice.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
