@@ -1,14 +1,15 @@
-// VIEWER CLIENT - FINAL
+// VIEWER CLIENT - FINAL WORKING
 const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
 let myName = `Viewer-${Math.floor(Math.random()*1000)}`;
 
-// FIX: Use correct ICE servers
+// FIX: Force Google STUN here too
 const iceConfig = { 
-  iceServers: (typeof ICE_SERVERS !== 'undefined') ? ICE_SERVERS : [
-    { urls: 'stun:stun.l.google.com:19302' }
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
   ] 
 };
 
