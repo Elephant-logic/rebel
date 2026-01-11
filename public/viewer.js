@@ -1,179 +1,165 @@
-// ==========================
-// Rebel Stream Viewer
-// ==========================
+// VIEWER – SIMPLE RECEIVER
 const socket = io({ autoConnect: false });
 
-// DOM
-const viewerVideo = document.getElementById('viewerVideo');
-const muteBtn = document.getElementById('muteBtn');
-const popupBtn = document.getElementById('popupBtn');
-const viewerStatus = document.getElementById('viewerStatus');
-const streamStatus = document.getElementById('streamStatus');
-const viewChatLog = document.getElementById('viewChatLog');
-const viewChatInput = document.getElementById('viewChatInput');
-const viewSendBtn = document.getElementById('viewSendBtn');
-const viewEmojiStrip = document.getElementById('viewEmojiStrip');
-
-// popup elements
-const overlay = document.getElementById('videoOverlay');
-const overlayVideo = document.getElementById('overlayVideo');
-const overlayClose = document.getElementById('overlayClose');
-
-// State
-let room = null;
-let streamRoom = null;
+let currentRoom = null;
 let viewerPC = null;
-let audioMuted = true;
 let myName = `Viewer-${Math.floor(Math.random() * 1000)}`;
 
-// ICE config from config/ice.js
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
   ? { iceServers: ICE_SERVERS }
   : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-// ==========================
-// Query params
-// ==========================
-const params = new URLSearchParams(window.location.search);
-room = params.get('room');
-if (!room) {
-  alert('Missing ?room= in URL');
-  throw new Error('No room param');
-}
-streamRoom = `stream-${room}`;
+// DOM
+const viewerVideo  = document.getElementById('viewerVideo');
+const statusEl     = document.getElementById('status');
+const muteBtn      = document.getElementById('muteBtn');
+const fullscreenBtn= document.getElementById('fullscreenBtn');
+const chatLog      = document.getElementById('chatLog');
+const chatInput    = document.getElementById('chatInput');
+const sendBtn      = document.getElementById('sendBtn');
+const emojiStrip   = document.getElementById('emojiStrip');
 
-// ==========================
-// Helpers
-// ==========================
-function appendChat(name, text) {
+let muted = true;
+
+// ----------- Helpers -----------
+function setStatus(text) {
+  if (statusEl) statusEl.textContent = text;
+}
+
+function appendChat(name, text, ts = Date.now()) {
+  if (!chatLog) return;
   const div = document.createElement('div');
   div.className = 'chat-line';
-  const ts = new Date().toLocaleTimeString();
-  div.innerHTML = `<span class="meta">[${ts}] <b>${name}:</b></span> ${text}`;
-  viewChatLog.appendChild(div);
-  viewChatLog.scrollTop = viewChatLog.scrollHeight;
+  const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const who = name === 'You'
+    ? `<span style="color:#4af3a3">${name}</span>`
+    : `<strong>${name}</strong>`;
+  div.innerHTML = `${who} <small>${time}</small>: ${text}`;
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function setViewerStatus(connected) {
-  viewerStatus.textContent = connected ? 'Connected' : 'Disconnected';
-  viewerStatus.className = connected ? 'status-dot status-connected' : 'status-dot status-disconnected';
-}
-
-// ==========================
-// WebRTC
-// ==========================
 async function createViewerPC() {
+  if (viewerPC) {
+    try { viewerPC.close(); } catch (e) {}
+  }
   viewerPC = new RTCPeerConnection(iceConfig);
 
-  viewerPC.ontrack = ({ streams }) => {
-    const stream = streams[0];
-    viewerVideo.srcObject = stream;
-    overlayVideo.srcObject = stream;
-    streamStatus.textContent = 'LIVE';
+  viewerPC.ontrack = (ev) => {
+    const stream = ev.streams[0];
+    if (viewerVideo) {
+      viewerVideo.srcObject = stream;
+      viewerVideo.muted = muted;
+    }
+    setStatus('LIVE');
   };
 
-  viewerPC.onicecandidate = e => {
-    if (e.candidate) {
-      socket.emit('webrtc-ice-stream', {
-        candidate: e.candidate,
-        streamRoom
+  viewerPC.onicecandidate = (e) => {
+    if (e.candidate && currentRoom) {
+      socket.emit('webrtc-ice-candidate', {
+        room: currentRoom,
+        candidate: e.candidate
       });
     }
   };
+
+  return viewerPC;
 }
 
-// ==========================
-// Socket events
-// ==========================
-socket.on('connect', () => setViewerStatus(true));
-socket.on('disconnect', () => setViewerStatus(false));
+// ----------- Socket events -----------
+socket.on('connect', () => setStatus('Waiting for Stream…'));
+socket.on('disconnect', () => setStatus('Disconnected'));
 
-// Host broadcast offer
-socket.on('webrtc-offer-stream', async ({ sdp }) => {
-  await createViewerPC();
-  await viewerPC.setRemoteDescription(new RTCSessionDescription(sdp));
-  const ans = await viewerPC.createAnswer();
-  await viewerPC.setLocalDescription(ans);
-  socket.emit('webrtc-answer-stream', { sdp: ans, streamRoom });
-  streamStatus.textContent = 'Negotiating…';
+// Host offer → answer back
+socket.on('webrtc-offer', async ({ sdp }) => {
+  try {
+    await createViewerPC();
+    await viewerPC.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await viewerPC.createAnswer();
+    await viewerPC.setLocalDescription(answer);
+
+    socket.emit('webrtc-answer', {
+      room: currentRoom,
+      sdp: answer
+    });
+
+    setStatus('Connecting…');
+  } catch (e) {
+    console.error('Viewer offer error:', e);
+  }
 });
 
 // ICE from host
-socket.on('webrtc-ice-stream', async ({ candidate }) => {
-  if (viewerPC && candidate) {
-    try {
-      await viewerPC.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (e) {
-      console.error('Viewer ICE error:', e);
-    }
+socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+  if (!viewerPC || !candidate) return;
+  try {
+    await viewerPC.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (e) {
+    console.error('Viewer ICE add error:', e);
   }
 });
 
-// Chat from room
-socket.on('chat-message', ({ name, text }) => {
-  appendChat(name || 'Anon', text);
+// Chat from host / others
+socket.on('chat-message', ({ name, text, ts }) => {
+  appendChat(name, text, ts);
 });
 
-// ==========================
-// UI events
-// ==========================
-muteBtn.onclick = () => {
-  audioMuted = !audioMuted;
-  viewerVideo.muted = audioMuted;
-  overlayVideo.muted = audioMuted;
-  muteBtn.textContent = audioMuted ? 'Unmute' : 'Mute';
-};
+// ----------- UI -----------
+if (muteBtn) {
+  muteBtn.addEventListener('click', () => {
+    muted = !muted;
+    if (viewerVideo) viewerVideo.muted = muted;
+    muteBtn.textContent = muted ? 'Unmute' : 'Mute';
+  });
+}
 
-// Popup fullscreen (overlay)
-popupBtn.onclick = () => {
-  overlay.classList.remove('hidden');
-};
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', () => {
+    if (!viewerVideo) return;
+    if (viewerVideo.requestFullscreen) viewerVideo.requestFullscreen();
+    else if (viewerVideo.webkitRequestFullscreen) viewerVideo.webkitRequestFullscreen();
+  });
+}
 
-overlayClose.onclick = () => {
-  overlay.classList.add('hidden');
-};
+function sendChat() {
+  const text = chatInput && chatInput.value.trim();
+  if (!text || !currentRoom) return;
 
-// Emoji strip (same idea as main chat)
-viewEmojiStrip.onclick = (e) => {
-  if (e.target.classList.contains('emoji')) {
-    viewChatInput.value += e.target.textContent;
-    viewChatInput.focus();
-  }
-};
-
-// Send chat
-viewSendBtn.onclick = () => {
-  const text = viewChatInput.value.trim();
-  if (!text) return;
-  viewChatInput.value = '';
-
-  // show immediately in your chat log
-  appendChat(myName, text);
-
-  // send to main room so host + others see it
   socket.emit('chat-message', {
-    room,
+    room: currentRoom,
     name: myName,
     text
   });
-};
 
-viewChatInput.onkeydown = (e) => {
-  if (e.key === 'Enter') {
-    viewSendBtn.onclick();
-  }
-};
+  appendChat('You', text);
+  chatInput.value = '';
+}
 
-// ==========================
-// Init
-// ==========================
-socket.connect();
+if (sendBtn) sendBtn.addEventListener('click', sendChat);
+if (chatInput) {
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChat();
+  });
+}
 
-// join main room for chat + /stream-room for broadcast
-socket.emit('join-room', { room, name: myName });
-socket.emit('join-stream', { streamRoom });
+if (emojiStrip) {
+  emojiStrip.addEventListener('click', (e) => {
+    if (e.target.classList.contains('emoji')) {
+      chatInput.value += e.target.textContent;
+      chatInput.focus();
+    }
+  });
+}
 
-// mute by default (mobile autoplay rules)
-viewerVideo.muted = audioMuted;
-overlayVideo.muted = audioMuted;
-setViewerStatus(false);
+// ----------- INIT -----------
+const params = new URLSearchParams(window.location.search);
+const room = params.get('room');
+if (!room) {
+  setStatus('No room specified');
+} else {
+  currentRoom = room;
+  socket.connect();
+  setStatus('Connecting…');
+  socket.emit('join-room', { room: currentRoom, name: myName });
+  // host will send us offers when streaming starts / restarts
+}
