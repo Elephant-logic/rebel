@@ -1,341 +1,410 @@
-/* === GLOBAL ============================= */
+:root {
+  --bg: #050814;
+  --panel: #101524;
+  --panel-soft: #151a2b;
+  --accent: #4af3a3;
+  --accent-soft: rgba(74, 243, 163, 0.1);
+  --danger: #ff4b6a;
+  --text: #f5f7ff;
+  --muted: #9ba3c0;
+  --border: #262d44;
+  --radius-xl: 18px;
+  --radius-lg: 14px;
+  --radius-sm: 8px;
+  --shadow-soft: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
   padding: 0;
-  background: #0d0f13;
-  color: #e4e4e4;
-  font-family: Arial, sans-serif;
+  background: radial-gradient(circle at top, #0b1020 0, #02030a 55%, #000 100%);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* APP SHELL -------------------------------------------------- */
+
+.app-shell {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  padding: 16px;
 }
+
+/* TOP BAR ---------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, rgba(25, 31, 56, 0.95), rgba(10, 14, 30, 0.98));
+  border: 1px solid rgba(74, 243, 163, 0.15);
+  box-shadow: var(--shadow-soft);
+  gap: 16px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.status-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+}
+
+.status-dot {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(7, 10, 24, 0.9);
+}
+
+.status-connected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.status-disconnected {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.room-info {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(12, 18, 40, 0.9);
+  border: 1px solid var(--border);
+}
+
+/* LAYOUT GRID ------------------------------------------------ */
+
+.layout {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* SIDEBAR ---------------------------------------------------- */
+
+.sidebar {
+  background: var(--panel);
+  border-radius: var(--radius-xl);
+  padding: 14px 14px 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar h2 {
+  margin: 0 0 4px;
+  font-size: 0.96rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.field label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.field input {
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #0b1020;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.field input::placeholder {
+  color: rgba(155, 163, 192, 0.7);
+}
+
+/* BUTTONS ---------------------------------------------------- */
 
 .btn {
-  padding: 6px 10px;
-  border: none;
-  background: #1f6feb;
-  color: white;
-  border-radius: 4px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 7px 13px;
+  font-size: 0.82rem;
   cursor: pointer;
-  margin: 2px;
-}
-
-.btn.small {
-  padding: 4px 8px;
-  font-size: 12px;
+  background: #222945;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
 }
 
 .btn.primary {
-  background: #2ea043;
-}
-
-.btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* === STATUS ============================= */
-
-.status-connected {
-  color: #2ea043;
-}
-.status-disconnected {
-  color: #e34f4f;
-}
-
-/* === LAYOUT ============================= */
-
-.top-bar {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 10px;
-  background: #15181d;
-  border-bottom: 1px solid #2a2e36;
-}
-
-.main-area {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
-
-.video-zone {
-  flex: 2;
-  display: flex;
-  flex-direction: column;
-  background: #0e1015;
-  border-right: 1px solid #2a2e36;
-}
-
-#localVideo {
-  flex: 1;
-  background: #111419;
-  width: 100%;
-  object-fit: cover;
-}
-
-/* === USER LIST ============================= */
-
-.user-list-block {
-  background: #111419;
-  padding: 8px;
-  border-bottom: 1px solid #2a2e36;
-  flex-shrink: 0;
-}
-
-.user-list-block h3 {
-  margin: 4px 0 6px;
-  font-size: 14px;
+  background: linear-gradient(135deg, #2fd890, #4af3a3);
+  color: #050814;
   font-weight: 600;
 }
 
-#userList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #2a3155;
 }
 
-#userList li {
-  padding: 4px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #30e99c, #6bffbd);
 }
 
-#lockBtn {
-  width: 100%;
-  margin-top: 6px;
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
-/* === CHAT ============================= */
+/* MAIN PANEL ------------------------------------------------- */
 
-.right-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.chat-panel {
-  flex: 1;
+.main-panel {
+  background: var(--panel-soft);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
-  background: #0e1015;
+  gap: 10px;
 }
 
-.chat-log {
-  flex: 1;
-  overflow-y: auto;
+/* VIDEO ROW -------------------------------------------------- */
+
+.video-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.video-card {
+  background: radial-gradient(circle at top left, rgba(74, 243, 163, 0.18), rgba(5, 8, 20, 0.95));
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(74, 243, 163, 0.22);
   padding: 8px;
-  font-size: 14px;
-}
-
-.chat-input-row {
   display: flex;
-}
-
-.chat-input-row input {
-  flex: 1;
-  padding: 5px;
-  background: #181b22;
-  border: 1px solid #2a2e36;
-  color: white;
-}
-
-.emoji-strip {
-  padding: 4px;
-  font-size: 20px;
-  cursor: pointer;
-}
-
-.emoji {
-  margin: 2px;
-}
-
-/* === FILE ROW ============================= */
-
-.file-row {
-  display: flex;
-  padding: 6px;
-  align-items: center;
-}
-
-#fileNameLabel {
-  flex: 1;
-  padding-left: 6px;
-  font-size: 12px;
-  opacity: 0.7;
-}
-
-/* === BOTTOM CONTROLS ============================= */
-
-.control-bar {
-  display: flex;
-  flex-wrap: wrap;
-  padding: 6px;
-  background: #15181d;
-  border-top: 1px solid #2a2e36;
-}
-
-.control-bar input {
-  margin-right: 6px;
-  padding: 4px;
-  background: #1a1d24;
-  border: 1px solid #2a2e36;
-  color: white;
-}
-
-.viewer-row {
-  display: flex;
-  padding: 6px;
-  background: #15181d;
-  border-top: 1px solid #2a2e36;
-}
-
-.viewer-row input {
-  flex: 1;
-  padding: 4px;
-  background: #1a1d24;
-  border: 1px solid #2a2e36;
-  color: white;
-}
-
-/* === CALL STRIP (B MODE) ============================= */
-
-.call-strip {
-  display: flex;
-  padding: 4px;
+  flex-direction: column;
   gap: 6px;
-  background: #111419;
-  border-top: 1px solid #2a2e36;
-  overflow-x: auto;
-  height: 120px;
 }
 
-.user-tile {
-  position: relative;
-  width: 160px;
-  height: 100px;
-  background: #12151b;
-  border: 1px solid #2a2e36;
-  border-radius: 4px;
-  overflow: hidden;
+.video-card h2 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
-.user-tile video {
+.video-card video {
+  border-radius: var(--radius-sm);
   width: 100%;
-  height: 100%;
+  max-height: 260px;
+  background: #050814;
   object-fit: cover;
 }
 
-.user-tile.focused {
-  border-color: #2ea043;
-  box-shadow: 0 0 6px #2ea043;
+/* CALL CONTROLS ---------------------------------------------- */
+
+.call-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  background: #0c1020;
+  border-radius: var(--radius-lg);
+  padding: 8px;
+  border: 1px solid var(--border);
 }
 
-.tile-controls {
-  position: absolute;
-  bottom: 2px;
-  right: 2px;
+/* FILE / STREAM LINK ROW ------------------------------------- */
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 6px 8px;
+  background: #0b1020;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
 }
 
-/* === FOCUS VIEW (for viewer mapping later) ============================= */
-
-.focus-video {
-  border: 2px solid #2ea043;
+.file-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
-/* === POPUP: INCOMING CALL ============================= */
-
-.incoming-call-popup {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: #111419;
-  padding: 16px;
-  border: 1px solid #2a2e36;
-  border-radius: 4px;
-  z-index: 9999;
-  width: 260px;
+.file-name {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.incoming-call-popup .popup-inner {
+#streamLinkInput {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #050814;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+/* CHAT PANEL ------------------------------------------------- */
+
+.chat-panel {
+  margin-top: 4px;
+  background: #0c1020;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  padding: 8px 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  text-align: center;
 }
 
-/* === MODAL SETTINGS ============================= */
-
-.modal.hidden {
-  display: none;
+.chat-log {
+  max-height: 230px;
+  min-height: 160px;
+  overflow-y: auto;
+  background: #050814;
+  border-radius: var(--radius-sm);
+  border: 1px solid #181d30;
+  padding: 6px 8px;
+  font-size: 0.82rem;
 }
 
-.modal {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(5,7,10,0.75);
+.chat-line {
+  margin-bottom: 4px;
+}
+
+.chat-line strong {
+  color: var(--accent);
+}
+
+.chat-line small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+/* EMOJI STRIP ----------------------------------------------- */
+
+.emoji-strip {
   display: flex;
-  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 1.15rem;
+  user-select: none;
+}
+
+.emoji {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+  transition: background 0.08s ease, transform 0.08s ease;
+}
+.emoji:hover {
+  background: rgba(74, 243, 163, 0.1);
+  transform: translateY(-1px);
+}
+
+/* CHAT INPUT + FILE ----------------------------------------- */
+
+.chat-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+#chatInput {
+  flex: 1;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #262d44;
+  background: #050814;
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+#chatInput::placeholder {
+  color: rgba(155, 163, 192, 0.7);
+}
+
+.file-upload-row {
+  display: flex;
   align-items: center;
-  z-index: 9000;
+  gap: 6px;
+  margin-top: 4px;
 }
 
-.modal-content {
-  background: #111419;
-  padding: 16px;
-  border: 1px solid #2a2e36;
-  width: 260px;
-  border-radius: 4px;
+.file-upload-row label.btn {
+  cursor: pointer;
 }
 
-.modal-content select {
-  width: 100%;
-  margin-bottom: 10px;
-  background: #1a1d24;
-  color: white;
-  border: 1px solid #2a2e36;
-  padding: 4px;
+.file-upload-row .file-name {
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
-.modal-actions {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
+/* SCROLLBARS ------------------------------------------------ */
+
+.chat-log::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-log::-webkit-scrollbar-thumb {
+  background: #2a3155;
+  border-radius: 999px;
 }
 
-/* === CROWN (HOST) ============================= */
-
-.user-list-block li strong::after {
-  content: '';
-}
-
-.user-list-block li.host::after {
-  content: ' 👑';
-  color: gold;
-}
-
-/* === RESPONSIVE ============================= */
+/* RESPONSIVE ------------------------------------------------ */
 
 @media (max-width: 900px) {
-  .main-area {
-    flex-direction: column;
+  .layout {
+    grid-template-columns: 1fr;
   }
-  .video-zone {
-    flex: none;
-    height: 50vh;
-  }
-  .call-strip {
-    height: 80px;
+  .video-card video {
+    max-height: 210px;
   }
 }
 
-/* === RING SOUND CONTAINER ============================= */
-
-#ringtone {
-  display: none;
+@media (max-width: 600px) {
+  .app-shell {
+    padding: 10px;
+  }
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .call-controls {
+    justify-content: flex-start;
+  }
 }
