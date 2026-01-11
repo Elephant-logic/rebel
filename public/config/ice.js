@@ -8,5 +8,5 @@ const ICE_SERVERS = [
     urls: 'turn:relay.metered.ca:80',
     username: 'openai-demo',
     credential: 'openai-demo'
-  
+  }
 ];
