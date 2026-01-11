@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <h1>Rebel Messenger</h1>
-        <p class="subtitle">P2P chat · calls · files</p>
+        <p class="subtitle">P2P chat · calls · stream</p>
       </div>
       <div class="status-block">
         <div id="signalStatus" class="status-dot status-disconnected">Disconnected</div>
@@ -21,7 +21,7 @@
 
     <section class="connection-panel">
       <input id="nameInput" class="text-input" placeholder="Your name (or blank for codename)" />
-      <input id="roomInput" class="text-input" placeholder="Room code (e.g. beef100)" />
+      <input id="roomInput" class="text-input" placeholder="Main room (for chat/call)" />
       <button id="joinBtn" class="btn primary">Join</button>
       <button id="leaveBtn" class="btn danger" disabled>Leave</button>
     </section>
@@ -38,11 +38,15 @@
         </div>
         <div class="call-controls">
           <button id="startCallBtn" class="btn primary">Start Call</button>
+          <button id="startStreamBtn" class="btn">Start Stream</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
+          <button id="swapCamBtn" class="btn">Swap Cam</button>
           <button id="hangupBtn" class="btn" disabled>End Call</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
+          <button id="settingsBtn" class="btn">Settings</button>
         </div>
+
         <div class="file-row">
           <span class="file-label">Stream Link:</span>
           <input id="streamLinkInput" class="file-name" readonly />
@@ -52,19 +56,24 @@
 
       <section class="chat-column">
         <div class="chat-header">
-          <h2>Chat</h2>
+          <div class="chat-tabs">
+            <button id="chatTabChat" class="chat-tab active-tab">Chat</button>
+            <button id="chatTabShared" class="chat-tab">Shared View</button>
+          </div>
         </div>
-        <div id="chatLog" class="chat-log"></div>
+
+        <div class="chat-panels">
+          <div id="chatLog" class="chat-log"></div>
+          <div id="sharedPanel" class="shared-panel hidden">
+            <video id="sharedPreview" autoplay playsinline muted></video>
+            <p class="shared-hint">Preview of what you are sending (camera or screen).</p>
+          </div>
+        </div>
 
         <div class="emoji-strip" id="emojiStrip">
-          <span class="emoji">😀</span>
-          <span class="emoji">😂</span>
-          <span class="emoji">😍</span>
-          <span class="emoji">👍</span>
-          <span class="emoji">🔥</span>
-          <span class="emoji">🤯</span>
-          <span class="emoji">💀</span>
-          <span class="emoji">🤘</span>
+          <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
+          <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">🤯</span>
+          <span class="emoji">💀</span><span class="emoji">🤘</span>
         </div>
 
         <div class="chat-input-row">
@@ -82,6 +91,24 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="settings-modal hidden">
+    <div class="settings-panel">
+      <h3>Stream Settings</h3>
+      <label>
+        Camera
+        <select id="cameraSelect"></select>
+      </label>
+      <label>
+        Microphone
+        <select id="micSelect"></select>
+      </label>
+      <div class="settings-actions">
+        <button id="settingsCloseBtn" class="btn">Close</button>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
