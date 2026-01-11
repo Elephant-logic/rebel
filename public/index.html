@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Rebel Host</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <header id="topBar">
+            <span id="roomLabel">Loading...</span>
+            <span id="viewerCount">0 watching</span>
+            <span id="lockStatus">Unlocked</span>
+        </header>
+
+        <div id="videoPane">
+            <video id="localVideo" autoplay playsinline muted></video>
+            <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+
+        <div id="controls">
+            <button id="btnStream">Start Stream</button>
+            <button id="btnScreen">Screen Share</button>
+            <button id="btnLock">Lock Room</button>
+            <button id="btnCall" style="background:#552222">Call (Beta)</button>
+        </div>
+
+        <div id="chatPane">
+            <div id="chatMessages"></div>
+            <div id="chatInput">
+                <input id="msgBox" placeholder="Type a message...">
+                <button id="btnSend">Send</button>
+            </div>
+        </div>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="host.js"></script>
+</body>
+</html>
