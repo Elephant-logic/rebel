@@ -1,4 +1,4 @@
-// app.js - Host Client
+// app.js - STABLE HOST
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -7,6 +7,8 @@ let pc = null;
 let localStream = null;
 let camOn = true;
 let micOn = true;
+// SAFETY LOCK: Prevents restarting twice in a row
+let isNegotiating = false; 
 
 // UI Refs
 const joinBtn = document.getElementById('joinBtn');
@@ -49,17 +51,17 @@ startCallBtn.addEventListener('click', async () => {
   if (!currentRoom) return alert('Join Room First');
   await startCamera();
   startCallBtn.disabled = true;
-  startCallBtn.textContent = 'Streaming...';
+  startCallBtn.textContent = 'Streaming Active';
 });
 
-// 3. AUTO-CONNECT Logic
+// 3. STABLE AUTO-CONNECT
 socket.on('user-joined', () => {
+  // If we are already busy connecting, IGNORE this signal
+  if (isNegotiating) return;
+
   if (localStream) {
-    console.log('User joined. Waiting 500ms then connecting...');
-    // The delay helps stability
-    setTimeout(() => {
-      restartConnection();
-    }, 500);
+    console.log('User joined. Starting stable connection...');
+    restartConnection();
   }
 });
 
@@ -68,13 +70,16 @@ async function startCamera() {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
-    localVideo.muted = true; // Avoid local echo
+    localVideo.muted = true; 
   } catch (err) {
     alert('Camera Error: ' + err.message);
   }
 }
 
 async function restartConnection() {
+  // 1. Set Lock
+  isNegotiating = true;
+
   if (pc) pc.close();
   pc = new RTCPeerConnection(iceConfig);
 
@@ -86,9 +91,18 @@ async function restartConnection() {
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
   // Offer
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  socket.emit('webrtc-offer', { room: currentRoom, sdp: pc.localDescription });
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('webrtc-offer', { room: currentRoom, sdp: pc.localDescription });
+  } catch (err) {
+    console.error(err);
+  }
+
+  // 2. Remove Lock after 3 seconds (allows system to settle)
+  setTimeout(() => {
+    isNegotiating = false;
+  }, 3000);
 }
 
 // 4. Signaling & Chat
@@ -106,7 +120,6 @@ socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 sendBtn.addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
-// Emoji Support
 emojiStrip.addEventListener('click', e => {
   if (e.target.classList.contains('emoji')) {
     chatInput.value += e.target.textContent;
