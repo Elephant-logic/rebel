@@ -42,6 +42,8 @@ const hostControls    = $('hostControls');
 const lockRoomBtn     = $('lockRoomBtn');
 const streamTitleInput= $('streamTitleInput');
 const updateTitleBtn  = $('updateTitleBtn');
+const slugInput       = $('slugInput');      // NEW
+const updateSlugBtn   = $('updateSlugBtn');  // NEW
 
 // Media & Grid
 const videoGrid       = $('videoGrid');
@@ -112,11 +114,19 @@ function removeRemoteVideo(id) {
   if (el) el.remove();
 }
 
-// --- HOST TITLE MANAGEMENT ---
+// --- HOST TITLE & SLUG MANAGEMENT ---
 if (updateTitleBtn) {
   updateTitleBtn.addEventListener('click', () => {
     const title = streamTitleInput.value.trim();
     if (title) socket.emit('update-stream-title', title);
+  });
+}
+
+// NEW: Update Slug Listener
+if (updateSlugBtn) {
+  updateSlugBtn.addEventListener('click', () => {
+    const slug = slugInput.value.trim();
+    if (slug) socket.emit('update-public-slug', slug);
   });
 }
 
@@ -127,16 +137,20 @@ socket.on('connect', () => {
 });
 socket.on('disconnect', () => setSignal(false));
 
-socket.on('role', ({ isHost, streamTitle }) => {
+socket.on('role', ({ isHost, streamTitle, publicSlug }) => {
   iAmHost = isHost;
   if (hostControls) hostControls.style.display = isHost ? 'block' : 'none';
-  if (streamTitleInput && isHost) streamTitleInput.value = streamTitle || '';
+  
+  if (isHost) {
+      if (streamTitleInput) streamTitleInput.value = streamTitle || '';
+      if (slugInput) slugInput.value = publicSlug || '';
+  }
   
   // Refresh user list if we just became host
-  if (currentRoom) socket.emit('request-room-update', currentRoom); 
+  // (No specific event needed, next update will fix it)
 });
 
-socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
+socket.on('room-update', ({ users, ownerId, locked, streamTitle, publicSlug }) => {
   renderUserList(users, ownerId);
   
   if (lockRoomBtn) {
@@ -146,9 +160,20 @@ socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
     };
   }
   
+  // Update Title Input (Read-only for guests)
   if (streamTitleInput && !iAmHost) {
       streamTitleInput.value = streamTitle || '';
       streamTitleInput.disabled = true;
+  }
+
+  // UPDATE VIEWER LINK BOX
+  // If a slug exists, use it. Otherwise use the raw Room ID.
+  const linkId = publicSlug || currentRoom;
+  if (linkId && streamLinkInput) {
+    const url = new URL(window.location.href);
+    url.pathname = url.pathname.replace('index.html', '') + 'view.html';
+    url.search = `?room=${encodeURIComponent(linkId)}`;
+    streamLinkInput.value = url.toString();
   }
 });
 
@@ -196,6 +221,7 @@ joinBtn.addEventListener('click', () => {
   leaveBtn.disabled = false;
   roomInfo.textContent = `ID: ${room}`;
   
+  // Set initial link (will update if slug exists)
   const url = new URL(window.location.href);
   url.pathname = url.pathname.replace('index.html', '') + 'view.html';
   url.search = `?room=${encodeURIComponent(room)}`;
@@ -235,10 +261,6 @@ function createCallPC(targetId, targetName) {
   };
 
   callPeers[targetId] = { pc: cp, name: targetName };
-  // Re-render list to enable End Call button
-  if (currentRoom) socket.emit('request-room-update', currentRoom); // Force UI refresh isn't easy here, let's just trigger a redraw if we have the list
-  // Actually simpler: we can just manually update the button state if we wanted, but let's rely on the next room update or just let the user know. 
-  // To keep it simple, we'll wait for next update or just keep going.
   return cp;
 }
 
@@ -254,7 +276,6 @@ async function callPeer(targetId) {
   await cp.setLocalDescription(offer);
   socket.emit('call-offer', { targetId, offer });
   
-  // Re-render to show End button
   const btn = document.querySelector(`button[onclick="endPeerCall('${targetId}')"]`);
   if(btn) { btn.disabled = false; btn.classList.add('danger'); }
 }
@@ -271,7 +292,6 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
 
   socket.emit('call-answer', { targetId: from, answer });
   
-  // Re-render to show End button
   const btn = document.querySelector(`button[onclick="endPeerCall('${from}')"]`);
   if(btn) { btn.disabled = false; btn.classList.add('danger'); }
 });
@@ -302,7 +322,6 @@ function endPeerCall(id, isIncomingSignal) {
       socket.emit('call-end', { targetId: id });
   }
   
-  // Reset Button
   const btn = document.querySelector(`button[onclick="endPeerCall('${id}')"]`);
   if(btn) { btn.disabled = true; btn.classList.remove('danger'); }
 }
@@ -424,6 +443,11 @@ if (hangupBtn) {
   });
 }
 
+if (openStreamBtn) {
+    openStreamBtn.addEventListener('click', () => {
+        if (streamLinkInput && streamLinkInput.value) window.open(streamLinkInput.value, '_blank');
+    });
+}
 
 // --- CHAT & UTILS ---
 function appendChat(name, text, ts) {
@@ -443,7 +467,6 @@ if (sendBtn) sendBtn.addEventListener('click', () => {
     chatInput.value = '';
 });
 
-// EMOJI FIX
 if (emojiStrip) {
   emojiStrip.addEventListener('click', (e) => {
     if (e.target.classList.contains('emoji')) {
@@ -453,7 +476,7 @@ if (emojiStrip) {
   });
 }
 
-// RENDER USER LIST (UPDATED FOR END BUTTON)
+// RENDER USER LIST
 function renderUserList(users, ownerId) {
   userList.innerHTML = '';
   users.forEach(u => {
@@ -464,7 +487,6 @@ function renderUserList(users, ownerId) {
       div.dataset.userid = u.id;
       div.dataset.username = u.name;
       
-      // Check if call exists
       const inCall = !!callPeers[u.id];
       const endBtnClass = inCall ? 'action-btn danger' : 'action-btn';
       const endBtnDisabled = inCall ? '' : 'disabled';
