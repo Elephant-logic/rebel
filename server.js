@@ -199,7 +199,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Old ring-user ping still supported (for the alert)
+  // ring ping for UI
   socket.on('ring-user', (targetId) => {
     if (!targetId) return;
     const fromName = socket.data.name || `User-${socket.id.slice(0, 4)}`;
