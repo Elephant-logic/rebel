@@ -106,7 +106,6 @@ if (tabUsersBtn) tabUsersBtn.addEventListener('click', () => switchTab('users'))
 
 function updateHangupState() {
     if (!hangupBtn) return;
-    // enable if streaming or any calls active
     const hasCalls = Object.keys(callPeers).length > 0;
     hangupBtn.disabled = !isStreaming && !hasCalls;
 }
@@ -198,8 +197,11 @@ function renderUserList(users, ownerId) {
 
         let actions = '';
         if (!isMe) {
+            // Call
             actions += `<button onclick="ringUser('${u.id}')" class="action-btn ring">🔔</button>`;
+            // Per-user hangup (ends only call with them)
             actions += `<button onclick="endPeerCall('${u.id}')" class="action-btn hang">⛔</button>`;
+            // Kick (host only)
             if (iAmHost) {
                 actions += `<button onclick="kickUser('${u.id}')" class="action-btn kick">🦵</button>`;
             }
@@ -221,10 +223,10 @@ function renderUserList(users, ownerId) {
     updateHangupState();
 }
 
-// RING = notify + start separate call for that user (if host)
+// RING = notify + start separate call for that user (ANYONE can call)
 window.ringUser = async (id) => {
     socket.emit('ring-user', id);
-    if (iAmHost && currentRoom) {
+    if (currentRoom) {
         try {
             await callPeer(id); // separate call signalling, not stream
         } catch (e) {
@@ -250,9 +252,8 @@ function createStreamPC() {
         }
     };
 
-    pc.ontrack = (event) => {
-        if (remoteVideo) remoteVideo.srcObject = event.streams[0];
-    };
+    // Host doesn't expect remote tracks for stream PC
+    pc.ontrack = () => {};
 
     pc.onconnectionstatechange = () => {
         console.log("Stream PC state:", pc.connectionState);
@@ -293,33 +294,8 @@ async function startBroadcast() {
 }
 
 // --- STREAM SOCKET EVENTS ---
-socket.on('webrtc-offer', async ({ sdp }) => {
-    if (!currentRoom) return;
-    if (!pc) createStreamPC();
-
-    try {
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-        while (iceCandidatesQueue.length > 0) {
-            const candidate = iceCandidatesQueue.shift();
-            await pc.addIceCandidate(candidate);
-        }
-
-        const stream = await ensureLocalStream();
-        stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
-
-        isStreaming = true;
-        if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'In Stream'; }
-        updateHangupState();
-
-    } catch (e) {
-        console.error("Error handling stream offer:", e);
-    }
-});
+// IMPORTANT: chat page DOES NOT answer offers – only viewer.html does.
+// We only handle answers + ICE coming back from viewers.
 
 socket.on('webrtc-answer', async ({ sdp }) => {
     if (pc) {
@@ -333,7 +309,7 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
     if (!pc || !pc.remoteDescription) {
         iceCandidatesQueue.push(ice);
     } else {
-        await pc.addIceCandidate(ice);
+        try { await pc.addIceCandidate(ice); } catch (e) { console.error(e); }
     }
 });
 
@@ -402,7 +378,7 @@ if (leaveBtn) leaveBtn.addEventListener('click', () => window.location.reload())
 // STREAM BUTTON
 if (startStreamBtn) startStreamBtn.addEventListener('click', () => startBroadcast().catch(console.error));
 
-// GLOBAL HANG UP: end STREAM ONLY (calls are via ⛔ per user)
+// GLOBAL HANG UP: end STREAM ONLY (calls via ⛔ per user)
 if (hangupBtn) hangupBtn.addEventListener('click', () => {
     // close stream PC
     if (pc) {
@@ -419,9 +395,7 @@ if (hangupBtn) hangupBtn.addEventListener('click', () => {
     isScreenSharing = false;
     if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
 
-    // don't kill localStream – calls might still use it
     if (remoteVideo) remoteVideo.srcObject = null;
-
     if (startStreamBtn) { startStreamBtn.disabled = false; startStreamBtn.textContent = 'Start Stream'; }
 
     updateHangupState();
