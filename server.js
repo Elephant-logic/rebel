@@ -11,60 +11,63 @@ const io = new Server(server, { cors: { origin: "*" } });
 const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 
-// roomName -> { hostId, locked, users: Map<socketId, {id, name}> }
+// Room State: roomName -> Map<socketId, {name}>
 const rooms = new Map();
 
 io.on('connection', (socket) => {
   
+  // 1. Join Room
   socket.on('join-room', ({ room, name }) => {
     socket.join(room);
     socket.data.room = room;
     socket.data.name = name || 'Anon';
 
-    let r = rooms.get(room);
-    if (!r) {
-      r = { hostId: socket.id, locked: false, users: new Map() };
-      rooms.set(room, r);
-    }
-    
-    // Notify others
-    socket.to(room).emit('user-joined', { id: socket.id, name: socket.data.name });
-    
-    // Send list of existing users to the new guy (so they know who to connect to)
-    const existingUsers = Array.from(r.users.values());
-    socket.emit('existing-users', existingUsers);
+    // Track user
+    if (!rooms.has(room)) rooms.set(room, new Map());
+    const r = rooms.get(room);
+    r.set(socket.id, { name: socket.data.name });
 
-    r.users.set(socket.id, { id: socket.id, name: socket.data.name });
+    // Broadcast to room: "Hey, NewUser joined!"
+    socket.to(room).emit('user-update', { 
+      type: 'join', 
+      id: socket.id, 
+      name: socket.data.name 
+    });
+
+    // Send the NEW user the list of EXISTING users
+    const userList = Array.from(r.entries()).map(([id, data]) => ({ id, name: data.name }));
+    socket.emit('room-users', userList);
   });
 
-  // --- GENERIC WEBRTC SIGNALING (Targeted) ---
-  // We forward 'target' so only the specific peer receives the signal
-  const signalHandler = (type) => (data) => {
-    if (data.target) {
-      io.to(data.target).emit(type, { ...data, sender: socket.id });
-    } else {
-      socket.to(data.room).emit(type, { ...data, sender: socket.id });
+  // 2. Targeted WebRTC Signaling (The "Call" Logic)
+  // We forward the message ONLY to the targetId, not the whole room
+  const relay = (type) => (data) => {
+    if (data.target && io.sockets.sockets.get(data.target)) {
+      io.to(data.target).emit(type, { 
+        sender: socket.id, 
+        name: socket.data.name,
+        ...data 
+      });
     }
   };
 
-  socket.on('webrtc-offer', signalHandler('webrtc-offer'));
-  socket.on('webrtc-answer', signalHandler('webrtc-answer'));
-  socket.on('webrtc-ice-candidate', signalHandler('webrtc-ice-candidate'));
+  socket.on('webrtc-offer', relay('webrtc-offer'));
+  socket.on('webrtc-answer', relay('webrtc-answer'));
+  socket.on('webrtc-ice-candidate', relay('webrtc-ice-candidate'));
 
-  // --- UTILS ---
-  socket.on('chat-message', (data) => {
-    socket.to(data.room).emit('chat-message', data);
-  });
+  // 3. Chat & File Relay (Broadcast)
+  socket.on('chat-message', (data) => socket.to(data.room).emit('chat-message', data));
+  socket.on('file-share', (data) => socket.to(data.room).emit('file-share', data));
 
+  // 4. Disconnect
   socket.on('disconnect', () => {
     const room = socket.data.room;
     if (room && rooms.has(room)) {
-      const r = rooms.get(room);
-      r.users.delete(socket.id);
-      socket.to(room).emit('user-left', { id: socket.id });
-      if (r.users.size === 0) rooms.delete(room);
+      rooms.get(room).delete(socket.id);
+      socket.to(room).emit('user-update', { type: 'leave', id: socket.id });
+      if (rooms.get(room).size === 0) rooms.delete(room);
     }
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`Rebel 2.0 running on ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
