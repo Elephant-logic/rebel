@@ -29,12 +29,13 @@ const roomInfo = $('roomInfo');
 
 // Media & Calls
 const startCallBtn = $('startCallBtn');
+const startStreamBtn = $('startStreamBtn');
 const hangupBtn = $('hangupBtn');
 const shareScreenBtn = $('shareScreenBtn');
 const toggleCamBtn = $('toggleCamBtn');
 const toggleMicBtn = $('toggleMicBtn');
 const localVideo = $('localVideo');
-const remoteVideo = $('remoteVideo'); // Add this ID to your HTML <video> for Peer if not there!
+const remoteVideo = $('remoteVideo'); 
 const streamLinkInput = $('streamLinkInput');
 const openStreamBtn = $('openStreamBtn');
 
@@ -109,6 +110,7 @@ function appendFileLog(name, fileName, href) {
 
 async function ensureLocalStream() {
     if (localStream) return localStream;
+    userName = (nameInput && nameInput.value.trim()) || 'Host';
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         if (localVideo) {
@@ -154,7 +156,7 @@ function createPC() {
     return pc;
 }
 
-// 1. CALLER LOGIC (Start Call)
+// 1. INITIATOR LOGIC (Start Call / Stream)
 async function startBroadcast() {
     if (!currentRoom) return alert('Join a room first');
     
@@ -193,22 +195,25 @@ socket.on('webrtc-offer', async ({ sdp }) => {
     // Add our video to the answer (so they see us)
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
 
-    socket.emit('webrtc-answer', {
-        room: currentRoom,
-        sdp: answer
-    });
+        socket.emit('webrtc-answer', {
+            room: currentRoom,
+            sdp: answer
+        });
 
-    // Update UI
-    if (startCallBtn) {
-        startCallBtn.disabled = true;
-        startCallBtn.textContent = 'In Call';
+        // Update UI
+        if (startCallBtn) {
+            startCallBtn.disabled = true;
+            startCallBtn.textContent = 'In Call';
+        }
+        if (hangupBtn) hangupBtn.disabled = false;
+    } catch(e) {
+        console.error("Error auto-answering:", e);
     }
-    if (hangupBtn) hangupBtn.disabled = false;
 });
 
 
@@ -249,9 +254,6 @@ function stopCall() {
         startCallBtn.textContent = 'Start Call';
     }
     if (hangupBtn) hangupBtn.disabled = true;
-    
-    // Optionally reload to clear state cleanly
-    // window.location.reload(); 
 }
 
 // --- BUTTON LISTENERS ---
@@ -271,14 +273,20 @@ if (joinBtn) {
         
         // Setup View Link
         const url = new URL(window.location.href);
-        url.pathname = '/view.html'; // Assuming view.html is in same dir
+        // Assuming view.html is in same dir, or we just want a link for the current page
+        // But for the stream viewer, it's usually view.html
+        url.pathname = '/view.html'; 
         url.search = `?room=${encodeURIComponent(room)}`;
         if (streamLinkInput) streamLinkInput.value = url.toString();
     });
 }
 
 if (leaveBtn) leaveBtn.addEventListener('click', () => window.location.reload());
+
+// Both buttons do the same thing now (initiate broadcast/call)
 if (startCallBtn) startCallBtn.addEventListener('click', () => startBroadcast().catch(console.error));
+if (startStreamBtn) startStreamBtn.addEventListener('click', () => startBroadcast().catch(console.error));
+
 if (hangupBtn) hangupBtn.addEventListener('click', stopCall);
 
 // Screen Share
@@ -340,6 +348,14 @@ if (toggleMicBtn) {
         const a = localStream.getAudioTracks()[0];
         a.enabled = !a.enabled;
         toggleMicBtn.textContent = a.enabled ? 'Mute' : 'Unmute';
+    });
+}
+
+// Open Stream Link
+if (openStreamBtn) {
+    openStreamBtn.addEventListener('click', () => {
+        if (!streamLinkInput || !streamLinkInput.value) return;
+        window.open(streamLinkInput.value, '_blank');
     });
 }
 
