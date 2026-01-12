@@ -1,182 +1,81 @@
-const path = require('path');
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
+const socket = io({ autoConnect: false });
+let pc = null;
+let currentRoom = null;
 
-const PORT = process.env.PORT || 9100;
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
+  ? { iceServers: ICE_SERVERS } 
+  : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*' },
-  maxHttpBufferSize: 1e8 // 100MB limit for files
-});
+const $ = id => document.getElementById(id);
+const viewerVideo = $('viewerVideo');
+const statusText = $('viewerStatus');
+const chatLog = $('chatLog');
+const chatInput = $('chatInput');
+const sendBtn = $('sendBtn');
 
-app.use(express.static(path.join(__dirname, 'public')));
-
-// --- STATE ---
-const rooms = Object.create(null);
-const roomAliases = Object.create(null); // slug -> roomId
-
-function getRoomInfo(roomName) {
-  if (!rooms[roomName]) {
-    rooms[roomName] = {
-      ownerId: null,
-      locked: false,
-      streamTitle: 'Untitled Stream',
-      publicSlug: null,
-      users: new Map()
-    };
-  }
-  return rooms[roomName];
-}
-
-function broadcastRoomUpdate(roomName) {
-  const room = rooms[roomName];
-  if (!room) return;
-
-  const users = [];
-  for (const [id, u] of room.users.entries()) {
-    users.push({ id, name: u.name });
-  }
-
-  io.to(roomName).emit('room-update', {
-    users,
-    ownerId: room.ownerId,
-    locked: room.locked,
-    streamTitle: room.streamTitle,
-    publicSlug: room.publicSlug
-  });
-}
-
-io.on('connection', (socket) => {
-  socket.data.room = null;
-
-  // 1. JOIN LOGIC
-  socket.on('join-room', ({ room, name }) => {
-    if (!room) return;
-    let roomName = room.trim();
-
-    // Alias Resolution
-    const aliasTarget = Object.keys(rooms).find(r => rooms[r].publicSlug === roomName);
-    if (aliasTarget) roomName = aliasTarget;
-
-    const info = getRoomInfo(roomName);
-
-    // Lock Check
-    if (info.locked && info.ownerId && info.ownerId !== socket.id) {
-      return socket.emit('room-error', 'Room is locked');
+// 1. INIT
+(function init() {
+    const params = new URLSearchParams(window.location.search);
+    currentRoom = params.get('room');
+    if (!currentRoom) {
+        if(statusText) statusText.textContent = "Error: No Room ID";
+        return;
     }
-
-    const displayName = (name && name.trim()) || `User-${socket.id.slice(0, 4)}`;
-
-    socket.join(roomName);
-    socket.data.room = roomName;
-    socket.data.name = displayName;
-
-    if (!info.ownerId) info.ownerId = socket.id;
-    info.users.set(socket.id, { name: displayName });
-
-    socket.emit('role', { 
-      isHost: info.ownerId === socket.id,
-      streamTitle: info.streamTitle,
-      publicSlug: info.publicSlug
-    });
     
-    socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
-    broadcastRoomUpdate(roomName);
-  });
+    socket.connect();
+    socket.emit('join-room', { room: currentRoom, name: 'Viewer-' + Math.floor(Math.random()*1000) });
+    if(statusText) statusText.textContent = "Connecting...";
+})();
 
-  // 2. HOST ACTIONS
-  socket.on('update-stream-title', (title) => {
-    const r = socket.data.room;
-    if (r && rooms[r] && rooms[r].ownerId === socket.id) {
-        rooms[r].streamTitle = title;
-        broadcastRoomUpdate(r);
-    }
-  });
+// 2. WEBRTC HANDSHAKE
+socket.on('webrtc-offer', async ({ sdp }) => {
+    if(pc) pc.close();
+    pc = new RTCPeerConnection(iceConfig);
 
-  socket.on('update-public-slug', (slug) => {
-    const r = socket.data.room;
-    if (r && rooms[r] && rooms[r].ownerId === socket.id) {
-        const clean = slug ? slug.trim() : null;
-        // Remove old
-        if(rooms[r].publicSlug && roomAliases[rooms[r].publicSlug]) delete roomAliases[rooms[r].publicSlug];
-        // Set new
-        if(clean) roomAliases[clean] = r;
-        rooms[r].publicSlug = clean;
-        broadcastRoomUpdate(r);
-    }
-  });
+    pc.onicecandidate = e => {
+        if(e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
+    };
 
-  socket.on('lock-room', (val) => {
-    const r = socket.data.room;
-    if (r && rooms[r] && rooms[r].ownerId === socket.id) {
-        rooms[r].locked = val;
-        broadcastRoomUpdate(r);
-    }
-  });
+    pc.ontrack = e => {
+        if(viewerVideo) {
+            viewerVideo.srcObject = e.streams[0];
+            if(statusText) statusText.textContent = "LIVE";
+        }
+    };
 
-  socket.on('kick-user', (id) => {
-    const r = socket.data.room;
-    if (r && rooms[r] && rooms[r].ownerId === socket.id) {
-        io.to(id).emit('kicked');
-        const s = io.sockets.sockets.get(id);
-        if(s) s.leave(r);
-        rooms[r].users.delete(id);
-        broadcastRoomUpdate(r);
-    }
-  });
-
-  // 3. STREAM HANDSHAKE (Host -> Viewers)
-  // These events are specific to the one-way broadcast
-  socket.on('webrtc-offer', (d) => socket.to(d.room).emit('webrtc-offer', { sdp: d.sdp }));
-  socket.on('webrtc-answer', (d) => socket.to(d.room).emit('webrtc-answer', { sdp: d.sdp }));
-  socket.on('webrtc-ice-candidate', (d) => socket.to(d.room).emit('webrtc-ice-candidate', { candidate: d.candidate }));
-
-  // 4. CALL HANDSHAKE (P2P Mesh)
-  // These events are specific to the video calls between users
-  socket.on('ring-user', (id) => io.to(id).emit('ring-alert', { from: socket.data.name, fromId: socket.id }));
-  
-  socket.on('call-offer', (d) => io.to(d.targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer: d.offer }));
-  socket.on('call-answer', (d) => io.to(d.targetId).emit('call-answer', { from: socket.id, answer: d.answer }));
-  socket.on('call-ice', (d) => io.to(d.targetId).emit('call-ice', { from: socket.id, candidate: d.candidate }));
-  socket.on('call-end', (d) => io.to(d.targetId).emit('call-end', { from: socket.id }));
-
-  // 5. CHAT & FILES
-  socket.on('chat-message', (d) => {
-    if(socket.data.room) io.to(socket.data.room).emit('chat-message', { ...d, ts: Date.now() });
-  });
-  socket.on('file-share', (d) => {
-    if(socket.data.room) io.to(socket.data.room).emit('file-share', d);
-  });
-
-  // 6. DISCONNECT
-  socket.on('disconnect', () => {
-    const r = socket.data.room;
-    if (!r || !rooms[r]) return;
-
-    rooms[r].users.delete(socket.id);
-    socket.to(r).emit('user-left', { id: socket.id });
-
-    // Host Transfer
-    if (rooms[r].ownerId === socket.id) {
-      rooms[r].ownerId = null;
-      rooms[r].locked = false;
-      if(rooms[r].users.size > 0) {
-        const next = rooms[r].users.keys().next().value;
-        rooms[r].ownerId = next;
-        io.to(next).emit('role', { isHost: true, streamTitle: rooms[r].streamTitle, publicSlug: rooms[r].publicSlug });
-      }
-    }
-
-    if(rooms[r].users.size === 0) {
-        if(rooms[r].publicSlug) delete roomAliases[rooms[r].publicSlug];
-        delete rooms[r];
-    } else {
-        broadcastRoomUpdate(r);
-    }
-  });
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    
+    socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
+socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+    if(pc) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){}
+    }
+});
+
+// 3. CHAT & METADATA
+socket.on('chat-message', d => {
+    if(chatLog) {
+        const div = document.createElement('div');
+        div.style.marginBottom = "4px";
+        div.innerHTML = `<strong>${d.name}:</strong> ${d.text}`;
+        chatLog.appendChild(div);
+        chatLog.scrollTop = chatLog.scrollHeight;
+    }
+});
+
+if(sendBtn) sendBtn.addEventListener('click', () => {
+    if(chatInput && chatInput.value) {
+        socket.emit('chat-message', { room: currentRoom, name: 'Viewer', text: chatInput.value, fromViewer: true });
+        chatInput.value = '';
+    }
+});
+
+socket.on('room-update', d => {
+    document.title = d.streamTitle || 'Stream';
+    const h = document.querySelector('.viewer-header strong');
+    if(h) h.textContent = d.streamTitle || 'Rebel Stream';
+});
