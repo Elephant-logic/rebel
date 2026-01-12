@@ -131,6 +131,9 @@ socket.on('role', ({ isHost, streamTitle }) => {
   iAmHost = isHost;
   if (hostControls) hostControls.style.display = isHost ? 'block' : 'none';
   if (streamTitleInput && isHost) streamTitleInput.value = streamTitle || '';
+  
+  // Refresh user list if we just became host
+  if (currentRoom) socket.emit('request-room-update', currentRoom); 
 });
 
 socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
@@ -162,7 +165,7 @@ socket.on('user-joined', ({ id, name }) => {
   if (iAmHost && isStreaming) reofferStream().catch(console.error);
 });
 
-// --- CRITICAL MISSING HANDSHAKE HANDLERS (FIX FOR STREAM) ---
+// --- CRITICAL HANDSHAKE HANDLERS ---
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) {
     try {
@@ -232,6 +235,10 @@ function createCallPC(targetId, targetName) {
   };
 
   callPeers[targetId] = { pc: cp, name: targetName };
+  // Re-render list to enable End Call button
+  if (currentRoom) socket.emit('request-room-update', currentRoom); // Force UI refresh isn't easy here, let's just trigger a redraw if we have the list
+  // Actually simpler: we can just manually update the button state if we wanted, but let's rely on the next room update or just let the user know. 
+  // To keep it simple, we'll wait for next update or just keep going.
   return cp;
 }
 
@@ -246,6 +253,10 @@ async function callPeer(targetId) {
   const offer = await cp.createOffer();
   await cp.setLocalDescription(offer);
   socket.emit('call-offer', { targetId, offer });
+  
+  // Re-render to show End button
+  const btn = document.querySelector(`button[onclick="endPeerCall('${targetId}')"]`);
+  if(btn) { btn.disabled = false; btn.classList.add('danger'); }
 }
 
 socket.on('incoming-call', async ({ from, name, offer }) => {
@@ -259,6 +270,10 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
   await cp.setLocalDescription(answer);
 
   socket.emit('call-answer', { targetId: from, answer });
+  
+  // Re-render to show End button
+  const btn = document.querySelector(`button[onclick="endPeerCall('${from}')"]`);
+  if(btn) { btn.disabled = false; btn.classList.add('danger'); }
 });
 
 socket.on('call-answer', async ({ from, answer }) => {
@@ -286,6 +301,10 @@ function endPeerCall(id, isIncomingSignal) {
   if (!isIncomingSignal) {
       socket.emit('call-end', { targetId: id });
   }
+  
+  // Reset Button
+  const btn = document.querySelector(`button[onclick="endPeerCall('${id}')"]`);
+  if(btn) { btn.disabled = true; btn.classList.remove('danger'); }
 }
 window.endPeerCall = endPeerCall;
 
@@ -332,9 +351,7 @@ async function reofferStream() {
 
 if (startStreamBtn) startStreamBtn.addEventListener('click', startBroadcast);
 
-// --- MISSING BUTTON LISTENERS (FIX FOR CONTROLS) ---
-
-// Toggle Camera
+// --- BUTTON LISTENERS ---
 if (toggleCamBtn) {
   toggleCamBtn.addEventListener('click', () => {
     if (!localStream) return;
@@ -345,7 +362,6 @@ if (toggleCamBtn) {
   });
 }
 
-// Toggle Mic
 if (toggleMicBtn) {
   toggleMicBtn.addEventListener('click', () => {
     if (!localStream) return;
@@ -356,7 +372,6 @@ if (toggleMicBtn) {
   });
 }
 
-// Share Screen
 if (shareScreenBtn) {
   shareScreenBtn.addEventListener('click', async () => {
     if (!isScreenSharing) {
@@ -366,15 +381,11 @@ if (shareScreenBtn) {
         shareScreenBtn.textContent = 'Stop Screen';
         shareScreenBtn.classList.add('danger');
         
-        // Show locally
         localVideo.srcObject = screenStream;
-        
-        // If streaming, replace track
         if (isStreaming && pc) {
              const sender = pc.getSenders().find(s => s.track.kind === 'video');
              if (sender) sender.replaceTrack(screenStream.getVideoTracks()[0]);
         }
-        
         screenStream.getVideoTracks()[0].onended = () => stopScreenShare();
       } catch(e) { console.error(e); }
     } else {
@@ -391,7 +402,6 @@ function stopScreenShare() {
   shareScreenBtn.textContent = 'Share Screen';
   shareScreenBtn.classList.remove('danger');
   
-  // Revert to cam
   localVideo.srcObject = localStream;
   if (isStreaming && pc && localStream) {
       const sender = pc.getSenders().find(s => s.track.kind === 'video');
@@ -399,10 +409,8 @@ function stopScreenShare() {
   }
 }
 
-// Hang Up / Stop Stream
 if (hangupBtn) {
   hangupBtn.addEventListener('click', () => {
-    // 1. Stop Stream if active
     if (isStreaming) {
       if (pc) pc.close();
       pc = null;
@@ -410,13 +418,8 @@ if (hangupBtn) {
       startStreamBtn.textContent = 'Start Stream';
       startStreamBtn.classList.remove('danger');
     }
-
-    // 2. Stop Screen Share
     stopScreenShare();
-
-    // 3. End all P2P calls
     Object.keys(callPeers).forEach(id => endPeerCall(id));
-    
     hangupBtn.disabled = true;
   });
 }
@@ -440,7 +443,7 @@ if (sendBtn) sendBtn.addEventListener('click', () => {
     chatInput.value = '';
 });
 
-// --- EMOJI FIX ---
+// EMOJI FIX
 if (emojiStrip) {
   emojiStrip.addEventListener('click', (e) => {
     if (e.target.classList.contains('emoji')) {
@@ -450,7 +453,7 @@ if (emojiStrip) {
   });
 }
 
-// Render User List
+// RENDER USER LIST (UPDATED FOR END BUTTON)
 function renderUserList(users, ownerId) {
   userList.innerHTML = '';
   users.forEach(u => {
@@ -461,10 +464,16 @@ function renderUserList(users, ownerId) {
       div.dataset.userid = u.id;
       div.dataset.username = u.name;
       
+      // Check if call exists
+      const inCall = !!callPeers[u.id];
+      const endBtnClass = inCall ? 'action-btn danger' : 'action-btn';
+      const endBtnDisabled = inCall ? '' : 'disabled';
+      
       div.innerHTML = `
         <span>${u.id === ownerId ? '👑' : ''} ${u.name}</span>
         <div class="user-actions">
-           <button onclick="ringUser('${u.id}')" class="action-btn ring">📞 Call</button>
+           <button onclick="ringUser('${u.id}')" class="action-btn ring">📞</button>
+           <button onclick="endPeerCall('${u.id}')" class="${endBtnClass}" ${endBtnDisabled}>End</button>
            ${iAmHost ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` : ''}
         </div>
       `;
