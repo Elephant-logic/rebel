@@ -258,23 +258,18 @@ window.kickUser = (id) => {
   if (confirm('Kick this user?')) socket.emit('kick-user', id);
 };
 
-// ✅ makeLive: NO "must be in call" check
+// makeLive (no “must be in call” check)
 window.makeLive = async function(target) {
   if (!iAmHost) return;
 
   if (target === 'host') {
-    // Host cam is the live source
     streamSource = { type: 'host', id: null };
     appendChat('System', 'You are now the live stream source.', Date.now(), false, false);
   } else {
-    // Try to use this user as live source (their cam)
-    // If their stream isn't here yet, getBroadcastStream()
-    // will fall back to your own cam so the stream never dies.
     streamSource = { type: 'user', id: target };
     appendChat('System', `User is now the live stream source: ${target}`, Date.now(), false, false);
   }
 
-  // If already streaming, restart broadcast with new source
   if (isStreaming) {
     try {
       await startBroadcast();
@@ -297,9 +292,7 @@ function createStreamPC() {
     }
   };
 
-  // Host doesn't expect remote tracks on stream PC
   pc.ontrack = () => {};
-
   pc.onconnectionstatechange = () => {
     console.log("Stream PC state:", pc.connectionState);
   };
@@ -331,7 +324,6 @@ async function getBroadcastStream() {
     return out;
   }
 
-  // default to host
   const hostStream = await ensureLocalStream();
   return hostStream;
 }
@@ -347,7 +339,6 @@ async function startBroadcast() {
 
   broadcastStream = baseStream;
 
-  // clear old tracks
   pc.getSenders().forEach(s => pc.removeTrack(s));
   broadcastStream.getTracks().forEach(t => pc.addTrack(t, broadcastStream));
 
@@ -364,7 +355,6 @@ async function startBroadcast() {
   updateHangupState();
 }
 
-// Used when new viewer joins while streaming – just resend offer
 async function reofferStream() {
   if (!pc || !isStreaming) return;
   try {
@@ -430,7 +420,6 @@ socket.on('room-error', (msg) => {
   if (leaveBtn) leaveBtn.disabled = true;
 });
 
-// new user joined → if host is streaming, re-offer so they can join mid-stream
 socket.on('user-joined', ({ id, name }) => {
   if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
   if (iAmHost && isStreaming) {
@@ -469,14 +458,13 @@ if (startStreamBtn) {
 // 🔴 GLOBAL HANG UP: end STREAM + ALL ACTIVE CALLS
 if (hangupBtn) {
   hangupBtn.addEventListener('click', () => {
-    // 1) End the public stream
+    // 1) End stream
     if (pc) {
       try { pc.close(); } catch (e) {}
     }
     pc = null;
     isStreaming = false;
 
-    // Stop screen share if active
     if (screenStream) {
       screenStream.getTracks().forEach(t => t.stop());
     }
@@ -489,16 +477,16 @@ if (hangupBtn) {
       startStreamBtn.textContent = 'Start Stream';
     }
 
-    // 2) End ALL active calls (same as pressing ⛔ on everyone)
+    // 2) End all calls
     Object.keys(callPeers).forEach(id => {
-      endPeerCall(id); // sends call-end to the other side
+      endPeerCall(id);
     });
 
     updateHangupState();
   });
 }
 
-// --- SCREEN SHARE (STREAM PC only) ---
+// --- SCREEN SHARE ---
 if (shareScreenBtn) {
   shareScreenBtn.addEventListener('click', async () => {
     if (!currentRoom) return alert('Join room first');
@@ -547,7 +535,7 @@ if (toggleCamBtn) {
 
     if (!v.enabled) {
       toggleCamBtn.textContent = 'Camera On';
-      if (localVideo) localVideo.srcObject = null;   // stop frozen frame look
+      if (localVideo) localVideo.srcObject = null;
     } else {
       toggleCamBtn.textContent = 'Camera Off';
       if (localVideo) localVideo.srcObject = localStream;
@@ -579,7 +567,6 @@ function appendChat(name, text, ts = Date.now(), isOwner = false, fromViewer = f
   if (name === 'You') nameHtml = `<span style="color:#4af3a3">${name}</span>`;
   else if (isOwner || name.includes('👑')) nameHtml = `<span style="color:#ffae00">👑 ${name.replace('👑','')}</span>`;
 
-  // Tag stream vs room
   const tagText = fromViewer ? 'STREAM' : 'ROOM';
   const tag = `<span style="background:#333;padding:2px 6px;border-radius:999px;font-size:0.65rem;margin-right:6px;color:#ccc;">${tagText}</span>`;
 
@@ -681,10 +668,8 @@ function createCallPC(targetId) {
   cp.ontrack = (event) => {
     const incomingStream = event.streams[0];
 
-    // show last active caller in remoteVideo for now
     if (remoteVideo) remoteVideo.srcObject = incomingStream;
 
-    // remember this remote stream for broadcast selection
     remoteStreams[targetId] = incomingStream;
 
     if (!callPeers[targetId]) callPeers[targetId] = {};
@@ -761,7 +746,6 @@ socket.on('call-ice', ({ from, candidate }) => {
 function endPeerCall(id, fromGlobal = false) {
   const peer = callPeers[id];
 
-  // If the remoteVideo is currently showing this peer, clear it
   if (peer && peer.stream && remoteVideo && remoteVideo.srcObject === peer.stream) {
     remoteVideo.srcObject = null;
   }
@@ -783,7 +767,7 @@ function endPeerCall(id, fromGlobal = false) {
 }
 window.endPeerCall = endPeerCall;
 
-// Remote end → they hung up
+// Remote end
 socket.on('call-end', ({ from }) => {
   const peer = callPeers[from];
 
