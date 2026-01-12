@@ -24,7 +24,7 @@
         <h2>Connection</h2>
         <div class="field">
           <label for="roomInput">Room ID (Secret Key)</label>
-          <input id="roomInput" type="text" placeholder="e.g. secret-meeting-99" />
+          <input id="roomInput" type="text" placeholder="e.g. secret-admin-123" />
         </div>
         <div class="field">
           <label for="nameInput">Your Name</label>
@@ -38,11 +38,19 @@
           
           <div class="field">
             <label style="color:var(--muted); font-size:0.75rem;">Public Stream Title</label>
-            <input id="streamTitleInput" class="stream-title-input" type="text" placeholder="Enter Public Title..." />
+            <input id="streamTitleInput" class="stream-title-input" type="text" placeholder="Display Title..." />
             <button id="updateTitleBtn" class="btn small secondary full-width">Update Title</button>
           </div>
 
-          <button id="lockRoomBtn" class="btn full-width">🔓 Lock Room</button>
+          <div class="field" style="margin-top:10px;">
+            <label style="color:var(--muted); font-size:0.75rem;">Custom Link Name (Slug)</label>
+            <div style="display:flex; gap:5px;">
+              <input id="slugInput" class="stream-title-input" type="text" placeholder="e.g. my-show" />
+              <button id="updateSlugBtn" class="btn small secondary">Set</button>
+            </div>
+          </div>
+
+          <button id="lockRoomBtn" class="btn full-width" style="margin-top:10px;">🔓 Lock Room</button>
         </div>
       </aside>
 
@@ -66,7 +74,7 @@
              <h2>You</h2>
              <video id="localVideo" autoplay playsinline muted></video>
            </div>
-           </div>
+        </div>
 
         <div class="call-controls">
           <button id="startStreamBtn" class="btn primary">Start Stream</button>
@@ -121,7 +129,7 @@
 
           <div id="tabContentUsers" class="tab-content">
              <div class="files-list">
-                <h3>Active Users (Ring to Call)</h3>
+                <h3>Active Users</h3>
                 <div id="userList" class="file-log"></div>
              </div>
           </div>
