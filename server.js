@@ -16,18 +16,22 @@ app.get('/', (req, res) => {
 });
 
 // ROOM STATE
+// rooms[roomName] = { ownerId: 'socketId', locked: false, users: [] }
 const rooms = {};
 
 io.on('connection', (socket) => {
     
+    // --- JOINING ---
     socket.on('join-room', ({ room, name }) => {
         if (!room) return;
 
+        // Check Lock
         if (rooms[room] && rooms[room].locked) {
             socket.emit('room-error', 'Room is locked by the host.');
             return;
         }
 
+        // Create Room if it doesn't exist
         if (!rooms[room]) {
             rooms[room] = { 
                 ownerId: socket.id, 
@@ -41,16 +45,24 @@ io.on('connection', (socket) => {
         socket.data.name = name || 'Anon';
         
         const roomObj = rooms[room];
+        // Remove if already exists to prevent dupes
+        roomObj.users = roomObj.users.filter(u => u.id !== socket.id);
         roomObj.users.push({ id: socket.id, name: socket.data.name });
 
+        // Update everyone with the new user list and lock status
         io.to(room).emit('room-update', {
             users: roomObj.users,
             ownerId: roomObj.ownerId,
             locked: roomObj.locked
         });
 
+        // Notify others
         socket.to(room).emit('user-joined', { id: socket.id, name: socket.data.name });
     });
+
+    // --- SIGNALING RELAYS ---
+    // These handle routing signals for WebRTC. 
+    // If 'target' is present, it goes to one person. If not, it broadcasts.
 
     socket.on('webrtc-offer', (data) => {
         if (data.target) {
@@ -70,24 +82,38 @@ io.on('connection', (socket) => {
 
     socket.on('webrtc-answer', (data) => {
         if (data.target) {
-            io.to(data.target).emit('webrtc-answer', { sdp: data.sdp, from: socket.id });
+            io.to(data.target).emit('webrtc-answer', { 
+                sdp: data.sdp, 
+                from: socket.id 
+            });
         } else {
-            socket.to(data.room).emit('webrtc-answer', { sdp: data.sdp, from: socket.id });
+            socket.to(data.room).emit('webrtc-answer', { 
+                sdp: data.sdp, 
+                from: socket.id 
+            });
         }
     });
 
     socket.on('webrtc-ice-candidate', (data) => {
         if (data.target) {
-            io.to(data.target).emit('webrtc-ice-candidate', { candidate: data.candidate, from: socket.id });
+            io.to(data.target).emit('webrtc-ice-candidate', { 
+                candidate: data.candidate, 
+                from: socket.id 
+            });
         } else {
-            socket.to(data.room).emit('webrtc-ice-candidate', { candidate: data.candidate, from: socket.id });
+            socket.to(data.room).emit('webrtc-ice-candidate', { 
+                candidate: data.candidate, 
+                from: socket.id 
+            });
         }
     });
+
+    // --- ADMIN / HOST FEATURES ---
 
     socket.on('kick-user', (targetId) => {
         const room = socket.data.room;
         if (!room || !rooms[room]) return;
-        if (rooms[room].ownerId !== socket.id) return;
+        if (rooms[room].ownerId !== socket.id) return; // Only host
 
         const targetSocket = io.sockets.sockets.get(targetId);
         if (targetSocket) {
@@ -99,7 +125,8 @@ io.on('connection', (socket) => {
     socket.on('lock-room', (lockedState) => {
         const room = socket.data.room;
         if (!room || !rooms[room]) return;
-        if (rooms[room].ownerId !== socket.id) return;
+        if (rooms[room].ownerId !== socket.id) return; 
+        
         rooms[room].locked = lockedState;
         io.to(room).emit('room-update', {
             users: rooms[room].users,
@@ -111,6 +138,8 @@ io.on('connection', (socket) => {
     socket.on('ring-user', (targetId) => {
         io.to(targetId).emit('ring-alert', { from: socket.data.name });
     });
+
+    // --- CHAT & FILES ---
 
     socket.on('chat-message', (data) => {
         const room = socket.data.room;
@@ -125,19 +154,27 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('file-share', (data) => socket.to(data.room).emit('file-share', data));
+    socket.on('file-share', (data) => {
+        socket.to(data.room).emit('file-share', data);
+    });
 
+    // --- DISCONNECT ---
     socket.on('disconnect', () => {
         const room = socket.data.room;
         if (room && rooms[room]) {
+            // Remove user from list
             rooms[room].users = rooms[room].users.filter(u => u.id !== socket.id);
+            
+            // Pass Crown if Host left
             if (rooms[room].ownerId === socket.id) {
                 if (rooms[room].users.length > 0) {
-                    rooms[room].ownerId = rooms[room].users[0].id;
+                    rooms[room].ownerId = rooms[room].users[0].id; // Next user is Host
                 } else {
-                    delete rooms[room];
+                    delete rooms[room]; // Room empty
                 }
             }
+
+            // Update room if it still exists
             if (rooms[room]) {
                 io.to(room).emit('room-update', {
                     users: rooms[room].users,
