@@ -136,18 +136,16 @@ io.on('connection', (socket) => {
 
   // --------------------------------------------------
   // STREAM signalling (host → viewers)
-  // --------------------------------------------------
+// --------------------------------------------------
   socket.on('webrtc-offer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !sdp) return;
-    // Broadcast to everyone else in the room (viewers + guests)
     socket.to(roomName).emit('webrtc-offer', { sdp });
   });
 
   socket.on('webrtc-answer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !sdp) return;
-    // Back to host
     socket.to(roomName).emit('webrtc-answer', { sdp });
   });
 
@@ -207,9 +205,9 @@ io.on('connection', (socket) => {
   });
 
   // --------------------------------------------------
-  // Chat – works for BOTH host page and viewer page
+  // Chat – now carries fromViewer flag for stream chat
   // --------------------------------------------------
-  socket.on('chat-message', ({ room, name, text }) => {
+  socket.on('chat-message', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
     const info = rooms[roomName];
@@ -220,7 +218,8 @@ io.on('connection', (socket) => {
       name: name || socket.data.name || `User-${socket.id.slice(0, 4)}`,
       text,
       ts,
-      isOwner
+      isOwner,
+      fromViewer: !!fromViewer
     });
   });
 
