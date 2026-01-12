@@ -9,7 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 1e8 // Allow 100MB file uploads
+  maxHttpBufferSize: 1e8 // Allow up to 100MB file uploads
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -18,7 +18,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // STATE
 // ----------------------------------------------------
 const rooms = Object.create(null);
-const roomAliases = Object.create(null); // slug -> realRoomId
+const roomAliases = Object.create(null); // Map: slug -> realRoomId
 
 function getRoomInfo(roomName) {
   if (!rooms[roomName]) {
@@ -63,14 +63,14 @@ io.on('connection', (socket) => {
     if (!room) return socket.emit('room-error', 'Room ID required');
     let roomName = room.trim();
 
-    // Resolve Alias
+    // 1. Resolve Alias (if user typed a slug)
     const aliasTarget = Object.keys(rooms).find(r => rooms[r].publicSlug === roomName);
     if (aliasTarget) roomName = aliasTarget;
 
     const displayName = (name && name.trim()) || `User-${socket.id.slice(0, 4)}`;
     const info = getRoomInfo(roomName);
 
-    // Lock Check
+    // 2. Lock Check
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       return socket.emit('room-error', 'Room is locked by host');
     }
@@ -79,11 +79,12 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
-    // Assign Host
+    // 3. Assign Host
     if (!info.ownerId) info.ownerId = socket.id;
     
     info.users.set(socket.id, { name: displayName });
 
+    // 4. Send Role & State
     socket.emit('role', { 
       isHost: info.ownerId === socket.id,
       streamTitle: info.streamTitle,
@@ -106,11 +107,11 @@ io.on('connection', (socket) => {
   socket.on('update-public-slug', (slug) => {
     const r = socket.data.room;
     if (r && rooms[r] && rooms[r].ownerId === socket.id) {
-        // Remove old alias if needed
+        // Remove old alias
         const oldSlug = rooms[r].publicSlug;
         if(oldSlug && roomAliases[oldSlug]) delete roomAliases[oldSlug];
         
-        // Set new
+        // Set new alias
         const cleanSlug = slug ? slug.trim() : null;
         if(cleanSlug) roomAliases[cleanSlug] = r;
         
@@ -134,14 +135,17 @@ io.on('connection', (socket) => {
         
         io.to(targetId).emit('kicked');
         const targetSocket = io.sockets.sockets.get(targetId);
-        if (targetSocket) targetSocket.leave(r);
+        if (targetSocket) {
+            targetSocket.leave(r);
+            targetSocket.data.room = null;
+        }
         
         rooms[r].users.delete(targetId);
         broadcastRoomUpdate(r);
      }
   });
 
-  // --- SIGNALING (P2P CALLS) ---
+  // --- P2P CALLING ---
   socket.on('ring-user', (targetId) => {
     io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
@@ -151,7 +155,7 @@ io.on('connection', (socket) => {
   socket.on('call-ice', (d) => io.to(d.targetId).emit('call-ice', { from: socket.id, candidate: d.candidate }));
   socket.on('call-end', (d) => io.to(d.targetId).emit('call-end', { from: socket.id }));
 
-  // --- SIGNALING (STREAM) ---
+  // --- STREAM SIGNALING ---
   socket.on('webrtc-offer', (d) => socket.to(d.room).emit('webrtc-offer', { sdp: d.sdp }));
   socket.on('webrtc-answer', (d) => socket.to(d.room).emit('webrtc-answer', { sdp: d.sdp }));
   socket.on('webrtc-ice-candidate', (d) => socket.to(d.room).emit('webrtc-ice-candidate', { candidate: d.candidate }));
@@ -159,7 +163,10 @@ io.on('connection', (socket) => {
   // --- CHAT & FILES ---
   socket.on('chat-message', (d) => {
     const r = socket.data.room;
-    if (r) io.to(r).emit('chat-message', { ...d, ts: Date.now() });
+    if (r) {
+        const info = rooms[r];
+        io.to(r).emit('chat-message', { ...d, ts: Date.now(), isOwner: info && info.ownerId === socket.id });
+    }
   });
 
   socket.on('file-share', (d) => {
@@ -175,7 +182,7 @@ io.on('connection', (socket) => {
     rooms[r].users.delete(socket.id);
     socket.to(r).emit('user-left', { id: socket.id });
 
-    // Host Transfer Logic
+    // Host Transfer Logic ("Pass the Torch")
     if (rooms[r].ownerId === socket.id) {
       rooms[r].ownerId = null;
       rooms[r].locked = false;
@@ -192,6 +199,7 @@ io.on('connection', (socket) => {
     }
 
     if (rooms[r].users.size === 0) {
+       // Cleanup Alias
        const slug = rooms[r].publicSlug;
        if(slug && roomAliases[slug]) delete roomAliases[slug];
        delete rooms[r];
