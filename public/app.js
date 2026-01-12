@@ -3,7 +3,7 @@ const socket = io({ autoConnect: false });
 
 let currentRoom = null;
 let userName = 'Host';
-let myId = null; // Store our socket ID
+let myId = null;
 
 let pc = null;
 let localStream = null;
@@ -69,11 +69,9 @@ function setSignal(connected) {
 
 // Tab Switching
 function switchTab(tab) {
-    // Reset all
     [tabChatBtn, tabFilesBtn, tabUsersBtn].forEach(b => b && b.classList.remove('active'));
     [tabContentChat, tabContentFiles, tabContentUsers].forEach(c => c && c.classList.remove('active'));
     
-    // Activate specific
     if (tab === 'chat') {
         tabChatBtn.classList.add('active');
         tabContentChat.classList.add('active');
@@ -92,12 +90,11 @@ if(tabUsersBtn) tabUsersBtn.addEventListener('click', () => switchTab('users'));
 
 // --- CHAT & USER LIST LOGIC ---
 
-// Simple list management
 const activeUsers = new Map(); // id -> name
 
 function addToUserList(id, name, isMe = false) {
     if (!userList) return;
-    if (activeUsers.has(id)) return; // Already in list
+    if (activeUsers.has(id)) removeFromUserList(id); // Update if exists
     
     activeUsers.set(id, name);
     
@@ -105,7 +102,7 @@ function addToUserList(id, name, isMe = false) {
     div.id = `user-${id}`;
     div.className = isMe ? 'user-item is-me' : 'user-item';
     
-    // Check for crown in name
+    // Check for crown
     const displayName = name.includes('👑') ? name : name; 
     
     div.innerHTML = `
@@ -130,7 +127,6 @@ function appendChat(name, text, ts = Date.now()) {
     line.className = 'chat-line';
     const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
-    // Highlight name if it has crown or is 'You'
     let nameHtml = `<strong>${name}</strong>`;
     if (name === 'You' || name.includes('You')) {
         nameHtml = `<span style="color:#4af3a3">${name}</span>`;
@@ -195,7 +191,6 @@ async function startBroadcast() {
     // CROWN LOGIC: Add crown to name if not present
     if (!userName.includes('👑')) {
         userName = '👑 ' + userName;
-        // Update local display
         removeFromUserList(myId);
         addToUserList(myId, userName, true);
     }
@@ -209,31 +204,57 @@ async function startBroadcast() {
     
     socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
     
-    if (startCallBtn) { startCallBtn.disabled = true; startCallBtn.textContent = 'Calling...'; }
+    if (startCallBtn) { startCallBtn.disabled = true; startCallBtn.textContent = 'Broadcasting...'; }
     if (hangupBtn) hangupBtn.disabled = false;
 }
 
-// LISTENERS
+// 1. Listen for new users so we can auto-broadcast to them
+socket.on('user-joined', ({ id, name }) => {
+    // A. Update User List
+    addToUserList(id, name, id === myId);
+    if (id !== myId) appendChat('System', `${name} joined.`);
+
+    // B. BROADCAST LOGIC (Restored)
+    // If we are currently streaming/calling, we must RE-OFFER to this new person immediately.
+    if (localStream || screenStream) {
+        console.log(`New user ${name} joined - restarting broadcast to connect them.`);
+        startBroadcast().catch(console.error);
+    }
+});
+
+// 2. Listen for User Leaving
+socket.on('user-left', ({ id }) => {
+    removeFromUserList(id);
+});
+
+// 3. RECEIVE OFFER (Auto-Answer)
 socket.on('webrtc-offer', async ({ sdp }) => {
     if (!currentRoom) return;
-    // Auto-answer logic
+    
+    // Ensure we have a stream ready to send back (bidirectional)
     const stream = await ensureLocalStream();
+    
     if (!pc) createPC();
+    
+    // Add our tracks so they see us too
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
     
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    
-    socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
-    
-    if (startCallBtn) { startCallBtn.disabled = true; startCallBtn.textContent = 'In Call'; }
-    if (hangupBtn) hangupBtn.disabled = false;
+    try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        
+        socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
+        
+        if (startCallBtn) { startCallBtn.disabled = true; startCallBtn.textContent = 'In Call'; }
+        if (hangupBtn) hangupBtn.disabled = false;
+    } catch(e) {
+        console.error("Auto-answer error:", e);
+    }
 });
 
 socket.on('webrtc-answer', async ({ sdp }) => {
     if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    if (startCallBtn) startCallBtn.textContent = 'In Call';
 });
 
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
@@ -335,12 +356,8 @@ if (openStreamBtn) {
     });
 }
 
-// Chat & Files
-socket.on('chat-message', ({ name, text, ts }) => {
-    appendChat(name, text, ts);
-    // If we receive chat from someone we don't have in list (and isn't us), add them loosely
-    // Note: server doesn't send ID in chat-message usually, so this is best-effort visual
-});
+// Chat
+socket.on('chat-message', ({ name, text, ts }) => appendChat(name, text, ts));
 
 function sendChat() {
     const text = chatInput.value.trim();
@@ -361,6 +378,7 @@ if (emojiStrip) {
     });
 }
 
+// Files
 if (fileInput && sendFileBtn) {
     fileInput.addEventListener('change', () => {
         const file = fileInput.files[0];
@@ -387,7 +405,7 @@ socket.on('file-share', ({ name, fileName, fileType, fileData }) => {
     appendFileLog(name, fileName, `data:${fileType};base64,${fileData}`);
 });
 
-// SOCKET EVENTS FOR USER LIST
+// User List Inits
 socket.on('connect', () => {
     setSignal(true);
     myId = socket.id;
@@ -396,17 +414,6 @@ socket.on('disconnect', () => {
     setSignal(false);
     if(userList) userList.innerHTML = '';
 });
-
-// When ANY user joins (including us after server ack, typically)
-socket.on('user-joined', ({ id, name }) => {
-    addToUserList(id, name, id === myId);
-    if (id !== myId) appendChat('System', `${name} joined.`);
-});
-socket.on('user-left', ({ id }) => {
-    removeFromUserList(id);
-});
-
-// Self-add on join (since server might only echo to others)
 socket.on('join-room', () => {
     addToUserList(myId, userName, true);
 });
