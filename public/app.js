@@ -53,6 +53,7 @@ const remoteGrid = $('remoteVideosGrid'); // The container for multiple videos
 
 // Call Controls
 const callAllBtn = $('callAllBtn');
+const startStreamBtn = $('startStreamBtn'); // ADDED BACK
 const hangupBtn = $('hangupBtn');
 const shareScreenBtn = $('shareScreenBtn');
 const toggleCamBtn = $('toggleCamBtn');
@@ -333,7 +334,6 @@ window.callUser = async (targetId) => {
 };
 
 // "Call All" Button Logic
-// Loops through the user list and calls everyone we see
 function callAllUsers() {
     const userItems = document.querySelectorAll('.user-item');
     userItems.forEach(item => {
@@ -517,12 +517,6 @@ socket.on('room-error', (msg) => {
 socket.on('user-joined', ({ id, name }) => {
     // Show system message in chat
     if (id !== myId) appendChat('System', `${name} joined.`);
-    
-    // If we are currently in a "conference" (have local stream),
-    // we can optionally auto-call the new person:
-    // callUser(id); 
-    // OR we wait for user to click "Call All" or specific call button.
-    // For now, we will NOT auto-call to prevent chaos, relying on the user list buttons.
 });
 
 // ==========================================
@@ -753,6 +747,9 @@ if (leaveBtn) leaveBtn.addEventListener('click', () => window.location.reload())
 
 // Call All Button
 if(callAllBtn) callAllBtn.addEventListener('click', callAllUsers);
+
+// Start Stream Button (Aliases to Call All for broadcast effect)
+if(startStreamBtn) startStreamBtn.addEventListener('click', callAllUsers);
 
 // Hangup Button
 if (hangupBtn) hangupBtn.addEventListener('click', () => {
