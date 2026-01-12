@@ -1,24 +1,29 @@
-// app.js
-// ROOM APP: chat + files + multi video calls + host-only stream
+// app.js – room app: chat + files + multi calls + host-only stream
 
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
 let userName = 'Host';
 let myId = null;
-let myRole = 'guest'; // 'host' or 'guest'
+let myRole = 'guest'; // 'host' / 'guest'
 
-// STREAM PC (host -> viewer page)
+// STREAM (host → viewer)
 let pc = null;
 let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
 
-// MULTI-CALL PCS (between room members)
-const peers = {};    // { socketId: { name, tile, videoEl } }
-const callPCs = {};  // { socketId: RTCPeerConnection }
+// ROOM CALLS
+const peers = {};      // { socketId: { name, tile, videoEl } }
+const callPCs = {};    // { socketId: RTCPeerConnection }
+
+// ROOM LOCK
 let isRoomLocked = false;
 
+// INCOMING CALL STATE
+let pendingCall = null;
+
+// ICE config (overridable from ice.js)
 const iceConfig =
   typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length
     ? { iceServers: ICE_SERVERS }
@@ -29,7 +34,8 @@ const iceConfig =
         ]
       };
 
-// DOM
+// ---------- DOM ----------
+
 const $ = (id) => document.getElementById(id);
 
 const nameInput = $('nameInput');
@@ -39,8 +45,8 @@ const joinBtn = $('joinBtn');
 const leaveBtn = $('leaveBtn');
 const lockRoomBtn = $('lockRoomBtn');
 
-const startCallBtn = $('startCallBtn');       // Start Stream
-const startCallAllBtn = $('startCallAllBtn'); // Call Everyone
+const startCallBtn = $('startCallBtn');
+const startCallAllBtn = $('startCallAllBtn');
 const hangupBtn = $('hangupBtn');
 const shareScreenBtn = $('shareScreenBtn');
 const toggleCamBtn = $('toggleCamBtn');
@@ -50,8 +56,10 @@ const localVideo = $('localVideo');
 const remoteVideo = $('remoteVideo');
 const peerTiles = $('peerTiles');
 
+const streamLinkRow = $('streamLinkRow');
 const streamLinkInput = $('streamLinkInput');
 const openStreamBtn = $('openStreamBtn');
+
 const signalStatus = $('signalStatus');
 const roomInfo = $('roomInfo');
 
@@ -63,6 +71,12 @@ const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
 const fileNameLabel = $('fileNameLabel');
 const userList = $('userList');
+
+// incoming call bar
+const incomingCallBar = $('incomingCallBar');
+const incomingCallText = $('incomingCallText');
+const acceptCallBtn = $('acceptCallBtn');
+const rejectCallBtn = $('rejectCallBtn');
 
 // ---------- Helpers ----------
 
@@ -121,18 +135,31 @@ function applyRoleUI() {
 
   hostButtons.forEach((btn) => {
     if (!btn) return;
-    // Host sees them, guest doesn't
     btn.style.display = isHost ? '' : 'none';
   });
 
-  // Lock button still needs correct text
-  if (lockRoomBtn) {
-    lockRoomBtn.disabled = !isHost;
+  if (lockRoomBtn) lockRoomBtn.disabled = !isHost;
+
+  if (streamLinkRow) {
+    streamLinkRow.style.display = isHost ? '' : 'none';
   }
 }
 
-// initial state – hide host-only controls until we know our role
+// hide host stuff by default
 applyRoleUI();
+
+// incoming call UI
+function showIncomingCall(fromName) {
+  if (!incomingCallBar) return;
+  incomingCallText.textContent = `Incoming call from ${fromName || 'guest'}…`;
+  incomingCallBar.style.display = 'flex';
+}
+
+function hideIncomingCall() {
+  if (!incomingCallBar) return;
+  incomingCallBar.style.display = 'none';
+  pendingCall = null;
+}
 
 // ---------- STREAM / BROADCAST (host → view.html) ----------
 
@@ -181,7 +208,6 @@ async function startBroadcast() {
 
   createHostPC();
 
-  // attach tracks
   pc.getSenders().forEach((s) => pc.removeTrack(s));
   stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
@@ -227,7 +253,7 @@ function stopBroadcast() {
   if (hangupBtn) hangupBtn.disabled = true;
 }
 
-// new user joined – track in peers + re-offer stream if host is streaming
+// someone joined – add to peers; if host streaming, re-offer
 socket.on('user-joined', ({ id, name }) => {
   if (id && name && id !== myId) {
     if (!peers[id]) peers[id] = { name };
@@ -247,7 +273,6 @@ socket.on('user-left', ({ id }) => {
   }
 });
 
-// answers from viewer page (stream)
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (!pc || !sdp) return;
   try {
@@ -257,7 +282,6 @@ socket.on('webrtc-answer', async ({ sdp }) => {
   }
 });
 
-// ICE for stream
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   if (!pc || !candidate) return;
   try {
@@ -267,7 +291,7 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   }
 });
 
-// ---------- ROOM LOCK ----------
+// ---------- ROOM LOCK & ROLES ----------
 
 function updateLockButton() {
   if (!lockRoomBtn) return;
@@ -284,8 +308,6 @@ socket.on('room-locked', ({ room, locked }) => {
   );
 });
 
-// ---------- ROLES FROM SERVER ----------
-
 socket.on('role-assigned', ({ room, role }) => {
   if (!room || room !== currentRoom) return;
   myRole = role === 'host' ? 'host' : 'guest';
@@ -301,7 +323,7 @@ socket.on('host-left', ({ room }) => {
   appendChat('System', 'Host left this room.');
 });
 
-// ---------- MULTI-CALL (room app only) ----------
+// ---------- MULTI-CALL (ROOM) ----------
 
 function createCallPCForPeer(peerId) {
   const pcCall = new RTCPeerConnection(iceConfig);
@@ -361,7 +383,6 @@ function ensurePeerTile(peerId) {
   tile.appendChild(nameDiv);
   peerTiles.appendChild(tile);
 
-  // click thumbnail → show as main active peer
   tile.addEventListener('click', () => {
     if (peers[peerId] && peers[peerId].videoEl && remoteVideo) {
       remoteVideo.srcObject = peers[peerId].videoEl.srcObject;
@@ -440,32 +461,17 @@ function endCallWithPeer(peerId) {
   }
 }
 
-// incoming offer – auto accept
-socket.on('call-offer', async ({ fromId, name, sdp }) => {
+// ----- incoming call handling (ANSWER / REJECT) -----
+
+socket.on('call-offer', (data) => {
+  const { fromId, name, sdp } = data || {};
   if (!currentRoom || !fromId || !sdp) return;
-  await ensureLocalStream();
 
   if (!peers[fromId]) peers[fromId] = { name: name || 'Guest' };
   renderUserList();
 
-  let pcCall = callPCs[fromId];
-  if (!pcCall) pcCall = createCallPCForPeer(fromId);
-
-  try {
-    await pcCall.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pcCall.createAnswer();
-    await pcCall.setLocalDescription(answer);
-
-    socket.emit('call-answer', {
-      room: currentRoom,
-      targetId: fromId,
-      sdp: answer
-    });
-
-    appendChat('System', `In call with ${name || 'guest'}`);
-  } catch (e) {
-    console.error('call-offer handling error', e);
-  }
+  pendingCall = { fromId, name, sdp };
+  showIncomingCall(name);
 });
 
 socket.on('call-answer', async ({ fromId, sdp }) => {
@@ -487,6 +493,52 @@ socket.on('call-ice-candidate', async ({ fromId, candidate }) => {
     console.error('call ICE add error', e);
   }
 });
+
+socket.on('call-reject', ({ fromId }) => {
+  if (!fromId) return;
+  appendChat('System', 'Call was rejected.');
+});
+
+// Answer / Reject buttons
+if (acceptCallBtn) {
+  acceptCallBtn.addEventListener('click', async () => {
+    if (!pendingCall) return;
+    const { fromId, name, sdp } = pendingCall;
+    hideIncomingCall();
+
+    await ensureLocalStream();
+
+    let pcCall = callPCs[fromId];
+    if (!pcCall) pcCall = createCallPCForPeer(fromId);
+
+    try {
+      await pcCall.setRemoteDescription(new RTCSessionDescription(sdp));
+      const answer = await pcCall.createAnswer();
+      await pcCall.setLocalDescription(answer);
+
+      socket.emit('call-answer', {
+        room: currentRoom,
+        targetId: fromId,
+        sdp: answer
+      });
+
+      appendChat('System', `In call with ${name || 'guest'}`);
+    } catch (e) {
+      console.error('accept call error', e);
+    }
+  });
+}
+
+if (rejectCallBtn) {
+  rejectCallBtn.addEventListener('click', () => {
+    if (!pendingCall) return;
+    socket.emit('call-reject', {
+      room: currentRoom,
+      targetId: pendingCall.fromId
+    });
+    hideIncomingCall();
+  });
+}
 
 // ---------- USER LIST ----------
 
@@ -549,7 +601,7 @@ if (joinBtn) {
 
     joinBtn.disabled = true;
     if (leaveBtn) leaveBtn.disabled = false;
-    if (lockRoomBtn) lockRoomBtn.disabled = true; // enabled only for host in applyRoleUI
+    if (lockRoomBtn) lockRoomBtn.disabled = true;
     if (roomInfo) roomInfo.textContent = `Room: ${room}`;
 
     const url = new URL(window.location.href);
@@ -575,7 +627,7 @@ if (leaveBtn) {
   });
 }
 
-// lock / unlock room (host only)
+// lock / unlock (host only)
 if (lockRoomBtn) {
   lockRoomBtn.addEventListener('click', () => {
     if (!currentRoom || myRole !== 'host') return;
@@ -599,14 +651,12 @@ if (hangupBtn) {
   });
 }
 
-// call everyone in room
 if (startCallAllBtn) {
   startCallAllBtn.addEventListener('click', () => {
     callEveryone().catch(console.error);
   });
 }
 
-// screen share for stream
 if (shareScreenBtn) {
   shareScreenBtn.addEventListener('click', async () => {
     if (!currentRoom) return alert('Join a room first');
