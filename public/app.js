@@ -35,6 +35,7 @@ const lockRoomBtn = $('lockRoomBtn');
 
 // Media
 const startCallBtn = $('startCallBtn');
+const startStreamBtn = $('startStreamBtn'); // Must exist in HTML or this is null
 const hangupBtn = $('hangupBtn');
 const shareScreenBtn = $('shareScreenBtn');
 const toggleCamBtn = $('toggleCamBtn');
@@ -83,11 +84,14 @@ function switchTab(tab) {
     [tabContentChat, tabContentFiles, tabContentUsers].forEach(c => c && c.classList.remove('active'));
     
     if (tab === 'chat') {
-        tabChatBtn.classList.add('active'); tabContentChat.classList.add('active');
+        if(tabChatBtn) tabChatBtn.classList.add('active'); 
+        if(tabContentChat) tabContentChat.classList.add('active');
     } else if (tab === 'files') {
-        tabFilesBtn.classList.add('active'); tabContentFiles.classList.add('active');
+        if(tabFilesBtn) tabFilesBtn.classList.add('active'); 
+        if(tabContentFiles) tabContentFiles.classList.add('active');
     } else if (tab === 'users') {
-        tabUsersBtn.classList.add('active'); tabContentUsers.classList.add('active');
+        if(tabUsersBtn) tabUsersBtn.classList.add('active'); 
+        if(tabContentUsers) tabContentUsers.classList.add('active');
     }
 }
 if(tabChatBtn) tabChatBtn.addEventListener('click', () => switchTab('chat'));
@@ -102,8 +106,8 @@ async function getDevices() {
         const audioInput = devices.filter(d => d.kind === 'audioinput');
         const videoInput = devices.filter(d => d.kind === 'videoinput');
 
-        audioSource.innerHTML = audioInput.map(d => `<option value="${d.deviceId}">${d.label || 'Mic ' + d.deviceId.slice(0,5)}</option>`).join('');
-        videoSource.innerHTML = videoInput.map(d => `<option value="${d.deviceId}">${d.label || 'Cam ' + d.deviceId.slice(0,5)}</option>`).join('');
+        if(audioSource) audioSource.innerHTML = audioInput.map(d => `<option value="${d.deviceId}">${d.label || 'Mic ' + d.deviceId.slice(0,5)}</option>`).join('');
+        if(videoSource) videoSource.innerHTML = videoInput.map(d => `<option value="${d.deviceId}">${d.label || 'Cam ' + d.deviceId.slice(0,5)}</option>`).join('');
     } catch(e) { console.error(e); }
 }
 
@@ -111,37 +115,45 @@ async function switchMedia() {
     if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
     }
-    const audioId = audioSource.value;
-    const videoId = videoSource.value;
+    const audioId = audioSource ? audioSource.value : undefined;
+    const videoId = videoSource ? videoSource.value : undefined;
     
     const constraints = {
         audio: { deviceId: audioId ? { exact: audioId } : undefined },
         video: { deviceId: videoId ? { exact: videoId } : undefined }
     };
     
-    localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    localVideo.srcObject = localStream;
-    localVideo.muted = true;
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        if(localVideo) {
+            localVideo.srcObject = localStream;
+            localVideo.muted = true;
+        }
 
-    // If in a call, replace tracks
-    if (pc) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        const audioTrack = localStream.getAudioTracks()[0];
-        const senders = pc.getSenders();
-        
-        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-        const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-        
-        if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
-        if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
+        // If in a call, replace tracks
+        if (pc) {
+            const videoTrack = localStream.getVideoTracks()[0];
+            const audioTrack = localStream.getAudioTracks()[0];
+            const senders = pc.getSenders();
+            
+            const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+            const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+            
+            if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
+            if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
+        }
+    } catch (e) {
+        console.error("Switch media error:", e);
     }
 }
 
 if (settingsBtn) settingsBtn.addEventListener('click', async () => {
+    if(!settingsPanel) return;
     settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
     if (settingsPanel.style.display === 'block') await getDevices();
 });
 if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', () => {
+    if(!settingsPanel) return;
     settingsPanel.style.display = 'none';
     switchMedia(); 
 });
@@ -153,10 +165,8 @@ function renderUserList(users, ownerId) {
     userList.innerHTML = '';
 
     iAmHost = (myId === ownerId);
-    if (iAmHost) {
-        hostControls.style.display = 'block';
-    } else {
-        hostControls.style.display = 'none';
+    if (hostControls) {
+        hostControls.style.display = iAmHost ? 'block' : 'none';
     }
 
     users.forEach(u => {
@@ -220,8 +230,10 @@ async function ensureLocalStream() {
     if (localStream) return localStream;
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localVideo.srcObject = localStream;
-        localVideo.muted = true;
+        if(localVideo) {
+            localVideo.srcObject = localStream;
+            localVideo.muted = true;
+        }
     } catch (e) { console.error("Media Error", e); }
     return localStream;
 }
@@ -237,7 +249,9 @@ async function startBroadcast() {
     
     socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
     
+    // Update both buttons if they exist
     if (startCallBtn) { startCallBtn.disabled = true; startCallBtn.textContent = 'Calling...'; }
+    if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'Streaming...'; }
     if (hangupBtn) hangupBtn.disabled = false;
 }
 
@@ -294,12 +308,14 @@ socket.on('webrtc-offer', async ({ sdp }) => {
     socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
     
     if (startCallBtn) { startCallBtn.disabled = true; startCallBtn.textContent = 'In Call'; }
+    if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'In Stream'; }
     if (hangupBtn) hangupBtn.disabled = false;
 });
 
 socket.on('webrtc-answer', async ({ sdp }) => {
     if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     if (startCallBtn) startCallBtn.textContent = 'In Call';
+    if (startStreamBtn) startStreamBtn.textContent = 'In Stream';
 });
 
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
@@ -330,7 +346,10 @@ if (joinBtn) {
     });
 }
 if (leaveBtn) leaveBtn.addEventListener('click', () => window.location.reload());
+
+// BOTH BUTTONS TRIGGER BROADCAST
 if (startCallBtn) startCallBtn.addEventListener('click', () => startBroadcast().catch(console.error));
+if (startStreamBtn) startStreamBtn.addEventListener('click', () => startBroadcast().catch(console.error));
 
 if (hangupBtn) hangupBtn.addEventListener('click', () => {
     if (pc) pc.close(); pc = null;
@@ -338,12 +357,13 @@ if (hangupBtn) hangupBtn.addEventListener('click', () => {
     localStream = null;
     if(screenStream) screenStream.getTracks().forEach(t => t.stop());
     screenStream = null;
-    localVideo.srcObject = null;
-    remoteVideo.srcObject = null;
+    if(localVideo) localVideo.srcObject = null;
+    if(remoteVideo) remoteVideo.srcObject = null;
     
     if (startCallBtn) { startCallBtn.disabled = false; startCallBtn.textContent = 'Start Call'; }
+    if (startStreamBtn) { startStreamBtn.disabled = false; startStreamBtn.textContent = 'Start Stream'; }
     if (hangupBtn) hangupBtn.disabled = true;
-    shareScreenBtn.textContent = 'Share Screen';
+    if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
 });
 
 // --- SCREEN SHARE ---
