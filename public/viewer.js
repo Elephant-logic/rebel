@@ -3,7 +3,16 @@ const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
-let myName = `Viewer-${Math.floor(Math.random() * 1000)}`;
+
+// --- NAME PICKER --- //
+function pickName() {
+  let raw = prompt('Enter a name for chat (leave blank for random):') || '';
+  raw = raw.trim();
+  if (raw) return raw;
+  return `Viewer-${Math.floor(Math.random() * 1000)}`;
+}
+
+let myName = pickName();
 
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? {
   iceServers: ICE_SERVERS
@@ -36,15 +45,14 @@ function setStatus(text) {
   if (viewerStatusMirror) viewerStatusMirror.textContent = text;
 }
 
-// Append chat
+// Append chat – no special highlight for this viewer
 function appendChat(name, text, ts = Date.now()) {
   if (!chatLog) return;
   const line = document.createElement('div');
   line.className = 'chat-line';
   const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  let nameHtml = `<strong>${name}</strong>`;
-  if (name === 'You') nameHtml = `<span style="color:#4af3a3">${name}</span>`;
+  const nameHtml = `<strong>${name}</strong>`;
 
   line.innerHTML = `${nameHtml} <small>${t}</small>: ${text}`;
   chatLog.appendChild(line);
@@ -119,7 +127,7 @@ socket.on('chat-message', ({ name, text, ts }) => {
   appendChat(name, text, ts);
 });
 
-// VIEWER CHAT SEND (marked as fromViewer: true)
+// VIEWER CHAT SEND (marked as fromViewer: true, uses chosen name)
 function sendChat() {
   if (!chatInput || !currentRoom) return;
   const text = chatInput.value.trim();
@@ -132,7 +140,8 @@ function sendChat() {
     fromViewer: true
   });
 
-  appendChat('You', text);
+  // Show my message with myName, same style as everyone
+  appendChat(myName, text);
   chatInput.value = '';
 }
 
