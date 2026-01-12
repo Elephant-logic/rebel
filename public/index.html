@@ -77,9 +77,15 @@
         </div>
 
         <div class="call-controls">
-          <button id="startStreamBtn" class="btn primary">Start Stream</button>
+          <div style="display:flex; align-items:center; gap:5px; border-right:1px solid var(--border); padding-right:10px; margin-right:5px;">
+             <select id="streamQuality" class="btn secondary small">
+                <option value="720">HD (720p)</option>
+                <option value="360">SD (360p)</option>
+                <option value="screen">Screen Share</option>
+             </select>
+             <button id="startStreamBtn" class="btn primary">Start Stream</button>
+          </div>
           
-          <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
           <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
