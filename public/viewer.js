@@ -4,187 +4,82 @@ const socket = io({ autoConnect: false });
 let pc = null;
 let currentRoom = null;
 
-// --- NAME PICKER --- //
-function pickName() {
-  let raw = prompt('Enter a name for chat (leave blank for random):') || '';
-  raw = raw.trim();
-  if (raw) return raw;
-  return `Viewer-${Math.floor(Math.random() * 1000)}`;
-}
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
+  ? { iceServers: ICE_SERVERS } 
+  : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-let myName = pickName();
-
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? {
-  iceServers: ICE_SERVERS
-} : {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ]
-};
-
-// DOM
 const $ = id => document.getElementById(id);
+const viewerVideo = $('viewerVideo');
+const statusText = $('viewerStatus');
+const chatLog = $('chatLog');
+const chatInput = $('chatInput');
+const sendBtn = $('sendBtn');
 
-const viewerVideo       = $('viewerVideo');
-const viewerStatus      = $('viewerStatus');
-const viewerStatusMirror= $('viewerStatusMirror');
-const toggleChatBtn     = $('toggleChatBtn');
-const unmuteBtn         = $('unmuteBtn');
-const fullscreenBtn     = $('fullscreenBtn');
-const chatLog           = $('chatLog');
-const chatInput         = $('chatInput');
-const sendBtn           = $('sendBtn');
-const emojiStrip        = $('emojiStrip');
-const headerTitle       = document.querySelector('.viewer-header strong'); // To update title
-
-// Status helper
-function setStatus(text) {
-  if (viewerStatus) viewerStatus.textContent = text;
-  if (viewerStatusMirror) viewerStatusMirror.textContent = text;
-}
-
-// Append chat
-function appendChat(name, text, ts = Date.now()) {
-  if (!chatLog) return;
-  const line = document.createElement('div');
-  line.className = 'chat-line';
-  const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  line.innerHTML = `<strong>${name}</strong> <small>${t}</small>: ${text}`;
-  chatLog.appendChild(line);
-  chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-// SOCKET EVENTS
-socket.on('connect', () => {
-  if (!currentRoom) return;
-  setStatus('Waiting for stream…');
-  socket.emit('join-room', { room: currentRoom, name: myName });
-});
-
-socket.on('disconnect', () => {
-  setStatus('Disconnected');
-});
-
-// LISTEN FOR TITLE UPDATES
-socket.on('room-update', ({ streamTitle }) => {
-  if (headerTitle) headerTitle.textContent = streamTitle || 'Rebel Stream';
-  document.title = streamTitle || 'Rebel Stream';
-});
-
-// Stream offer from host
-socket.on('webrtc-offer', async ({ sdp }) => {
-  try {
-    if (pc) {
-      try { pc.close(); } catch (e) {}
+// 1. INIT
+(function init() {
+    const params = new URLSearchParams(window.location.search);
+    currentRoom = params.get('room');
+    if (!currentRoom) {
+        if(statusText) statusText.textContent = "Error: No Room ID";
+        return;
     }
+    
+    socket.connect();
+    socket.emit('join-room', { room: currentRoom, name: 'Viewer-' + Math.floor(Math.random()*1000) });
+    if(statusText) statusText.textContent = "Connecting...";
+})();
+
+// 2. WEBRTC HANDSHAKE
+socket.on('webrtc-offer', async ({ sdp }) => {
+    if(pc) pc.close();
     pc = new RTCPeerConnection(iceConfig);
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate && currentRoom) {
-        socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
-      }
+    pc.onicecandidate = e => {
+        if(e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
     };
 
-    pc.ontrack = (event) => {
-      const stream = event.streams[0];
-      if (viewerVideo && viewerVideo.srcObject !== stream) {
-        viewerVideo.srcObject = stream;
-        setStatus('LIVE');
-      }
+    pc.ontrack = e => {
+        if(viewerVideo) {
+            viewerVideo.srcObject = e.streams[0];
+            if(statusText) statusText.textContent = "LIVE";
+        }
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
+    
     socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
-  } catch (e) {
-    console.error('Viewer offer error:', e);
-    setStatus('Error');
-  }
 });
 
-// ICE from host
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
-  try {
-    if (!pc || !candidate) return;
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  } catch (e) {
-    console.error('Viewer ICE error:', e);
-  }
-});
-
-// Chat from host / others
-socket.on('chat-message', ({ name, text, ts }) => {
-  appendChat(name, text, ts);
-});
-
-// VIEWER CHAT SEND
-function sendChat() {
-  if (!chatInput || !currentRoom) return;
-  const text = chatInput.value.trim();
-  if (!text) return;
-
-  socket.emit('chat-message', {
-    room: currentRoom,
-    name: myName,
-    text,
-    fromViewer: true
-  });
-
-  appendChat(myName, text);
-  chatInput.value = '';
-}
-
-if (sendBtn) sendBtn.addEventListener('click', sendChat);
-if (chatInput) chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendChat();
-});
-if (emojiStrip) {
-  emojiStrip.addEventListener('click', (e) => {
-    if (e.target.classList.contains('emoji')) {
-      chatInput.value += e.target.textContent;
-      chatInput.focus();
+    if(pc) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){}
     }
-  });
-}
+});
 
-// Controls
-if (unmuteBtn && viewerVideo) {
-  unmuteBtn.addEventListener('click', () => {
-    viewerVideo.muted = !viewerVideo.muted;
-    unmuteBtn.textContent = viewerVideo.muted ? '🔇 Unmute' : '🔊 Mute';
-  });
-}
+// 3. CHAT & METADATA
+socket.on('chat-message', d => {
+    if(chatLog) {
+        const div = document.createElement('div');
+        div.style.marginBottom = "4px";
+        div.innerHTML = `<strong>${d.name}:</strong> ${d.text}`;
+        chatLog.appendChild(div);
+        chatLog.scrollTop = chatLog.scrollHeight;
+    }
+});
 
-if (fullscreenBtn) {
-  fullscreenBtn.addEventListener('click', () => {
-    const isFs = document.body.classList.toggle('fullscreen-mode');
-    fullscreenBtn.textContent = isFs ? '✕ Exit' : '⛶ Fullscreen';
-  });
-}
+if(sendBtn) sendBtn.addEventListener('click', () => {
+    if(chatInput && chatInput.value) {
+        socket.emit('chat-message', { room: currentRoom, name: 'Viewer', text: chatInput.value, fromViewer: true });
+        chatInput.value = '';
+    }
+});
 
-if (toggleChatBtn) {
-  const chatSection = document.querySelector('.chat-section');
-  toggleChatBtn.addEventListener('click', () => {
-    if (!chatSection) return;
-    const hidden = chatSection.style.display === 'none';
-    chatSection.style.display = hidden ? 'flex' : 'none';
-    toggleChatBtn.textContent = hidden ? 'Hide Chat' : 'Show Chat';
-  });
-}
-
-// INIT – read room from URL
-(function init() {
-  const params = new URLSearchParams(window.location.search);
-  const room = params.get('room');
-  if (!room) {
-    setStatus('No room specified');
-    return;
-  }
-  currentRoom = room;
-  setStatus('Connecting…');
-  socket.connect();
-})();
+socket.on('room-update', d => {
+    if(d.streamTitle) {
+        document.title = d.streamTitle;
+        const h = document.querySelector('.viewer-header strong');
+        if(h) h.textContent = d.streamTitle;
+    }
+});
