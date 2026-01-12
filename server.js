@@ -7,40 +7,34 @@ const PORT = process.env.PORT || 9100;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*' }
-});
+const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ----------------------------------------------------
-// State
-// ----------------------------------------------------
 const rooms = Object.create(null);
-const roomAliases = Object.create(null); // Map: "public-slug" -> "real-room-id"
 
+// HELPER: Get or Create Room
 function getRoomInfo(roomName) {
   if (!rooms[roomName]) {
     rooms[roomName] = {
       ownerId: null,
       locked: false,
       streamTitle: 'Untitled Stream',
-      publicSlug: null, // Track the active alias
+      publicSlug: null,
       users: new Map()
     };
   }
   return rooms[roomName];
 }
 
+// HELPER: Broadcast Update
 function broadcastRoomUpdate(roomName) {
   const room = rooms[roomName];
   if (!room) return;
-
   const users = [];
   for (const [id, u] of room.users.entries()) {
     users.push({ id, name: u.name });
   }
-
   io.to(roomName).emit('room-update', {
     users,
     ownerId: room.ownerId,
@@ -50,207 +44,120 @@ function broadcastRoomUpdate(roomName) {
   });
 }
 
-// ----------------------------------------------------
-// Socket.io
-// ----------------------------------------------------
 io.on('connection', (socket) => {
   socket.data.room = null;
-  socket.data.name = null;
 
-  // --- JOIN (Updated for Aliases) ---
+  // 1. JOIN
   socket.on('join-room', ({ room, name }) => {
-    if (!room || typeof room !== 'string') {
-      socket.emit('room-error', 'Invalid room');
-      return;
-    }
-
-    let roomName = room.trim();
+    if (!room) return;
+    const roomName = room.trim();
     
-    // 1. Check if this is an alias for another room
-    if (roomAliases[roomName]) {
-      roomName = roomAliases[roomName];
-    }
+    // Check Alias
+    const realRoom = Object.keys(rooms).find(r => rooms[r].publicSlug === roomName) || roomName;
 
-    const displayName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
-    const info = getRoomInfo(roomName);
+    const displayName = (name && name.trim()) || `User-${socket.id.slice(0, 4)}`;
+    const info = getRoomInfo(realRoom);
 
-    // Respect lock (Host can always re-join)
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
-      socket.emit('room-error', 'Room is locked by host');
-      return;
+      return socket.emit('room-error', 'Room is locked.');
     }
 
-    socket.join(roomName);
-    socket.data.room = roomName;
+    socket.join(realRoom);
+    socket.data.room = realRoom;
     socket.data.name = displayName;
 
-    // First user becomes host
-    if (!info.ownerId) {
-      info.ownerId = socket.id;
-    }
-
+    if (!info.ownerId) info.ownerId = socket.id;
     info.users.set(socket.id, { name: displayName });
 
-    // Tell client their role & current alias
     socket.emit('role', { 
-      isHost: info.ownerId === socket.id,
+      isHost: info.ownerId === socket.id, 
       streamTitle: info.streamTitle,
       publicSlug: info.publicSlug
     });
-
-    socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
-
-    broadcastRoomUpdate(roomName);
-  });
-
-  // --- HOST: Update Public Link Name (Slug) ---
-  socket.on('update-public-slug', (slug) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
     
-    // 1. Auth Check
-    if (!info || info.ownerId !== socket.id) return socket.emit('room-error', 'Host only');
-
-    const newSlug = slug ? slug.trim() : null;
-
-    // 2. Clear old alias if exists
-    if (info.publicSlug && roomAliases[info.publicSlug] === roomName) {
-      delete roomAliases[info.publicSlug];
-    }
-
-    // 3. Set new alias
-    if (newSlug) {
-      // Check collision
-      if (roomAliases[newSlug] || rooms[newSlug]) {
-        return socket.emit('room-error', 'Link name already taken');
-      }
-      roomAliases[newSlug] = roomName;
-    }
-
-    info.publicSlug = newSlug;
-    broadcastRoomUpdate(roomName);
+    broadcastRoomUpdate(realRoom);
   });
 
-  // --- STANDARD HOST ACTIONS ---
-  socket.on('lock-room', (locked) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return;
-
-    info.locked = (typeof locked === 'boolean') ? locked : !info.locked;
-    broadcastRoomUpdate(roomName);
+  // 2. CALLING (The missing part!)
+  socket.on('ring-user', (targetId) => {
+    // Send an alert to the specific user
+    io.to(targetId).emit('ring-alert', { 
+      from: socket.data.name, 
+      fromId: socket.id 
+    });
   });
-
-  socket.on('update-stream-title', (title) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return;
-
-    info.streamTitle = title || 'Untitled Stream';
-    broadcastRoomUpdate(roomName);
-  });
-
-  socket.on('kick-user', (targetId) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return;
-
-    if (!info.users.has(targetId)) return;
-    const targetSocket = io.sockets.sockets.get(targetId);
-    if (targetSocket) {
-      targetSocket.emit('kicked');
-      targetSocket.leave(roomName);
-    }
-    info.users.delete(targetId);
-    broadcastRoomUpdate(roomName);
-  });
-
-  // --- SIGNALING ---
-  const signal = (event, data) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    if (data.targetId) {
-        io.to(data.targetId).emit(event, { ...data, from: socket.id });
-    } else {
-        socket.to(roomName).emit(event, { ...data, from: socket.id });
-    }
-  };
-
-  socket.on('webrtc-offer', (d) => signal('webrtc-offer', d));
-  socket.on('webrtc-answer', (d) => signal('webrtc-answer', d));
-  socket.on('webrtc-ice-candidate', (d) => signal('webrtc-ice-candidate', d));
 
   socket.on('call-offer', (d) => io.to(d.targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer: d.offer }));
   socket.on('call-answer', (d) => io.to(d.targetId).emit('call-answer', { from: socket.id, answer: d.answer }));
   socket.on('call-ice', (d) => io.to(d.targetId).emit('call-ice', { from: socket.id, candidate: d.candidate }));
   socket.on('call-end', (d) => io.to(d.targetId).emit('call-end', { from: socket.id }));
-  socket.on('ring-user', (id) => io.to(id).emit('ring-alert', { from: socket.data.name, fromId: socket.id }));
 
-  socket.on('chat-message', ({ room, name, text, fromViewer }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !text) return;
-    const info = rooms[roomName];
-    io.to(roomName).emit('chat-message', {
-      name: name || socket.data.name || 'Anon',
-      text,
-      ts: Date.now(),
-      isOwner: info && info.ownerId === socket.id,
-      fromViewer: !!fromViewer
-    });
+  // 3. HOST ACTIONS
+  socket.on('update-stream-title', (title) => {
+    const r = socket.data.room;
+    if(r && rooms[r] && rooms[r].ownerId === socket.id) {
+        rooms[r].streamTitle = title;
+        broadcastRoomUpdate(r);
+    }
   });
 
-  socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !fileName || !fileData) return;
-    io.to(roomName).emit('file-share', { name: name || socket.data.name, fileName, fileType, fileData });
+  socket.on('update-public-slug', (slug) => {
+    const r = socket.data.room;
+    if(r && rooms[r] && rooms[r].ownerId === socket.id) {
+        rooms[r].publicSlug = slug;
+        broadcastRoomUpdate(r);
+    }
   });
 
-  // --- DISCONNECT (With Alias Cleanup & Host Pass-on) ---
+  socket.on('lock-room', (locked) => {
+    const r = socket.data.room;
+    if(r && rooms[r] && rooms[r].ownerId === socket.id) {
+        rooms[r].locked = locked;
+        broadcastRoomUpdate(r);
+    }
+  });
+
+  socket.on('kick-user', (id) => {
+     const r = socket.data.room;
+     if(r && rooms[r] && rooms[r].ownerId === socket.id) {
+        io.to(id).emit('kicked');
+        const s = io.sockets.sockets.get(id);
+        if(s) s.leave(r);
+        rooms[r].users.delete(id);
+        broadcastRoomUpdate(r);
+     }
+  });
+
+  // 4. STREAM HANDSHAKE
+  socket.on('webrtc-offer', (d) => socket.to(d.room).emit('webrtc-offer', { sdp: d.sdp }));
+  socket.on('webrtc-answer', (d) => socket.to(d.room).emit('webrtc-answer', { sdp: d.sdp }));
+  socket.on('webrtc-ice-candidate', (d) => socket.to(d.room).emit('webrtc-ice-candidate', { candidate: d.candidate }));
+
+  // 5. CHAT
+  socket.on('chat-message', (d) => io.to(d.room).emit('chat-message', { ...d, ts: Date.now() }));
+
+  // 6. DISCONNECT
   socket.on('disconnect', () => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
+    const r = socket.data.room;
+    if (!r || !rooms[r]) return;
+    
+    rooms[r].users.delete(socket.id);
+    socket.to(r).emit('user-left', { id: socket.id });
 
-    const info = rooms[roomName];
-    if (!info) return;
-
-    info.users.delete(socket.id);
-    socket.to(roomName).emit('user-left', { id: socket.id });
-
-    if (info.ownerId === socket.id) {
-      info.ownerId = null;
-      info.locked = false;
-
-      // Pass Host Role
-      if (info.users.size > 0) {
-        const newHostId = info.users.keys().next().value;
-        info.ownerId = newHostId;
-        const newHostSocket = io.sockets.sockets.get(newHostId);
-        if (newHostSocket) {
-          newHostSocket.emit('role', { 
-            isHost: true, 
-            streamTitle: info.streamTitle,
-            publicSlug: info.publicSlug 
-          });
-        }
+    // Pass Host
+    if (rooms[r].ownerId === socket.id) {
+      rooms[r].ownerId = null;
+      rooms[r].locked = false;
+      if (rooms[r].users.size > 0) {
+        const nextHost = rooms[r].users.keys().next().value;
+        rooms[r].ownerId = nextHost;
+        io.to(nextHost).emit('role', { isHost: true, streamTitle: rooms[r].streamTitle, publicSlug: rooms[r].publicSlug });
       }
     }
 
-    if (info.users.size === 0) {
-      // Clean up Alias if exists
-      if (info.publicSlug && roomAliases[info.publicSlug] === roomName) {
-        delete roomAliases[info.publicSlug];
-      }
-      delete rooms[roomName];
-    } else {
-      broadcastRoomUpdate(roomName);
-    }
+    if (rooms[r].users.size === 0) delete rooms[r];
+    else broadcastRoomUpdate(r);
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Rebel server running on ${PORT}`);
-});
+server.listen(PORT, '0.0.0.0', () => console.log(`Rebel Server on ${PORT}`));
