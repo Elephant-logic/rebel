@@ -668,12 +668,20 @@ function createCallPC(targetId) {
   cp.ontrack = (event) => {
     const incomingStream = event.streams[0];
 
+    // show last active caller in remoteVideo for now
     if (remoteVideo) remoteVideo.srcObject = incomingStream;
 
+    // remember this remote stream for broadcast selection
     remoteStreams[targetId] = incomingStream;
 
     if (!callPeers[targetId]) callPeers[targetId] = {};
     callPeers[targetId].stream = incomingStream;
+
+    // ⚡ NEW: if this user is LIVE and we are already streaming,
+    // restart broadcast so viewers see their cam as soon as it arrives
+    if (isStreaming && streamSource.type === 'user' && streamSource.id === targetId) {
+      startBroadcast().catch(console.error);
+    }
   };
 
   cp.onconnectionstatechange = () => {
