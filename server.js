@@ -23,7 +23,7 @@ function getRoomInfo(roomName) {
     rooms[roomName] = {
       ownerId: null,
       locked: false,
-      streamTitle: 'Untitled Stream', // Separate from Room ID
+      streamTitle: 'Untitled Stream',
       users: new Map()
     };
   }
@@ -94,14 +94,12 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --- HOST ONLY ACTIONS (Server Enforcement) ---
+  // --- HOST ONLY ACTIONS ---
   
   socket.on('lock-room', (locked) => {
     const roomName = socket.data.room;
     if (!roomName) return;
     const info = rooms[roomName];
-    
-    // STRICT CHECK: Only owner can lock
     if (!info || info.ownerId !== socket.id) return;
 
     info.locked = (typeof locked === 'boolean') ? locked : !info.locked;
@@ -112,8 +110,6 @@ io.on('connection', (socket) => {
     const roomName = socket.data.room;
     if (!roomName) return;
     const info = rooms[roomName];
-
-    // STRICT CHECK: Only owner can change title
     if (!info || info.ownerId !== socket.id) return;
 
     info.streamTitle = title || 'Untitled Stream';
@@ -124,8 +120,6 @@ io.on('connection', (socket) => {
     const roomName = socket.data.room;
     if (!roomName) return;
     const info = rooms[roomName];
-
-    // STRICT CHECK: Only owner can kick
     if (!info || info.ownerId !== socket.id) return;
     if (!info.users.has(targetId)) return;
 
@@ -139,13 +133,23 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --- STREAM HANDSHAKE (Preserved as requested) ---
+  // --- WEBRTC SIGNALING ---
+  const signal = (event, data) => {
+    const roomName = socket.data.room;
+    if (!roomName) return;
+    if (data.targetId) {
+        io.to(data.targetId).emit(event, { ...data, from: socket.id });
+    } else {
+        socket.to(roomName).emit(event, { ...data, from: socket.id });
+    }
+  };
+
   socket.on('webrtc-offer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !sdp) return;
     socket.to(roomName).emit('webrtc-offer', { sdp });
   });
-
+  
   socket.on('webrtc-answer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !sdp) return;
@@ -158,50 +162,18 @@ io.on('connection', (socket) => {
     socket.to(roomName).emit('webrtc-ice-candidate', { candidate });
   });
 
-  // --- CALL SIGNALING (1:1 Mesh) ---
-  socket.on('call-offer', ({ targetId, offer }) => {
-    if (!targetId || !offer) return;
-    io.to(targetId).emit('incoming-call', {
-      from: socket.id,
-      name: socket.data.name,
-      offer
-    });
-  });
+  // Call Signaling (1:1)
+  socket.on('call-offer', (d) => io.to(d.targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer: d.offer }));
+  socket.on('call-answer', (d) => io.to(d.targetId).emit('call-answer', { from: socket.id, answer: d.answer }));
+  socket.on('call-ice', (d) => io.to(d.targetId).emit('call-ice', { from: socket.id, candidate: d.candidate }));
+  socket.on('call-end', (d) => io.to(d.targetId).emit('call-end', { from: socket.id }));
+  socket.on('ring-user', (id) => io.to(id).emit('ring-alert', { from: socket.data.name, fromId: socket.id }));
 
-  socket.on('call-answer', ({ targetId, answer }) => {
-    if (!targetId || !answer) return;
-    io.to(targetId).emit('call-answer', { from: socket.id, answer });
-  });
-
-  socket.on('call-ice', ({ targetId, candidate }) => {
-    if (!targetId || !candidate) return;
-    io.to(targetId).emit('call-ice', { from: socket.id, candidate });
-  });
-
-  socket.on('call-end', ({ targetId }) => {
-    if (!targetId) return;
-    io.to(targetId).emit('call-end', { from: socket.id });
-  });
-
-  socket.on('call-reject', ({ targetId }) => {
-    if (!targetId) return;
-    io.to(targetId).emit('call-reject', { from: socket.id });
-  });
-
-  socket.on('ring-user', (targetId) => {
-    if (!targetId) return;
-    io.to(targetId).emit('ring-alert', { 
-      from: socket.data.name, 
-      fromId: socket.id 
-    });
-  });
-
-  // --- CHAT & FILES ---
+  // Chat & Files
   socket.on('chat-message', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
     const info = rooms[roomName];
-    
     io.to(roomName).emit('chat-message', {
       name: name || socket.data.name || 'Anon',
       text,
@@ -214,15 +186,10 @@ io.on('connection', (socket) => {
   socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !fileName || !fileData) return;
-    io.to(roomName).emit('file-share', {
-      name: name || socket.data.name,
-      fileName,
-      fileType: fileType || 'application/octet-stream',
-      fileData
-    });
+    io.to(roomName).emit('file-share', { name: name || socket.data.name, fileName, fileType, fileData });
   });
 
-  // --- DISCONNECT ---
+  // --- DISCONNECT (Updated Logic) ---
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -231,13 +198,26 @@ io.on('connection', (socket) => {
     if (!info) return;
 
     info.users.delete(socket.id);
+    socket.to(roomName).emit('user-left', { id: socket.id });
 
+    // Host Left Logic
     if (info.ownerId === socket.id) {
       info.ownerId = null;
-      info.locked = false; // Auto unlock if host leaves
-    }
+      info.locked = false; // Always unlock if host leaves
 
-    socket.to(roomName).emit('user-left', { id: socket.id });
+      // PASS THE TORCH: Assign new host if users remain
+      if (info.users.size > 0) {
+        // The Map keys iterate in insertion order, so the first one is the "oldest" user
+        const newHostId = info.users.keys().next().value;
+        info.ownerId = newHostId;
+        
+        // Notify the new host immediately
+        const newHostSocket = io.sockets.sockets.get(newHostId);
+        if (newHostSocket) {
+          newHostSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
+        }
+      }
+    }
 
     if (info.users.size === 0) {
       delete rooms[roomName];
