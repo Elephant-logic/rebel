@@ -119,7 +119,7 @@ socket.on('chat-message', ({ name, text, ts }) => {
   appendChat(name, text, ts);
 });
 
-// VIEWER CHAT SEND
+// VIEWER CHAT SEND (marked as fromViewer: true)
 function sendChat() {
   if (!chatInput || !currentRoom) return;
   const text = chatInput.value.trim();
@@ -128,7 +128,8 @@ function sendChat() {
   socket.emit('chat-message', {
     room: currentRoom,
     name: myName,
-    text
+    text,
+    fromViewer: true
   });
 
   appendChat('You', text);
