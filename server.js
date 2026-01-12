@@ -4,12 +4,14 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 9100;
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' }
 });
 
+// serve /public
 const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 
@@ -17,15 +19,15 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// Track locked rooms (so you can stop new people joining)
+// track locked rooms for the Lock Room button
 const lockedRooms = new Set();
 
 io.on('connection', (socket) => {
-  // ---------- JOIN ROOM ----------
+  // ------------- JOIN ROOM -------------
   socket.on('join-room', ({ room, name }) => {
     if (!room) return;
 
-    // block if locked
+    // if room is locked, tell client and bail
     if (lockedRooms.has(room)) {
       socket.emit('room-locked', { room, locked: true });
       return;
@@ -35,28 +37,30 @@ io.on('connection', (socket) => {
     socket.data.room = room;
     socket.data.name = name || 'Anon';
 
-    // tell everyone else
+    // tell existing members that someone joined
     socket.to(room).emit('user-joined', {
       id: socket.id,
       name: socket.data.name
     });
   });
 
-  // ---------- STREAMING: HOST → VIEWERS ----------
+  // ------------- STREAMING (HOST → VIEWERS) -------------
+
+  // host sends offer to everyone in room
   socket.on('webrtc-offer', (data) => {
     // { room, sdp }
     if (!data || !data.room || !data.sdp) return;
     socket.to(data.room).emit('webrtc-offer', { sdp: data.sdp });
   });
 
-  // Viewer → host: answer
+  // viewer answers back to host
   socket.on('webrtc-answer', (data) => {
     // { room, sdp }
     if (!data || !data.room || !data.sdp) return;
     socket.to(data.room).emit('webrtc-answer', { sdp: data.sdp });
   });
 
-  // ICE (stream)
+  // ICE for stream (both ways)
   socket.on('webrtc-ice-candidate', (data) => {
     // { room, candidate }
     if (!data || !data.room || !data.candidate) return;
@@ -65,7 +69,8 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ---------- CHAT (ROOM-WIDE) ----------
+  // ------------- ROOM CHAT -------------
+
   socket.on('chat-message', (data) => {
     // { room, name, text }
     if (!data || !data.room || !data.text) return;
@@ -76,13 +81,16 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ---------- FILE SHARE ----------
+  // ------------- FILE SHARE -------------
+
   socket.on('file-share', (data) => {
+    // just relay everything to the room
     if (!data || !data.room) return;
     socket.to(data.room).emit('file-share', data);
   });
 
-  // ---------- ROOM LOCK ----------
+  // ------------- ROOM LOCK -------------
+
   socket.on('lock-room', ({ room, locked }) => {
     if (!room) return;
     if (locked) {
@@ -93,11 +101,13 @@ io.on('connection', (socket) => {
     io.to(room).emit('room-locked', { room, locked: !!locked });
   });
 
-  // ---------- MULTI-CALL SIGNAL ----------
-  // caller → server → target
+  // ------------- MULTI VIDEO CALLS (CALL / END) -------------
+
+  // caller → target: offer
   socket.on('call-offer', (data) => {
     // { room, targetId, sdp }
     if (!data || !data.room || !data.targetId || !data.sdp) return;
+
     io.to(data.targetId).emit('call-offer', {
       fromId: socket.id,
       name: socket.data.name || 'Anon',
@@ -105,25 +115,30 @@ io.on('connection', (socket) => {
     });
   });
 
+  // callee → caller: answer
   socket.on('call-answer', (data) => {
     // { room, targetId, sdp }
     if (!data || !data.room || !data.targetId || !data.sdp) return;
+
     io.to(data.targetId).emit('call-answer', {
       fromId: socket.id,
       sdp: data.sdp
     });
   });
 
+  // ICE for the room calls
   socket.on('call-ice-candidate', (data) => {
     // { room, targetId, candidate }
     if (!data || !data.room || !data.targetId || !data.candidate) return;
+
     io.to(data.targetId).emit('call-ice-candidate', {
       fromId: socket.id,
       candidate: data.candidate
     });
   });
 
-  // ---------- DISCONNECT ----------
+  // ------------- DISCONNECT -------------
+
   socket.on('disconnect', () => {
     const room = socket.data.room;
     if (room) {
@@ -132,6 +147,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// start
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Rebel server running on ${PORT}`);
 });
