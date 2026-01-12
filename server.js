@@ -90,10 +90,10 @@ io.on('connection', (socket) => {
     // Tell this client their role
     socket.emit('role', { isHost: info.ownerId === socket.id });
 
-    // Let others know someone joined (used by host to re-offer stream)
+    // Let others know someone joined (host uses this to re-offer stream)
     socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
 
-    // Snapshot
+    // Snapshot for user list, crowns, etc.
     broadcastRoomUpdate(roomName);
   });
 
@@ -135,25 +135,25 @@ io.on('connection', (socket) => {
   });
 
   // --------------------------------------------------
-  // STREAM signalling (host → viewers) – uses webrtc-*
+  // STREAM signalling (host → viewers)
   // --------------------------------------------------
   socket.on('webrtc-offer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
-    if (!roomName) return;
+    if (!roomName || !sdp) return;
     // Broadcast to everyone else in the room (viewers + guests)
     socket.to(roomName).emit('webrtc-offer', { sdp });
   });
 
   socket.on('webrtc-answer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
-    if (!roomName) return;
+    if (!roomName || !sdp) return;
     // Back to host
     socket.to(roomName).emit('webrtc-answer', { sdp });
   });
 
   socket.on('webrtc-ice-candidate', ({ room, candidate }) => {
     const roomName = room || socket.data.room;
-    if (!roomName) return;
+    if (!roomName || !candidate) return;
     socket.to(roomName).emit('webrtc-ice-candidate', { candidate });
   });
 
@@ -199,7 +199,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Old ring-user ping still supported
+  // Old ring-user ping still supported (for the alert)
   socket.on('ring-user', (targetId) => {
     if (!targetId) return;
     const fromName = socket.data.name || `User-${socket.id.slice(0, 4)}`;
@@ -207,7 +207,7 @@ io.on('connection', (socket) => {
   });
 
   // --------------------------------------------------
-  // Chat
+  // Chat – works for BOTH host page and viewer page
   // --------------------------------------------------
   socket.on('chat-message', ({ room, name, text }) => {
     const roomName = room || socket.data.room;
