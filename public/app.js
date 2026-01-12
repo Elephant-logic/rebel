@@ -1,231 +1,207 @@
 // ==================================================================
-// REBEL MESSENGER - FULL CLIENT APPLICATION
+// REBEL MESSENGER CLIENT - COMPLETE
 // ==================================================================
 const socket = io({ autoConnect: false });
 
-// --- GLOBAL STATE ---
+// ------------------------------------------------------------------
+// GLOBAL STATE
+// ------------------------------------------------------------------
 let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
 
-// MEDIA STATE
+// Media State
 let localStream = null;
-let screenStream = null;
 let isScreenSharing = false;
-let currentAudioDeviceId = undefined;
-let currentVideoDeviceId = undefined;
+let screenStream = null;
 
-// P2P CALLING STATE (Mesh Network)
-// callPeers[socketId] = { pc: RTCPeerConnection, name: string, iceQueue: [] }
-const callPeers = {}; 
-
-// STREAMING STATE (Host -> Viewer)
+// Streaming State (Host -> Viewers)
 let pc = null; 
 let isStreaming = false;
 let broadcastStream = null;
 
-// CONFIG
+// Calling State (P2P Mesh)
+// callPeers[socketId] = { pc: RTCPeerConnection, name: string, iceQueue: [] }
+const callPeers = {}; 
+
+// ICE Configuration
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
   ? { iceServers: ICE_SERVERS } 
   : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-// --- DOM ELEMENTS (Cached) ---
+// ------------------------------------------------------------------
+// DOM ELEMENTS
+// ------------------------------------------------------------------
 const $ = id => document.getElementById(id);
 
-// Connection Inputs
-const nameInput = $('nameInput');
-const roomInput = $('roomInput');
-const joinBtn = $('joinBtn');
-const leaveBtn = $('leaveBtn');
-const signalStatus = $('signalStatus');
-const roomInfo = $('roomInfo');
+// Inputs & Buttons
+const nameInput       = $('nameInput');
+const roomInput       = $('roomInput');
+const joinBtn         = $('joinBtn');
+const leaveBtn        = $('leaveBtn');
+const signalStatus    = $('signalStatus');
+const roomInfo        = $('roomInfo');
 
 // Host Controls
-const hostControls = $('hostControls');
-const lockRoomBtn = $('lockRoomBtn');
-const streamTitleInput = $('streamTitleInput');
-const updateTitleBtn = $('updateTitleBtn');
-const slugInput = $('slugInput');
-const updateSlugBtn = $('updateSlugBtn');
+const hostControls    = $('hostControls');
+const lockRoomBtn     = $('lockRoomBtn');
+const streamTitleInput= $('streamTitleInput');
+const updateTitleBtn  = $('updateTitleBtn');
+const slugInput       = $('slugInput');
+const updateSlugBtn   = $('updateSlugBtn');
 
-// Media & Grid
-const videoGrid = $('videoGrid');
-const localVideo = $('localVideo');
-const startStreamBtn = $('startStreamBtn');
-const streamQuality = $('streamQuality'); 
-const hangupBtn = $('hangupBtn'); 
-const shareScreenBtn = $('shareScreenBtn');
-const toggleCamBtn = $('toggleCamBtn');
-const toggleMicBtn = $('toggleMicBtn');
-const settingsBtn = $('settingsBtn');
+// Media Controls
+const startStreamBtn  = $('startStreamBtn');
+const streamQuality   = $('streamQuality'); 
+const hangupBtn       = $('hangupBtn'); 
+const shareScreenBtn  = $('shareScreenBtn');
+const toggleCamBtn    = $('toggleCamBtn');
+const toggleMicBtn    = $('toggleMicBtn');
+const settingsBtn     = $('settingsBtn');
+const openStreamBtn   = $('openStreamBtn');
 const streamLinkInput = $('streamLinkInput');
-const openStreamBtn = $('openStreamBtn');
 
 // Settings Panel
-const settingsPanel = $('settingsPanel');
-const audioSource = $('audioSource');
-const videoSource = $('videoSource');
-const closeSettingsBtn = $('closeSettingsBtn');
+const settingsPanel   = $('settingsPanel');
+const audioSource     = $('audioSource');
+const videoSource     = $('videoSource');
+const closeSettingsBtn= $('closeSettingsBtn');
 
-// Tabs & Content
-const tabChatBtn = $('tabChatBtn');
-const tabFilesBtn = $('tabFilesBtn');
-const tabUsersBtn = $('tabUsersBtn');
-const tabContentChat = $('tabContentChat');
+// Tabs
+const tabChatBtn      = $('tabChatBtn');
+const tabFilesBtn     = $('tabFilesBtn');
+const tabUsersBtn     = $('tabUsersBtn');
+const tabContentChat  = $('tabContentChat');
 const tabContentFiles = $('tabContentFiles');
 const tabContentUsers = $('tabContentUsers');
 
-// Chat
-const chatLog = $('chatLog');
-const chatInput = $('chatInput');
-const sendBtn = $('sendBtn');
-const emojiStrip = $('emojiStrip');
+// Chat & Files
+const chatLog         = $('chatLog');
+const chatInput       = $('chatInput');
+const sendBtn         = $('sendBtn');
+const emojiStrip      = $('emojiStrip');
+const fileInput       = $('fileInput');
+const sendFileBtn     = $('sendFileBtn');
+const fileLog         = $('fileLog');
+const fileNameLabel   = $('fileNameLabel');
+const userList        = $('userList');
+const videoGrid       = $('videoGrid');
+const localVideo      = $('localVideo');
 
-// Files
-const fileInput = $('fileInput');
-const sendFileBtn = $('sendFileBtn');
-const fileLog = $('fileLog');
-const fileNameLabel = $('fileNameLabel');
-
-// Users
-const userList = $('userList');
-
-
-// ==================================================================
-// 1. INITIALIZATION & TABS
-// ==================================================================
-
-function switchTab(tabName) {
-  // Reset all
+// ------------------------------------------------------------------
+// TAB NAVIGATION
+// ------------------------------------------------------------------
+function switchTab(name) {
   [tabChatBtn, tabFilesBtn, tabUsersBtn].forEach(b => b && b.classList.remove('active'));
   [tabContentChat, tabContentFiles, tabContentUsers].forEach(c => c && c.classList.remove('active'));
 
-  // Activate specific
-  if (tabName === 'chat') {
-    if (tabChatBtn) tabChatBtn.classList.add('active');
-    if (tabContentChat) tabContentChat.classList.add('active');
-  } else if (tabName === 'files') {
-    if (tabFilesBtn) tabFilesBtn.classList.add('active');
-    if (tabContentFiles) tabContentFiles.classList.add('active');
-  } else if (tabName === 'users') {
-    if (tabUsersBtn) tabUsersBtn.classList.add('active');
-    if (tabContentUsers) tabContentUsers.classList.add('active');
+  if (name === 'chat') {
+    if(tabChatBtn) tabChatBtn.classList.add('active');
+    if(tabContentChat) tabContentChat.classList.add('active');
+  } else if (name === 'files') {
+    if(tabFilesBtn) tabFilesBtn.classList.add('active');
+    if(tabContentFiles) tabContentFiles.classList.add('active');
+  } else if (name === 'users') {
+    if(tabUsersBtn) tabUsersBtn.classList.add('active');
+    if(tabContentUsers) tabContentUsers.classList.add('active');
   }
 }
 
-if (tabChatBtn) tabChatBtn.addEventListener('click', () => switchTab('chat'));
-if (tabFilesBtn) tabFilesBtn.addEventListener('click', () => switchTab('files'));
-if (tabUsersBtn) tabUsersBtn.addEventListener('click', () => switchTab('users'));
+if(tabChatBtn) tabChatBtn.addEventListener('click', () => switchTab('chat'));
+if(tabFilesBtn) tabFilesBtn.addEventListener('click', () => switchTab('files'));
+if(tabUsersBtn) tabUsersBtn.addEventListener('click', () => switchTab('users'));
 
 
-// ==================================================================
-// 2. DEVICE MANAGEMENT & MEDIA
-// ==================================================================
+// ------------------------------------------------------------------
+// MEDIA & DEVICE MANAGEMENT
+// ------------------------------------------------------------------
+async function getMedia(constraints) {
+  try {
+    return await navigator.mediaDevices.getUserMedia(constraints);
+  } catch(e) {
+    console.error("Media Error:", e);
+    alert("Could not access Camera/Mic. Please check browser permissions.");
+    return null;
+  }
+}
 
-// Fetch list of cameras/mics
 async function getDevices() {
   try {
-    // Request permission first to get labels
-    await navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
-    
+    // Request permission momentarily to get labels
+    const tempStream = await navigator.mediaDevices.getUserMedia({audio:true, video:true}).catch(e=>{});
+    if(tempStream) tempStream.getTracks().forEach(t=>t.stop());
+
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audios = devices.filter(d => d.kind === 'audioinput');
     const videos = devices.filter(d => d.kind === 'videoinput');
-    
+
     if (audioSource) {
-      const current = audioSource.value;
-      audioSource.innerHTML = audios.map(d => `<option value="${d.deviceId}">${d.label || 'Microphone ' + d.deviceId.slice(0,4)}</option>`).join('');
-      if (current) audioSource.value = current;
+      const cur = audioSource.value;
+      audioSource.innerHTML = audios.map(d => `<option value="${d.deviceId}">${d.label || 'Mic '+d.deviceId.slice(0,4)}</option>`).join('');
+      if(cur) audioSource.value = cur;
     }
-    
     if (videoSource) {
-      const current = videoSource.value;
-      videoSource.innerHTML = videos.map(d => `<option value="${d.deviceId}">${d.label || 'Camera ' + d.deviceId.slice(0,4)}</option>`).join('');
-      if (current) videoSource.value = current;
+      const cur = videoSource.value;
+      videoSource.innerHTML = videos.map(d => `<option value="${d.deviceId}">${d.label || 'Cam '+d.deviceId.slice(0,4)}</option>`).join('');
+      if(cur) videoSource.value = cur;
     }
-  } catch(e) { 
-    console.error("Error enumerating devices:", e);
-  }
+  } catch(e) { console.error(e); }
 }
 
-// Switch Media (Hot-Swap)
 async function switchMedia() {
-  // 1. Determine constraints based on dropdowns
+  // Stop current local tracks
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+  }
+
   const aId = audioSource ? audioSource.value : undefined;
   const vId = videoSource ? videoSource.value : undefined;
-
-  currentAudioDeviceId = aId;
-  currentVideoDeviceId = vId;
 
   const constraints = {
     audio: aId ? { deviceId: { exact: aId } } : true,
     video: vId ? { deviceId: { exact: vId } } : true
   };
 
-  // 2. Stop old tracks
+  localStream = await getMedia(constraints);
+  
   if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-  }
-
-  try {
-    // 3. Get new stream
-    localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    if (localVideo) {
+    if(localVideo) {
       localVideo.srcObject = localStream;
-      localVideo.muted = true; // Always mute local self
+      localVideo.muted = true; 
     }
 
-    // 4. Update ALL active connections (Host Stream + P2P Calls)
-    const newVideoTrack = localStream.getVideoTracks()[0];
-    const newAudioTrack = localStream.getAudioTracks()[0];
+    // UPDATE ACTIVE CONNECTIONS (HOT SWAP)
+    const vTrack = localStream.getVideoTracks()[0];
+    const aTrack = localStream.getAudioTracks()[0];
 
-    // Helper to replace track in a PC
-    const replaceTrackInPC = (peerConnection) => {
-      if (!peerConnection) return;
-      const senders = peerConnection.getSenders();
-      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-      const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-      
-      if (videoSender && newVideoTrack) videoSender.replaceTrack(newVideoTrack).catch(e => console.log('Replace Vid Error', e));
-      if (audioSender && newAudioTrack) audioSender.replaceTrack(newAudioTrack).catch(e => console.log('Replace Aud Error', e));
+    // Helper
+    const replace = (peerConn) => {
+      if(!peerConn) return;
+      const senders = peerConn.getSenders();
+      const vSender = senders.find(s => s.track && s.track.kind === 'video');
+      const aSender = senders.find(s => s.track && s.track.kind === 'audio');
+      if(vSender && vTrack) vSender.replaceTrack(vTrack).catch(e=>{});
+      if(aSender && aTrack) aSender.replaceTrack(aTrack).catch(e=>{});
     };
 
-    // Update Stream
+    // Update Stream PC
     if (isStreaming && pc && !isScreenSharing) {
-      replaceTrackInPC(pc);
+       replace(pc);
     }
 
-    // Update Calls
-    Object.values(callPeers).forEach(peer => {
-      replaceTrackInPC(peer.pc);
-    });
-
-  } catch(e) {
-    console.error("Switch Media Failed", e);
-    alert("Could not switch device. Permission denied or device in use.");
+    // Update P2P Calls
+    Object.values(callPeers).forEach(peer => replace(peer.pc));
   }
 }
 
-// Initial Media Setup
 async function ensureLocalStream() {
   if (localStream && localStream.active) return localStream;
   await switchMedia();
-  if (!localStream) {
-    // Fallback if switchMedia failed due to constraints
-    try {
-       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-       localVideo.srcObject = localStream;
-    } catch(e) {
-       console.error("Critical Media Failure", e);
-       alert("No Camera/Mic found.");
-    }
-  }
   return localStream;
 }
 
-// UI Listeners for Settings
-if (settingsBtn) settingsBtn.addEventListener('click', async () => {
+if(settingsBtn) settingsBtn.addEventListener('click', async () => {
   if (settingsPanel.style.display === 'none') {
     settingsPanel.style.display = 'block';
     await getDevices();
@@ -234,417 +210,203 @@ if (settingsBtn) settingsBtn.addEventListener('click', async () => {
   }
 });
 
-if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', () => {
+if(closeSettingsBtn) closeSettingsBtn.addEventListener('click', () => {
   settingsPanel.style.display = 'none';
-  // Apply changes when closing
   switchMedia();
 });
 
-if (audioSource) audioSource.addEventListener('change', () => switchMedia());
-if (videoSource) videoSource.addEventListener('change', () => switchMedia());
 
-
-// ==================================================================
-// 3. CONNECTION & ROOM LOGIC
-// ==================================================================
-
-if (joinBtn) joinBtn.addEventListener('click', () => {
-  const r = roomInput.value.trim();
-  const n = nameInput.value.trim();
-  
-  if (!r) return alert("Please enter a Room ID");
-
-  currentRoom = r;
-  userName = n || 'Anonymous';
-
-  socket.connect();
-  socket.emit('join-room', { room: currentRoom, name: userName });
-
-  joinBtn.disabled = true;
-  if (leaveBtn) leaveBtn.disabled = false;
-  roomInfo.textContent = `Room: ${r}`;
-
-  // Start media immediately
-  ensureLocalStream();
-});
-
-if (leaveBtn) leaveBtn.addEventListener('click', () => {
-  window.location.reload();
-});
-
-socket.on('connect', () => {
-  myId = socket.id;
-  if (signalStatus) {
-    signalStatus.textContent = "Connected";
-    signalStatus.className = "status-dot status-connected";
-  }
-});
-
-socket.on('disconnect', () => {
-  if (signalStatus) {
-    signalStatus.textContent = "Disconnected";
-    signalStatus.className = "status-dot status-disconnected";
-  }
-});
-
-socket.on('room-error', (msg) => {
-  alert(msg);
-  joinBtn.disabled = false;
-  if (leaveBtn) leaveBtn.disabled = true;
-});
-
-
-// ==================================================================
-// 4. CALLING LOGIC (MESH NETWORK)
-// ==================================================================
-
-// Add Video to Grid
+// ------------------------------------------------------------------
+// VIDEO GRID HELPERS
+// ------------------------------------------------------------------
 function addRemoteVideo(id, stream, name) {
-  const existing = document.getElementById(`vid-${id}`);
-  if (existing) {
-    existing.querySelector('video').srcObject = stream;
-    return;
-  }
+  if (!videoGrid) return;
   
-  const div = document.createElement('div');
-  div.className = 'video-container';
-  div.id = `vid-${id}`;
-  div.innerHTML = `
-    <h2>${name}</h2>
-    <video autoplay playsinline></video>
-  `;
-  div.querySelector('video').srcObject = stream;
-  videoGrid.appendChild(div);
+  let div = document.getElementById(`vid-${id}`);
+  if (!div) {
+    div = document.createElement('div');
+    div.id = `vid-${id}`;
+    div.className = 'video-container';
+    div.innerHTML = `<h2>${name}</h2><video autoplay playsinline></video>`;
+    videoGrid.appendChild(div);
+  }
+  const video = div.querySelector('video');
+  video.srcObject = stream;
 }
 
-// Remove Video
 function removeRemoteVideo(id) {
   const div = document.getElementById(`vid-${id}`);
   if (div) div.remove();
 }
 
-function createPeerConnection(targetId, targetName) {
-  const cp = new RTCPeerConnection(iceConfig);
+
+// ------------------------------------------------------------------
+// HOST STREAMING (One-to-Many Broadcast)
+// ------------------------------------------------------------------
+if(startStreamBtn) startStreamBtn.addEventListener('click', async () => {
+  if (!iAmHost) return alert("Only the Host can stream.");
   
-  // Create object to track peer
-  callPeers[targetId] = { 
-    pc: cp, 
-    name: targetName, 
-    iceQueue: [] 
+  if (pc) { pc.close(); pc = null; }
+  pc = new RTCPeerConnection(iceConfig);
+
+  // Check Quality / Mode
+  const mode = streamQuality ? streamQuality.value : '720';
+  let streamToSend = null;
+
+  if (mode === 'screen') {
+    try {
+      streamToSend = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
+      isScreenSharing = true;
+    } catch(e) { return; } // cancelled
+  } else {
+    // Camera
+    const height = parseInt(mode) || 720;
+    await ensureLocalStream();
+    streamToSend = localStream;
+    // Try to apply constraint
+    try {
+       const t = streamToSend.getVideoTracks()[0];
+       if(t) await t.applyConstraints({height:{ideal:height}});
+    } catch(e){}
+    isScreenSharing = false;
+  }
+  
+  broadcastStream = streamToSend;
+  broadcastStream.getTracks().forEach(t => pc.addTrack(t, broadcastStream));
+
+  // ICE
+  pc.onicecandidate = e => {
+    if (e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
   };
 
-  // ICE Candidates
-  cp.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit('call-ice', { targetId, candidate: event.candidate });
-    }
+  // OFFER
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
+
+  // UI
+  isStreaming = true;
+  startStreamBtn.textContent = 'Live Streaming';
+  startStreamBtn.classList.add('danger');
+  if(hangupBtn) hangupBtn.disabled = false;
+});
+
+// STREAM HANDSHAKE
+socket.on('webrtc-answer', async (d) => {
+  if (pc) {
+    try { await pc.setRemoteDescription(new RTCSessionDescription(d.sdp)); } catch(e){}
+  }
+});
+socket.on('webrtc-ice-candidate', async (d) => {
+  if (pc) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(d.candidate)); } catch(e){}
+  }
+});
+
+
+// ------------------------------------------------------------------
+// P2P CALLING (Mesh Network)
+// ------------------------------------------------------------------
+function createPeer(targetId, name) {
+  const cp = new RTCPeerConnection(iceConfig);
+  callPeers[targetId] = { pc: cp, name: name, iceQueue: [] };
+
+  cp.onicecandidate = e => {
+    if(e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate });
   };
 
-  // Track received
-  cp.ontrack = (event) => {
-    addRemoteVideo(targetId, event.streams[0], targetName);
+  cp.ontrack = e => {
+    addRemoteVideo(targetId, e.streams[0], name);
   };
-
   return cp;
 }
 
-// Start Call (Caller)
 async function startCall(targetId) {
   const stream = await ensureLocalStream();
-  if (!stream) return;
+  if(!stream) return;
 
-  // Find name from UI
-  let name = "Peer";
+  // Get name from DOM
   const el = document.querySelector(`[data-userid="${targetId}"]`);
-  if (el) name = el.dataset.username;
+  const name = el ? el.dataset.username : 'Peer';
 
-  const cp = createPeerConnection(targetId, name);
-  
-  // Add local tracks
+  const cp = createPeer(targetId, name);
   stream.getTracks().forEach(t => cp.addTrack(t, stream));
 
   const offer = await cp.createOffer();
   await cp.setLocalDescription(offer);
-
+  
   socket.emit('call-offer', { targetId, offer });
-
-  // Update Button State
-  updateUserButton(targetId, 'calling');
+  
+  updateUserButton(targetId, true);
 }
 
-// End Call
-function endPeerCall(id, fromRemote = false) {
-  const peer = callPeers[id];
-  if (peer && peer.pc) {
-    peer.pc.close();
-  }
+function endPeerCall(id, fromRemote=false) {
+  const p = callPeers[id];
+  if (p && p.pc) p.pc.close();
   delete callPeers[id];
   removeRemoteVideo(id);
 
-  if (!fromRemote) {
-    socket.emit('call-end', { targetId: id });
-  }
-
-  // Update Button State
-  updateUserButton(id, 'idle');
+  if (!fromRemote) socket.emit('call-end', { targetId: id });
+  
+  updateUserButton(id, false);
 }
-window.endPeerCall = endPeerCall; // Global scope for HTML onclick
+window.endPeerCall = endPeerCall; // Global
 
-// SOCKET LISTENERS FOR CALLS
+// P2P SOCKET EVENTS
 socket.on('ring-alert', ({ from, fromId }) => {
-  if (confirm(`📞 Call from ${from}. Accept?`)) {
+  if(confirm(`Incoming call from ${from}. Accept?`)) {
     startCall(fromId);
   }
 });
 
 socket.on('incoming-call', async ({ from, name, offer }) => {
   const stream = await ensureLocalStream();
-  const cp = createPeerConnection(from, name);
-
-  await cp.setRemoteDescription(new RTCSessionDescription(offer));
-  if (stream) {
-    stream.getTracks().forEach(t => cp.addTrack(t, stream));
-  }
-
-  const answer = await cp.createAnswer();
-  await cp.setLocalDescription(answer);
-
-  socket.emit('call-answer', { targetId: from, answer });
+  const cp = createPeer(from, name);
   
-  // Process queued ICE
-  const peer = callPeers[from];
-  if (peer && peer.iceQueue.length) {
-    peer.iceQueue.forEach(c => cp.addIceCandidate(c));
-    peer.iceQueue = [];
-  }
+  await cp.setRemoteDescription(new RTCSessionDescription(offer));
+  if(stream) stream.getTracks().forEach(t => cp.addTrack(t, stream));
 
-  updateUserButton(from, 'in-call');
+  const ans = await cp.createAnswer();
+  await cp.setLocalDescription(ans);
+
+  socket.emit('call-answer', { targetId: from, answer: ans });
+
+  // Flush ICE
+  const p = callPeers[from];
+  if(p.iceQueue.length) {
+    p.iceQueue.forEach(c => cp.addIceCandidate(c));
+    p.iceQueue = [];
+  }
+  updateUserButton(from, true);
 });
 
 socket.on('call-answer', async ({ from, answer }) => {
-  const peer = callPeers[from];
-  if (peer && peer.pc) {
-    await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
-    // Process queued ICE
-    if (peer.iceQueue.length) {
-      peer.iceQueue.forEach(c => peer.pc.addIceCandidate(c));
-      peer.iceQueue = [];
-    }
-    updateUserButton(from, 'in-call');
+  const p = callPeers[from];
+  if (p && p.pc) {
+    await p.pc.setRemoteDescription(new RTCSessionDescription(answer));
+    p.iceQueue.forEach(c => p.pc.addIceCandidate(c));
+    p.iceQueue = [];
   }
 });
 
 socket.on('call-ice', ({ from, candidate }) => {
-  const peer = callPeers[from];
-  if (peer && peer.pc) {
-    if (peer.pc.remoteDescription) {
-      peer.pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error(e));
-    } else {
-      peer.iceQueue.push(new RTCIceCandidate(candidate));
-    }
+  const p = callPeers[from];
+  if(p && p.pc) {
+    if(p.pc.remoteDescription) p.pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e=>{});
+    else p.iceQueue.push(new RTCIceCandidate(candidate));
   }
 });
 
-socket.on('call-end', ({ from }) => {
-  endPeerCall(from, true);
-});
+socket.on('call-end', ({ from }) => endPeerCall(from, true));
 
 
-// ==================================================================
-// 5. STREAMING LOGIC (HOST TO VIEWERS)
-// ==================================================================
-
-if (startStreamBtn) startStreamBtn.addEventListener('click', async () => {
-  if (!iAmHost) return alert("Only the Host can stream.");
-
-  if (pc) {
-    pc.close();
-    pc = null;
-  }
-  
-  pc = new RTCPeerConnection(iceConfig);
-
-  // 1. Get Source (Screen or Cam)
-  const quality = streamQuality ? streamQuality.value : '720';
-  let streamToSend = null;
-
-  if (quality === 'screen') {
-    try {
-      streamToSend = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      isScreenSharing = true;
-    } catch(e) {
-      console.error("Screen share cancelled");
-      return;
-    }
-  } else {
-    // Camera
-    const height = parseInt(quality) || 720;
-    await ensureLocalStream();
-    streamToSend = localStream;
-    isScreenSharing = false;
-    // Attempt constraint apply
-    try {
-       const vt = streamToSend.getVideoTracks()[0];
-       if (vt) await vt.applyConstraints({ height: { ideal: height } });
-    } catch(e) {}
-  }
-
-  broadcastStream = streamToSend;
-
-  // 2. Add Tracks
-  broadcastStream.getTracks().forEach(t => pc.addTrack(t, broadcastStream));
-
-  // 3. ICE Handler
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: event.candidate });
-    }
-  };
-
-  // 4. Create Offer
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-
-  // 5. Send to Server
-  socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
-
-  // UI Update
-  isStreaming = true;
-  startStreamBtn.textContent = "Live Streaming";
-  startStreamBtn.classList.add('danger');
-  if (hangupBtn) hangupBtn.disabled = false;
-});
-
-// Handshake Listeners
-socket.on('webrtc-answer', async ({ sdp }) => {
-  if (pc) {
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-  }
-});
-
-socket.on('webrtc-ice-candidate', async ({ candidate }) => {
-  if (pc) {
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  }
-});
-
-if (hangupBtn) hangupBtn.addEventListener('click', () => {
-  // Stop Stream
-  if (isStreaming && pc) {
-    pc.close();
-    pc = null;
-    isStreaming = false;
-    startStreamBtn.textContent = "Start Stream";
-    startStreamBtn.classList.remove('danger');
-  }
-  // Stop Screen Share tracks if any
-  if (isScreenSharing && broadcastStream) {
-    broadcastStream.getTracks().forEach(t => t.stop());
-    isScreenSharing = false;
-  }
-  // Stop all P2P calls
-  Object.keys(callPeers).forEach(id => endPeerCall(id));
-  
-  hangupBtn.disabled = true;
-});
-
-
-// ==================================================================
-// 6. TOGGLES (CAM / MIC / SCREEN)
-// ==================================================================
-
-if (toggleCamBtn) toggleCamBtn.addEventListener('click', () => {
-  if (!localStream) return;
-  const track = localStream.getVideoTracks()[0];
-  if (track) {
-    track.enabled = !track.enabled;
-    toggleCamBtn.textContent = track.enabled ? "Camera Off" : "Camera On";
-    toggleCamBtn.classList.toggle('danger', !track.enabled);
-  }
-});
-
-if (toggleMicBtn) toggleMicBtn.addEventListener('click', () => {
-  if (!localStream) return;
-  const track = localStream.getAudioTracks()[0];
-  if (track) {
-    track.enabled = !track.enabled;
-    toggleMicBtn.textContent = track.enabled ? "Mute" : "Unmute";
-    toggleMicBtn.classList.toggle('danger', !track.enabled);
-  }
-});
-
-// Screen Share Toggle (During call/stream)
-if (shareScreenBtn) shareScreenBtn.addEventListener('click', async () => {
-  if (!isScreenSharing) {
-    // START SHARING
-    try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      isScreenSharing = true;
-      shareScreenBtn.textContent = "Stop Screen";
-      shareScreenBtn.classList.add('danger');
-      
-      const screenTrack = screenStream.getVideoTracks()[0];
-      
-      // Handle "Stop" from browser UI
-      screenTrack.onended = () => stopScreenSharing();
-
-      // Show locally
-      if (localVideo) localVideo.srcObject = screenStream;
-
-      // Replace in PC (Stream)
-      if (isStreaming && pc) {
-        const sender = pc.getSenders().find(s => s.track.kind === 'video');
-        if (sender) sender.replaceTrack(screenTrack);
-      }
-      // Replace in Calls
-      Object.values(callPeers).forEach(peer => {
-        const sender = peer.pc.getSenders().find(s => s.track.kind === 'video');
-        if (sender) sender.replaceTrack(screenTrack);
-      });
-
-    } catch(e) {
-      console.error("Screen share error", e);
-    }
-  } else {
-    // STOP SHARING
-    stopScreenSharing();
-  }
-});
-
-function stopScreenSharing() {
-  if (!isScreenSharing) return;
-  if (screenStream) {
-    screenStream.getTracks().forEach(t => t.stop());
-  }
-  isScreenSharing = false;
-  screenStream = null;
-  shareScreenBtn.textContent = "Share Screen";
-  shareScreenBtn.classList.remove('danger');
-
-  // Revert to Cam
-  if (localVideo) localVideo.srcObject = localStream;
-  if (localStream) {
-    const camTrack = localStream.getVideoTracks()[0];
-    if (isStreaming && pc) {
-       const sender = pc.getSenders().find(s => s.track.kind === 'video');
-       if (sender) sender.replaceTrack(camTrack);
-    }
-    Object.values(callPeers).forEach(peer => {
-       const sender = peer.pc.getSenders().find(s => s.track.kind === 'video');
-       if (sender) sender.replaceTrack(camTrack);
-    });
-  }
-}
-
-
-// ==================================================================
-// 7. FILE SHARING (FULL IMPLEMENTATION)
-// ==================================================================
-
+// ------------------------------------------------------------------
+// FILE SHARING (FULL)
+// ------------------------------------------------------------------
 if (fileInput) fileInput.addEventListener('change', () => {
-  const file = fileInput.files[0];
-  if (file) {
-    fileNameLabel.textContent = `${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+  const f = fileInput.files[0];
+  if (f) {
+    fileNameLabel.textContent = f.name;
     sendFileBtn.disabled = false;
   } else {
     fileNameLabel.textContent = "No file selected";
@@ -653,262 +415,253 @@ if (fileInput) fileInput.addEventListener('change', () => {
 });
 
 if (sendFileBtn) sendFileBtn.addEventListener('click', () => {
-  const file = fileInput.files[0];
-  if (!file) return;
+  const f = fileInput.files[0];
+  if(!f) return;
+  // Limit 50MB
+  if(f.size > 50*1024*1024) return alert("File too large (>50MB)");
 
-  // Max size check (e.g. 50MB)
-  const MAX_SIZE = 50 * 1024 * 1024; 
-  if (file.size > MAX_SIZE) {
-    alert("File is too large. Max 50MB.");
-    return;
-  }
-
-  // Read File
   const reader = new FileReader();
-  
-  // UI Feedback
-  sendFileBtn.textContent = "Sending...";
-  sendFileBtn.disabled = true;
-
   reader.onload = (e) => {
-    const dataUrl = e.target.result;
-    
-    // Send to Server
     socket.emit('file-share', {
       room: currentRoom,
       name: userName,
-      fileName: file.name,
-      fileType: file.type,
-      fileData: dataUrl // sending as base64 dataURL
+      fileName: f.name,
+      fileType: f.type,
+      fileData: e.target.result
     });
-
-    // Local Echo
-    appendFileLog(userName, file.name, dataUrl, true);
-    
-    // Reset
+    appendFile('You', f.name, e.target.result);
     fileInput.value = '';
-    fileNameLabel.textContent = "No file selected";
-    sendFileBtn.textContent = "Send File";
+    fileNameLabel.textContent = "Sent!";
+    sendFileBtn.disabled = true;
   };
-  
-  reader.readAsDataURL(file);
+  reader.readAsDataURL(f);
 });
 
-socket.on('file-share', ({ name, fileName, fileData }) => {
-  appendFileLog(name, fileName, fileData, false);
-  // Optional: Switch tab to notify user
-  if (tabFilesBtn && !tabFilesBtn.classList.contains('active')) {
-    tabFilesBtn.style.color = 'var(--accent)'; // Highlight tab
-  }
-});
+socket.on('file-share', d => appendFile(d.name, d.fileName, d.fileData));
 
-function appendFileLog(senderName, fileName, dataUrl, isMe) {
-  if (!fileLog) return;
+function appendFile(sender, fname, data) {
+  if(!fileLog) return;
   const div = document.createElement('div');
   div.className = 'file-item';
-  div.innerHTML = `
-    <div>
-      <strong>${isMe ? 'You' : senderName}</strong> shared: 
-      <span style="color:var(--accent)">${fileName}</span>
-    </div>
-    <a href="${dataUrl}" download="${fileName}" class="btn small primary">Download</a>
-  `;
+  div.innerHTML = `<div><strong>${sender}</strong>: ${fname}</div><a href="${data}" download="${fname}" class="btn small">Download</a>`;
   fileLog.appendChild(div);
-  fileLog.scrollTop = fileLog.scrollHeight;
 }
 
 
-// ==================================================================
-// 8. CHAT & EMOJIS
-// ==================================================================
-
-function appendChat(name, text, ts) {
-  if (!chatLog) return;
-  const time = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// ------------------------------------------------------------------
+// CHAT & UTILS
+// ------------------------------------------------------------------
+function appendChat(name, text) {
+  if(!chatLog) return;
   const div = document.createElement('div');
   div.className = 'chat-line';
-  div.innerHTML = `
-    <span class="chat-time">[${time}]</span>
-    <strong>${name}:</strong> 
-    <span>${text}</span>
-  `;
+  div.innerHTML = `<strong>${name}:</strong> ${text}`;
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-if (sendBtn) sendBtn.addEventListener('click', sendMessage);
-if (chatInput) chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendMessage();
+if(sendBtn) sendBtn.addEventListener('click', () => {
+  const t = chatInput.value.trim();
+  if(t) {
+    socket.emit('chat-message', { room: currentRoom, name: userName, text: t });
+    chatInput.value = '';
+  }
 });
 
-function sendMessage() {
-  const text = chatInput.value.trim();
-  if (!text) return;
-  
-  socket.emit('chat-message', {
-    room: currentRoom,
-    name: userName,
-    text: text
-  });
-  
-  chatInput.value = '';
-}
-
-socket.on('chat-message', ({ name, text, ts }) => {
-  appendChat(name, text, ts);
-});
-
-if (emojiStrip) emojiStrip.addEventListener('click', (e) => {
-  if (e.target.classList.contains('emoji')) {
+if(emojiStrip) emojiStrip.addEventListener('click', e => {
+  if(e.target.classList.contains('emoji')) {
     chatInput.value += e.target.textContent;
     chatInput.focus();
   }
 });
 
+socket.on('chat-message', d => appendChat(d.name, d.text));
 
-// ==================================================================
-// 9. HOST CONTROLS & USER LIST
-// ==================================================================
 
-// Host: Update Title
-if (updateTitleBtn) updateTitleBtn.addEventListener('click', () => {
-  const val = streamTitleInput.value.trim();
-  if (val) socket.emit('update-stream-title', val);
-});
-
-// Host: Update Slug
-if (updateSlugBtn) updateSlugBtn.addEventListener('click', () => {
-  const val = slugInput.value.trim();
-  if (val) socket.emit('update-public-slug', val);
-});
-
-// Host: Lock Room
-if (lockRoomBtn) lockRoomBtn.addEventListener('click', () => {
-  // Logic handled by button state in renderUserList usually, or just emit toggle
-  socket.emit('lock-room', true);
-});
-
-// Host: Kick (Global function)
-window.kickUser = (id) => {
-  if (confirm("Kick this user?")) {
-    socket.emit('kick-user', id);
+// ------------------------------------------------------------------
+// GLOBAL SOCKET EVENTS
+// ------------------------------------------------------------------
+socket.on('connect', () => {
+  if(signalStatus) {
+     signalStatus.textContent = "Connected";
+     signalStatus.className = "status-dot status-connected";
   }
-};
-socket.on('kicked', () => {
-  alert("You have been kicked by the host.");
-  window.location.reload();
+  myId = socket.id;
 });
 
-// Global Ring
-window.ringUser = (id) => {
-  socket.emit('ring-user', id);
-};
+socket.on('disconnect', () => {
+  if(signalStatus) {
+     signalStatus.textContent = "Disconnected";
+     signalStatus.className = "status-dot status-disconnected";
+  }
+});
 
+socket.on('user-joined', d => appendChat('System', `${d.name} joined.`));
+socket.on('user-left', d => endPeerCall(d.id, true));
+socket.on('kicked', () => { alert("You have been kicked."); window.location.reload(); });
 
-// 10. ROOM UPDATES (Main UI Sync)
-socket.on('room-update', (data) => {
-  const { users, ownerId, locked, streamTitle, publicSlug } = data;
+socket.on('room-update', d => {
+  // Update Role
+  iAmHost = (d.ownerId === myId);
+  if(hostControls) hostControls.style.display = iAmHost ? 'block' : 'none';
   
-  // Am I Host?
-  iAmHost = (myId === ownerId);
-
-  // Update Host Controls Visibility
-  if (hostControls) {
-    hostControls.style.display = iAmHost ? 'block' : 'none';
+  if(iAmHost) {
+      if(streamTitleInput) streamTitleInput.value = d.streamTitle || '';
+      if(slugInput) slugInput.value = d.publicSlug || '';
   }
 
-  // Update Inputs
-  if (streamTitleInput) {
-    streamTitleInput.value = streamTitle || '';
-    streamTitleInput.disabled = !iAmHost;
-  }
-  if (slugInput && iAmHost) {
-    slugInput.value = publicSlug || '';
-  }
-
-  // Update Lock Button Text
-  if (lockRoomBtn) {
-    lockRoomBtn.textContent = locked ? "🔒 Unlock Room" : "🔓 Lock Room";
+  // Update Link
+  if(streamLinkInput) {
+      const id = d.publicSlug || currentRoom;
+      const url = new URL(window.location.href);
+      url.pathname = url.pathname.replace('index.html', '') + 'view.html';
+      url.search = `?room=${encodeURIComponent(id)}`;
+      streamLinkInput.value = url.toString();
   }
 
-  // Update Viewer Link
-  if (streamLinkInput) {
-    const roomIdToUse = publicSlug || currentRoom;
-    const url = new URL(window.location.href);
-    url.pathname = url.pathname.replace('index.html', '') + 'view.html';
-    url.search = `?room=${encodeURIComponent(roomIdToUse)}`;
-    streamLinkInput.value = url.toString();
-  }
+  // Lock Btn
+  if(lockRoomBtn) lockRoomBtn.textContent = d.locked ? "🔒 Unlock Room" : "🔓 Lock Room";
 
-  // Render User List
-  if (userList) {
-    userList.innerHTML = '';
-    users.forEach(u => {
-      if (u.id === myId) return; // Skip self
-
-      const div = document.createElement('div');
-      div.className = 'user-item';
-      div.dataset.userid = u.id;
-      div.dataset.username = u.name;
-
-      const isCaller = !!callPeers[u.id];
-      const btnClass = isCaller ? 'action-btn danger' : 'action-btn';
-      const btnText = isCaller ? 'End' : '📞 Call';
-      const btnAction = isCaller ? `endPeerCall('${u.id}')` : `ringUser('${u.id}')`;
-
-      div.innerHTML = `
-        <span>${u.id === ownerId ? '👑' : ''} ${u.name}</span>
-        <div class="user-actions">
-           <button onclick="${btnAction}" class="${btnClass}">${btnText}</button>
-           ${iAmHost ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` : ''}
-        </div>
-      `;
-      userList.appendChild(div);
-    });
+  // User List
+  if(userList) {
+      userList.innerHTML = '';
+      d.users.forEach(u => {
+          if(u.id === myId) return;
+          const inCall = !!callPeers[u.id];
+          const div = document.createElement('div');
+          div.className = 'user-item';
+          div.dataset.userid = u.id;
+          div.dataset.username = u.name;
+          div.innerHTML = `
+            <span>${u.id === d.ownerId ? '👑' : ''} ${u.name}</span>
+            <div class="user-actions">
+               <button onclick="${inCall ? `endPeerCall('${u.id}')` : `ringUser('${u.id}')`}" class="${inCall?'action-btn danger':'action-btn'}">${inCall?'End':'📞 Call'}</button>
+               ${iAmHost ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` : ''}
+            </div>
+          `;
+          userList.appendChild(div);
+      });
   }
 });
 
-// Role Update
-socket.on('role', (data) => {
-  iAmHost = data.isHost;
-  if (iAmHost && hostControls) hostControls.style.display = 'block';
-});
-
-socket.on('user-joined', ({ name }) => {
-  appendChat('System', `${name} joined the room`, Date.now());
-});
-
-socket.on('user-left', ({ id }) => {
-  endPeerCall(id, true);
+socket.on('role', d => {
+  iAmHost = d.isHost;
+  if(iAmHost && hostControls) hostControls.style.display = 'block';
 });
 
 
-// ==================================================================
-// 11. HELPER: UPDATE BUTTON STATE
-// ==================================================================
-function updateUserButton(id, state) {
-  // force a re-render or find specific button
-  // Easier to wait for room-update or just manipulate DOM
-  const list = document.getElementById('userList');
-  if (!list) return;
-  const item = list.querySelector(`div[data-userid="${id}"]`);
-  if (!item) return;
+// ------------------------------------------------------------------
+// GLOBAL BUTTON ACTIONS
+// ------------------------------------------------------------------
+if(joinBtn) joinBtn.addEventListener('click', () => {
+  const r = roomInput.value.trim();
+  const n = nameInput.value.trim();
+  if(!r) return alert("Room ID required");
+  currentRoom = r;
+  userName = n || 'Anon';
   
-  const actionBtn = item.querySelector('button:first-child'); 
-  // Assuming first button is the Call/End button
-  if (actionBtn) {
-    if (state === 'calling' || state === 'in-call') {
-      actionBtn.textContent = 'End';
-      actionBtn.className = 'action-btn danger';
-      actionBtn.setAttribute('onclick', `endPeerCall('${id}')`);
-    } else {
-      actionBtn.textContent = '📞 Call';
-      actionBtn.className = 'action-btn';
-      actionBtn.setAttribute('onclick', `ringUser('${id}')`);
-    }
-  }
+  socket.connect();
+  socket.emit('join-room', { room: r, name: userName });
+  
+  joinBtn.disabled = true;
+  if(leaveBtn) leaveBtn.disabled = false;
+  if(roomInfo) roomInfo.textContent = `Room: ${r}`;
+  ensureLocalStream();
+});
+
+if(leaveBtn) leaveBtn.addEventListener('click', () => location.reload());
+
+if(updateTitleBtn) updateTitleBtn.addEventListener('click', () => socket.emit('update-stream-title', streamTitleInput.value));
+if(updateSlugBtn) updateSlugBtn.addEventListener('click', () => socket.emit('update-public-slug', slugInput.value));
+if(lockRoomBtn) lockRoomBtn.addEventListener('click', () => socket.emit('lock-room', true));
+
+if(openStreamBtn) openStreamBtn.addEventListener('click', () => {
+    if(streamLinkInput.value) window.open(streamLinkInput.value, '_blank');
+});
+
+if(hangupBtn) hangupBtn.addEventListener('click', () => {
+    // Hangup Everything
+    if(isStreaming && pc) { pc.close(); pc=null; isStreaming=false; startStreamBtn.textContent='Start Stream'; startStreamBtn.classList.remove('danger'); }
+    if(isScreenSharing) { if(screenStream) screenStream.getTracks().forEach(t=>t.stop()); isScreenSharing=false; shareScreenBtn.textContent="Share Screen"; shareScreenBtn.classList.remove('danger'); }
+    
+    Object.keys(callPeers).forEach(id => endPeerCall(id));
+    hangupBtn.disabled = true;
+});
+
+// Toggles
+if(toggleCamBtn) toggleCamBtn.addEventListener('click', () => {
+   if(localStream) {
+       const t = localStream.getVideoTracks()[0];
+       if(t) { t.enabled = !t.enabled; toggleCamBtn.textContent = t.enabled ? "Cam Off" : "Cam On"; }
+   }
+});
+if(toggleMicBtn) toggleMicBtn.addEventListener('click', () => {
+   if(localStream) {
+       const t = localStream.getAudioTracks()[0];
+       if(t) { t.enabled = !t.enabled; toggleMicBtn.textContent = t.enabled ? "Mute" : "Unmute"; }
+   }
+});
+
+// Screen Share Toggle
+if(shareScreenBtn) shareScreenBtn.addEventListener('click', async () => {
+   if(!isScreenSharing) {
+       try {
+           screenStream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:true});
+           isScreenSharing = true;
+           shareScreenBtn.textContent = "Stop Screen";
+           shareScreenBtn.classList.add('danger');
+           
+           // Local View
+           if(localVideo) localVideo.srcObject = screenStream;
+           
+           const trk = screenStream.getVideoTracks()[0];
+           trk.onended = () => { /* Handle Stop via browser UI */ };
+
+           // Replace in Stream
+           if(isStreaming && pc) {
+               const s = pc.getSenders().find(s=>s.track.kind==='video');
+               if(s) s.replaceTrack(trk);
+           }
+           // Replace in Calls
+           Object.values(callPeers).forEach(p => {
+               const s = p.pc.getSenders().find(s=>s.track.kind==='video');
+               if(s) s.replaceTrack(trk);
+           });
+       } catch(e){}
+   } else {
+       if(screenStream) screenStream.getTracks().forEach(t=>t.stop());
+       isScreenSharing = false;
+       shareScreenBtn.textContent = "Share Screen";
+       shareScreenBtn.classList.remove('danger');
+       
+       if(localVideo) localVideo.srcObject = localStream;
+       if(localStream) {
+           const trk = localStream.getVideoTracks()[0];
+           if(isStreaming && pc) {
+               const s = pc.getSenders().find(s=>s.track.kind==='video');
+               if(s) s.replaceTrack(trk);
+           }
+           Object.values(callPeers).forEach(p => {
+               const s = p.pc.getSenders().find(s=>s.track.kind==='video');
+               if(s) s.replaceTrack(trk);
+           });
+       }
+   }
+});
+
+// Global Helpers
+window.ringUser = (id) => socket.emit('ring-user', id);
+window.kickUser = (id) => socket.emit('kick-user', id);
+
+// Helper to update button state in UI
+function updateUserButton(id, inCall) {
+   const el = document.querySelector(`[data-userid="${id}"]`);
+   if(el) {
+       const btn = el.querySelector('button');
+       if(btn) {
+           btn.textContent = inCall ? 'End' : '📞 Call';
+           btn.className = inCall ? 'action-btn danger' : 'action-btn';
+           btn.setAttribute('onclick', inCall ? `endPeerCall('${id}')` : `ringUser('${id}')`);
+       }
+   }
 }
-
-if (openStreamBtn) openStreamBtn.addEventListener('click', () => {
-    if (streamLinkInput.value) window.open(streamLinkInput.value, '_blank');
-});
