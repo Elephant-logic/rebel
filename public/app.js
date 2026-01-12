@@ -174,19 +174,6 @@ async function switchMedia() {
       if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
       if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
     }
-
-    // Also update ALL active call peer connections
-    Object.values(callPeers).forEach(peer => {
-      if (!peer || !peer.pc) return;
-      const senders = peer.pc.getSenders();
-      const vTrack = localStream.getVideoTracks()[0];
-      const aTrack = localStream.getAudioTracks()[0];
-      const vSender = senders.find(s => s.track && s.track.kind === 'video');
-      const aSender = senders.find(s => s.track && s.track.kind === 'audio');
-      if (vSender && vTrack) vSender.replaceTrack(vTrack);
-      if (aSender && aTrack) aSender.replaceTrack(aTrack);
-    });
-
   } catch (e) {
     console.error("Switch media error:", e);
   }
@@ -322,7 +309,7 @@ async function ensureLocalStream() {
       localVideo.muted = true;
     }
   } catch (e) {
-    console.error("Media Error", e);   // no alert – just log
+    console.error("Media Error", e);
   }
   return localStream;
 }
@@ -349,8 +336,6 @@ async function startBroadcast() {
   const baseStream = isScreenSharing && screenStream
     ? screenStream
     : await getBroadcastStream();
-
-  if (!baseStream) return;
 
   broadcastStream = baseStream;
 
@@ -381,24 +366,10 @@ async function reofferStream() {
   }
 }
 
-// apply queued ICE after answer so stream actually connects
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) {
-    try {
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      // Flush any candidates that arrived before the remote description
-      for (const ice of iceCandidatesQueue) {
-        try {
-          await pc.addIceCandidate(ice);
-        } catch (e) {
-          console.error('Queued ICE error:', e);
-        }
-      }
-      iceCandidatesQueue = [];
-      if (startStreamBtn) startStreamBtn.textContent = 'In Stream';
-    } catch (e) {
-      console.error('Error handling webrtc-answer:', e);
-    }
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    if (startStreamBtn) startStreamBtn.textContent = 'In Stream';
   }
 });
 
@@ -434,14 +405,6 @@ socket.on('room-update', ({ users, ownerId, locked }) => {
   }
 });
 
-// when anyone joins while you are streaming, re-offer stream
-socket.on('user-joined', ({ id, name }) => {
-  if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
-  if (isStreaming) {
-    reofferStream().catch(console.error);
-  }
-});
-
 socket.on('kicked', () => {
   alert('You have been kicked from the room.');
   window.location.reload();
@@ -457,6 +420,13 @@ socket.on('room-error', (msg) => {
   if (leaveBtn) leaveBtn.disabled = true;
 });
 
+socket.on('user-joined', ({ id, name }) => {
+  if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
+  if (iAmHost && isStreaming) {
+    reofferStream().catch(console.error);
+  }
+});
+
 // --- JOIN / LEAVE ---
 if (joinBtn) {
   joinBtn.addEventListener('click', () => {
@@ -467,8 +437,6 @@ if (joinBtn) {
 
     socket.connect();
     socket.emit('join-room', { room: currentRoom, name: userName });
-
-    // NOTE: no auto ensureLocalStream() here now
 
     joinBtn.disabled = true;
     if (leaveBtn) leaveBtn.disabled = false;
@@ -700,20 +668,12 @@ function createCallPC(targetId) {
   cp.ontrack = (event) => {
     const incomingStream = event.streams[0];
 
-    // show last active caller in remoteVideo for now
     if (remoteVideo) remoteVideo.srcObject = incomingStream;
 
-    // remember this remote stream for broadcast selection
     remoteStreams[targetId] = incomingStream;
 
     if (!callPeers[targetId]) callPeers[targetId] = {};
     callPeers[targetId].stream = incomingStream;
-
-    // if this user is LIVE and we are already streaming,
-    // restart broadcast so viewers see their cam as soon as it arrives
-    if (isStreaming && streamSource.type === 'user' && streamSource.id === targetId) {
-      startBroadcast().catch(console.error);
-    }
   };
 
   cp.onconnectionstatechange = () => {
