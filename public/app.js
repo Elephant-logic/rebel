@@ -1,4 +1,4 @@
-// app.js – room app: chat + files + multi calls + host-only stream
+// app.js – Rebel room app: chat + files + multi calls + host-only stream
 
 const socket = io({ autoConnect: false });
 
@@ -9,12 +9,12 @@ let myRole = 'guest'; // derived from hostId
 let hostId = null;
 
 // STREAM (host → viewer)
-let pc = null;
-let localStream = null;
+let pc = null;           // host->viewer RTCPeerConnection
+let localStream = null;  // camera/mic
 let screenStream = null;
 let isScreenSharing = false;
 
-// ROOM CALLS
+// ROOM CALLS (multi 1-to-1)
 const peers = {};     // { socketId: { name, tile, videoEl } }
 const callPCs = {};   // { socketId: RTCPeerConnection }
 
@@ -45,7 +45,7 @@ const joinBtn = $('joinBtn');
 const leaveBtn = $('leaveBtn');
 const lockRoomBtn = $('lockRoomBtn');
 
-const startCallBtn = $('startCallBtn');
+const startStreamBtn = $('startStreamBtn');
 const startCallAllBtn = $('startCallAllBtn');
 const hangupBtn = $('hangupBtn');
 const shareScreenBtn = $('shareScreenBtn');
@@ -78,7 +78,7 @@ const incomingCallText = $('incomingCallText');
 const acceptCallBtn = $('acceptCallBtn');
 const rejectCallBtn = $('rejectCallBtn');
 
-// chat-side viewer for shared view
+// chat-side viewer for shared streams
 const chatSideVideo = $('chatSideVideo');
 
 // ---------- Helpers ----------
@@ -134,12 +134,12 @@ async function ensureLocalStream() {
   return localStream;
 }
 
-// Host vs guest UI – driven by myRole (which now follows hostId)
+// Host vs guest UI – driven by myRole (from hostId)
 function applyRoleUI() {
   const isHost = myRole === 'host';
 
   const hostButtons = [
-    startCallBtn,
+    startStreamBtn,
     startCallAllBtn,
     shareScreenBtn,
     hangupBtn,
@@ -231,9 +231,9 @@ async function startBroadcast() {
     sdp: offer
   });
 
-  if (startCallBtn) {
-    startCallBtn.disabled = true;
-    startCallBtn.textContent = 'Streaming…';
+  if (startStreamBtn) {
+    startStreamBtn.disabled = true;
+    startStreamBtn.textContent = 'Streaming…';
   }
   if (hangupBtn) hangupBtn.disabled = false;
 }
@@ -258,14 +258,14 @@ function stopBroadcast() {
   isScreenSharing = false;
   if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
 
-  if (startCallBtn) {
-    startCallBtn.disabled = false;
-    startCallBtn.textContent = 'Start Stream';
+  if (startStreamBtn) {
+    startStreamBtn.disabled = false;
+    startStreamBtn.textContent = 'Start Stream';
   }
   if (hangupBtn) hangupBtn.disabled = true;
 }
 
-// when someone joins, track them & re-offer stream if host is streaming
+// re-offer stream when new users join the room
 socket.on('user-joined', ({ id, name }) => {
   if (id && name && id !== myId) {
     if (!peers[id]) peers[id] = { name };
@@ -335,13 +335,13 @@ socket.on('host-info', ({ room, hostId: hid }) => {
   renderUserList();
 });
 
-// role-assigned is just informational now
+// purely informational
 socket.on('role-assigned', ({ room, role }) => {
   if (!room || room !== currentRoom) return;
   appendChat(
     'System',
     role === 'host'
-      ? 'Server marked a host for this room.'
+      ? 'Host assigned for this room.'
       : 'You joined as guest.'
   );
 });
@@ -609,14 +609,14 @@ function renderUserList() {
     const right = document.createElement('div');
 
     const callBtn = document.createElement('button');
-    callBtn.className = 'btn';
+    callBtn.className = 'btn small';
     callBtn.textContent = 'Call';
     callBtn.addEventListener('click', () => {
       startCallWithPeer(id).catch(console.error);
     });
 
     const endBtn = document.createElement('button');
-    endBtn.className = 'btn danger';
+    endBtn.className = 'btn danger small';
     endBtn.textContent = 'End';
     endBtn.style.marginLeft = '4px';
     endBtn.addEventListener('click', () => {
@@ -631,6 +631,15 @@ function renderUserList() {
   });
 }
 
+// initial list of existing users when we join
+socket.on('room-users', ({ room, users }) => {
+  if (!currentRoom || room !== currentRoom || !users) return;
+  users.forEach(({ id, name }) => {
+    if (!peers[id]) peers[id] = { name };
+  });
+  renderUserList();
+});
+
 // ---------- JOIN / LEAVE ----------
 if (joinBtn) {
   joinBtn.addEventListener('click', () => {
@@ -643,7 +652,7 @@ if (joinBtn) {
     socket.emit('join-room', {
       room: currentRoom,
       name: userName,
-      clientType: 'app' // IMPORTANT: only app clients can ever be host
+      clientType: 'app' // main app = candidate for host
     });
 
     joinBtn.disabled = true;
@@ -685,8 +694,8 @@ if (lockRoomBtn) {
 }
 
 // ---------- STREAM BUTTONS ----------
-if (startCallBtn) {
-  startCallBtn.addEventListener('click', () => {
+if (startStreamBtn) {
+  startStreamBtn.addEventListener('click', () => {
     startBroadcast().catch(console.error);
   });
 }
