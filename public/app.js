@@ -8,6 +8,7 @@ let iAmHost = false;
 
 // STREAM PC (for host → viewers)
 let pc = null;
+let isStreaming = false;
 
 // CALL PEERS (for multi-call, separate from stream)
 const callPeers = {}; // { socketId: { pc, stream } }
@@ -77,11 +78,6 @@ const fileNameLabel = $('fileNameLabel');
 const fileLog = $('fileLog');
 const userList = $('userList');
 
-// (future: incoming call panel / thumbs – safe if missing)
-const incomingCallPanel = $('incomingCallPanel');
-const mainCallVideoContainer = $('mainCallVideoContainer');
-const peerThumbStrip = $('peerThumbStrip');
-
 // --- UI HELPERS ---
 function setSignal(connected) {
     if (!signalStatus) return;
@@ -107,6 +103,13 @@ function switchTab(tab) {
 if (tabChatBtn) tabChatBtn.addEventListener('click', () => switchTab('chat'));
 if (tabFilesBtn) tabFilesBtn.addEventListener('click', () => switchTab('files'));
 if (tabUsersBtn) tabUsersBtn.addEventListener('click', () => switchTab('users'));
+
+function updateHangupState() {
+    if (!hangupBtn) return;
+    // enable if streaming or any calls active
+    const hasCalls = Object.keys(callPeers).length > 0;
+    hangupBtn.disabled = !isStreaming && !hasCalls;
+}
 
 // --- SETTINGS / DEVICE MANAGEMENT ---
 async function getDevices() {
@@ -195,11 +198,8 @@ function renderUserList(users, ownerId) {
 
         let actions = '';
         if (!isMe) {
-            // Call
             actions += `<button onclick="ringUser('${u.id}')" class="action-btn ring">🔔</button>`;
-            // Per-user hangup (ends only call with them)
             actions += `<button onclick="endPeerCall('${u.id}')" class="action-btn hang">⛔</button>`;
-            // Kick (host only)
             if (iAmHost) {
                 actions += `<button onclick="kickUser('${u.id}')" class="action-btn kick">🦵</button>`;
             }
@@ -217,12 +217,13 @@ function renderUserList(users, ownerId) {
         `;
         userList.appendChild(div);
     });
+
+    updateHangupState();
 }
 
 // RING = notify + start separate call for that user (if host)
 window.ringUser = async (id) => {
     socket.emit('ring-user', id);
-
     if (iAmHost && currentRoom) {
         try {
             await callPeer(id); // separate call signalling, not stream
@@ -241,7 +242,7 @@ window.kickUser = (id) => {
 function createStreamPC() {
     if (pc) { try { pc.close(); } catch (e) {} }
     pc = new RTCPeerConnection(iceConfig);
-    iceCandidatesQueue = []; // Reset queue
+    iceCandidatesQueue = [];
 
     pc.onicecandidate = e => {
         if (e.candidate && currentRoom) {
@@ -286,8 +287,9 @@ async function startBroadcast() {
 
     socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
 
-    if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'Streaming...'; }
-    if (hangupBtn) { hangupBtn.disabled = false; }
+    isStreaming = true;
+    if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'Streaming…'; }
+    updateHangupState();
 }
 
 // --- STREAM SOCKET EVENTS ---
@@ -310,8 +312,9 @@ socket.on('webrtc-offer', async ({ sdp }) => {
 
         socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
 
+        isStreaming = true;
         if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'In Stream'; }
-        if (hangupBtn) { hangupBtn.disabled = false; }
+        updateHangupState();
 
     } catch (e) {
         console.error("Error handling stream offer:", e);
@@ -399,32 +402,29 @@ if (leaveBtn) leaveBtn.addEventListener('click', () => window.location.reload())
 // STREAM BUTTON
 if (startStreamBtn) startStreamBtn.addEventListener('click', () => startBroadcast().catch(console.error));
 
-// GLOBAL HANG UP: end stream AND all calls
+// GLOBAL HANG UP: end STREAM ONLY (calls are via ⛔ per user)
 if (hangupBtn) hangupBtn.addEventListener('click', () => {
-    // Stream PC
+    // close stream PC
     if (pc) {
         try { pc.close(); } catch (e) {}
     }
     pc = null;
+    isStreaming = false;
 
-    // End all call peers (emit call-end to each)
-    Object.keys(callPeers).forEach(id => {
-        endPeerCall(id, /*fromGlobal*/ true);
-    });
-
-    // Stop local media
-    if (localStream) localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-    if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+    // stop screen stream only
+    if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+    }
     screenStream = null;
+    isScreenSharing = false;
+    if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
 
-    if (localVideo) localVideo.srcObject = null;
+    // don't kill localStream – calls might still use it
     if (remoteVideo) remoteVideo.srcObject = null;
 
     if (startStreamBtn) { startStreamBtn.disabled = false; startStreamBtn.textContent = 'Start Stream'; }
-    if (startCallBtn) { startCallBtn.disabled = false; startCallBtn.textContent = 'Start Call'; }
-    if (hangupBtn) { hangupBtn.disabled = true; }
-    if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
+
+    updateHangupState();
 });
 
 // --- SCREEN SHARE (stream PC only) ---
@@ -575,15 +575,15 @@ socket.on('file-share', ({ name, fileName, fileType, fileData }) => {
    CALL SECTION (separate from stream)
    ====================================================== */
 
-// Start Call button – for now just tells you to use bells
+// Start Call – for now just guidance
 if (startCallBtn) {
-    startCallBtn.addEventListener('click', async () => {
+    startCallBtn.addEventListener('click', () => {
         if (!currentRoom) return alert('Join a room first');
         alert('Use the 🔔 next to each name to start calls. (Multi-view UI next step.)');
     });
 }
 
-// Create a per-peer call PC
+// Create per-peer call PC
 function createCallPC(targetId) {
     const cp = new RTCPeerConnection(iceConfig);
 
@@ -594,7 +594,6 @@ function createCallPC(targetId) {
     };
 
     cp.ontrack = (event) => {
-        // For now, show last caller in remoteVideo (thumbnails later)
         if (remoteVideo) remoteVideo.srcObject = event.streams[0];
         if (!callPeers[targetId]) callPeers[targetId] = {};
         callPeers[targetId].stream = event.streams[0];
@@ -621,14 +620,12 @@ async function callPeer(targetId) {
 
     socket.emit('call-offer', { targetId, offer });
 
-    // call active → update buttons
-    if (hangupBtn) hangupBtn.disabled = false;
     if (startCallBtn) startCallBtn.textContent = 'In Call';
+    updateHangupState();
 }
 
 // Incoming call
 socket.on('incoming-call', ({ from, name, offer }) => {
-    // Simple confirm for now – panel comes later
     const ok = confirm(`${name} is calling. Accept?`);
     if (!ok) {
         socket.emit('call-reject', { targetId: from });
@@ -650,9 +647,8 @@ async function acceptCall(from, offer) {
 
     socket.emit('call-answer', { targetId: from, answer });
 
-    // active
-    if (hangupBtn) hangupBtn.disabled = false;
     if (startCallBtn) startCallBtn.textContent = 'In Call';
+    updateHangupState();
 }
 
 // Call answer
@@ -677,25 +673,18 @@ function endPeerCall(id, fromGlobal = false) {
     }
     delete callPeers[id];
 
-    // Tell the other side if this was initiated locally
     if (!fromGlobal) {
         socket.emit('call-end', { targetId: id });
     }
 
-    // If no more calls active, reset buttons (but don't touch stream)
     if (Object.keys(callPeers).length === 0) {
-        if (startCallBtn) {
-            startCallBtn.disabled = false;
-            startCallBtn.textContent = 'Start Call';
-        }
-        if (!pc && hangupBtn) { // only disable if no stream either
-            hangupBtn.disabled = true;
-        }
+        if (startCallBtn) startCallBtn.textContent = 'Start Call';
     }
+    updateHangupState();
 }
 window.endPeerCall = endPeerCall;
 
-// Remote end → they hung up
+// Remote end -> they hung up
 socket.on('call-end', ({ from }) => {
     const peer = callPeers[from];
     if (peer && peer.pc) {
@@ -704,14 +693,9 @@ socket.on('call-end', ({ from }) => {
     delete callPeers[from];
 
     if (Object.keys(callPeers).length === 0) {
-        if (startCallBtn) {
-            startCallBtn.disabled = false;
-            startCallBtn.textContent = 'Start Call';
-        }
-        if (!pc && hangupBtn) {
-            hangupBtn.disabled = true;
-        }
+        if (startCallBtn) startCallBtn.textContent = 'Start Call';
     }
+    updateHangupState();
 });
 
 // Reject
@@ -724,12 +708,7 @@ socket.on('call-reject', ({ from }) => {
     delete callPeers[from];
 
     if (Object.keys(callPeers).length === 0) {
-        if (startCallBtn) {
-            startCallBtn.disabled = false;
-            startCallBtn.textContent = 'Start Call';
-        }
-        if (!pc && hangupBtn) {
-            hangupBtn.disabled = true;
-        }
+        if (startCallBtn) startCallBtn.textContent = 'Start Call';
     }
+    updateHangupState();
 });
