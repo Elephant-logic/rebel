@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <h1>Rebel Messenger</h1>
-        <p class="subtitle">P2P chat · calls · files</p>
+        <p class="subtitle">Multi-user calls · Chat · Files</p>
       </div>
       <div class="status-block">
         <span id="signalStatus" class="status-dot status-disconnected">Disconnected</span>
@@ -54,21 +54,16 @@
           <button id="closeSettingsBtn" class="btn small">Done</button>
         </div>
 
-        <div class="video-row">
-          <div class="video-card">
-            <h2>You</h2>
-            <video id="localVideo" autoplay playsinline muted></video>
-          </div>
-          <div class="video-card">
-            <h2>Peer</h2>
-            <video id="remoteVideo" autoplay playsinline></video>
-          </div>
+        <div class="video-grid-container">
+            <div class="video-card">
+              <h2>You</h2>
+              <video id="localVideo" autoplay playsinline muted></video>
+            </div>
+            <div id="remoteVideosGrid" class="remote-grid"></div>
         </div>
 
         <div class="call-controls">
-          <button id="startCallBtn" class="btn primary">Start Call</button>
-          <button id="startStreamBtn" class="btn primary">Start Stream</button>
-          
+          <button id="callAllBtn" class="btn primary">📞 Call All</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
@@ -83,7 +78,6 @@
         </div>
 
         <div class="chat-panel">
-          
           <div class="tabs-header">
             <button id="tabChatBtn" class="tab-btn active">Chat</button>
             <button id="tabFilesBtn" class="tab-btn">Files</button>
@@ -93,8 +87,7 @@
           <div id="tabContentChat" class="tab-content active">
             <div id="chatLog" class="chat-log"></div>
             <div class="emoji-strip" id="emojiStrip">
-              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
-              <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span><span class="emoji">👍</span><span class="emoji">🔥</span>
             </div>
             <div class="chat-input-row">
               <input id="chatInput" type="text" placeholder="Type a message..." />
@@ -105,10 +98,7 @@
           <div id="tabContentFiles" class="tab-content">
             <div class="file-upload-area">
               <div class="upload-controls">
-                <label class="btn secondary">
-                  <input id="fileInput" type="file" hidden />
-                  📎 Select File
-                </label>
+                <label class="btn secondary"><input id="fileInput" type="file" hidden />📎 Select File</label>
                 <span id="fileNameLabel" class="file-info">No file selected</span>
               </div>
               <button id="sendFileBtn" class="btn primary full-width" disabled>Send File</button>
