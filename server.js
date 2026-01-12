@@ -11,6 +11,8 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
+app.use(express.static(path.join(__dirname, 'public')));
+
 // ----------------------------------------------------
 // In-memory room state
 // ----------------------------------------------------
@@ -23,14 +25,6 @@ const io = new Server(server, {
 // }
 const rooms = Object.create(null);
 
-// ----------------------------------------------------
-// Static files
-// ----------------------------------------------------
-app.use(express.static(path.join(__dirname, 'public')));
-
-// ----------------------------------------------------
-// Helpers
-// ----------------------------------------------------
 function getRoomInfo(roomName) {
   if (!rooms[roomName]) {
     rooms[roomName] = {
@@ -65,7 +59,7 @@ io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
 
-  // Join a room (host or guest or viewer – client decides role UX)
+  // Join room
   socket.on('join-room', ({ room, name }) => {
     if (!room || typeof room !== 'string') {
       socket.emit('room-error', 'Invalid room');
@@ -74,10 +68,9 @@ io.on('connection', (socket) => {
 
     const roomName = room.trim();
     const displayName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
-
     const info = getRoomInfo(roomName);
 
-    // If room locked and this socket is not the owner, reject
+    // Respect lock
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       socket.emit('room-error', 'Room is locked by host');
       return;
@@ -87,26 +80,24 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
-    // First user becomes owner/host if not already set
+    // First user becomes host
     if (!info.ownerId) {
       info.ownerId = socket.id;
     }
 
     info.users.set(socket.id, { name: displayName });
 
-    // Tell this client its role
+    // Tell this client their role
     socket.emit('role', { isHost: info.ownerId === socket.id });
 
-    // Inform others that a user joined (used by host to auto re-offer stream)
+    // Let others know someone joined (used by host to re-offer stream)
     socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
 
-    // Full room snapshot
+    // Snapshot
     broadcastRoomUpdate(roomName);
   });
 
-  // --------------------------------------------------
-  // Room lock / unlock (host only)
-  // --------------------------------------------------
+  // Lock / unlock room (host only)
   socket.on('lock-room', (locked) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -123,9 +114,7 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --------------------------------------------------
   // Kick user (host only)
-  // --------------------------------------------------
   socket.on('kick-user', (targetId) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -146,20 +135,19 @@ io.on('connection', (socket) => {
   });
 
   // --------------------------------------------------
-  // Stream signalling (host -> viewers, uses webrtc-*)
-  // This matches existing app.js / viewer.js behaviour.
+  // STREAM signalling (host → viewers) – uses webrtc-*
   // --------------------------------------------------
   socket.on('webrtc-offer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName) return;
-    // Host sends to everyone else in the room (viewers + guests)
+    // Broadcast to everyone else in the room (viewers + guests)
     socket.to(roomName).emit('webrtc-offer', { sdp });
   });
 
   socket.on('webrtc-answer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName) return;
-    // Viewer/guest sends back to host
+    // Back to host
     socket.to(roomName).emit('webrtc-answer', { sdp });
   });
 
@@ -170,9 +158,7 @@ io.on('connection', (socket) => {
   });
 
   // --------------------------------------------------
-  // Call signalling (Feature Pack, used by upgraded app.js)
-  // Viewers will never receive these because they’re only
-  // sent to specific socket IDs (targetId).
+  // CALL signalling (1:1 / multi-call), separate from stream
   // --------------------------------------------------
   socket.on('call-offer', ({ targetId, offer }) => {
     if (!targetId || !offer) return;
@@ -213,21 +199,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('call-hangup-all', () => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return; // only host can hang up all
-
-    for (const targetId of info.users.keys()) {
-      if (targetId === socket.id) continue;
-      io.to(targetId).emit('call-end', { from: socket.id });
-    }
-  });
-
-  // --------------------------------------------------
-  // Ring user (old behaviour) – still supported
-  // --------------------------------------------------
+  // Old ring-user ping still supported
   socket.on('ring-user', (targetId) => {
     if (!targetId) return;
     const fromName = socket.data.name || `User-${socket.id.slice(0, 4)}`;
@@ -242,7 +214,6 @@ io.on('connection', (socket) => {
     if (!roomName || !text) return;
     const info = rooms[roomName];
     const ts = Date.now();
-
     const isOwner = info && info.ownerId === socket.id;
 
     io.to(roomName).emit('chat-message', {
@@ -280,13 +251,11 @@ io.on('connection', (socket) => {
 
     info.users.delete(socket.id);
 
-    // If owner left, keep room but without owner (next joiner could become owner)
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       info.locked = false;
     }
 
-    // Inform others for legacy handlers
     socket.to(roomName).emit('user-left', { id: socket.id });
 
     if (info.users.size === 0) {
@@ -297,7 +266,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// ----------------------------------------------------
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Rebel server running on ${PORT}`);
 });
