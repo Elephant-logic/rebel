@@ -6,71 +6,79 @@ const { Server } = require('socket.io');
 const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: '*' }
+});
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 
-// State: roomName -> Map<socketId, { name }>
-const rooms = new Map();
+app.get('/', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
 
 io.on('connection', (socket) => {
-
-  // 1. Join Room
   socket.on('join-room', ({ room, name }) => {
+    if (!room) return;
     socket.join(room);
     socket.data.room = room;
     socket.data.name = name || 'Anon';
 
-    // Create room if missing
-    if (!rooms.has(room)) rooms.set(room, new Map());
-    const r = rooms.get(room);
-    r.set(socket.id, { name: socket.data.name });
-
-    // Notify others in room
-    socket.to(room).emit('user-update', { 
-      type: 'join', 
-      id: socket.id, 
-      name: socket.data.name 
+    // tell everyone else in the room a user joined
+    socket.to(room).emit('user-joined', {
+      id: socket.id,
+      name: socket.data.name
     });
-
-    // Send the NEW user the list of EXISTING users
-    const userList = Array.from(r.entries()).map(([id, data]) => ({ id, name: data.name }));
-    socket.emit('room-users', userList);
   });
 
-  // 2. Targeted WebRTC Signaling
-  // This ensures signals go ONLY to the specific person you are calling
-  const relay = (type) => (data) => {
-    if (data.target && io.sockets.sockets.get(data.target)) {
-      io.to(data.target).emit(type, { 
-        sender: socket.id, 
-        name: socket.data.name,
-        ...data 
-      });
-    }
-  };
+  // Host → viewers: offer
+  socket.on('webrtc-offer', (data) => {
+    // { room, sdp }
+    if (!data || !data.room || !data.sdp) return;
+    socket.to(data.room).emit('webrtc-offer', { sdp: data.sdp });
+  });
 
-  socket.on('webrtc-offer', relay('webrtc-offer'));
-  socket.on('webrtc-answer', relay('webrtc-answer'));
-  socket.on('webrtc-ice-candidate', relay('webrtc-ice-candidate'));
+  // Viewer → host: answer
+  socket.on('webrtc-answer', (data) => {
+    // { room, sdp }
+    if (!data || !data.room || !data.sdp) return;
+    socket.to(data.room).emit('webrtc-answer', { sdp: data.sdp });
+  });
 
-  // 3. Broadcasts (Chat & Files)
-  socket.on('chat-message', (data) => socket.to(data.room).emit('chat-message', data));
-  socket.on('file-share', (data) => socket.to(data.room).emit('file-share', data));
+  // ICE both ways
+  socket.on('webrtc-ice-candidate', (data) => {
+    // { room, candidate }
+    if (!data || !data.room || !data.candidate) return;
+    socket.to(data.room).emit('webrtc-ice-candidate', {
+      candidate: data.candidate
+    });
+  });
 
-  // 4. Disconnect
+  // Chat relay
+  socket.on('chat-message', (data) => {
+    // { room, name, text }
+    if (!data || !data.room || !data.text) return;
+    socket.to(data.room).emit('chat-message', {
+      name: data.name || 'Anon',
+      text: data.text,
+      ts: Date.now()
+    });
+  });
+
+  // File relay
+  socket.on('file-share', (data) => {
+    if (!data || !data.room) return;
+    socket.to(data.room).emit('file-share', data);
+  });
+
   socket.on('disconnect', () => {
     const room = socket.data.room;
-    if (room && rooms.has(room)) {
-      const r = rooms.get(room);
-      r.delete(socket.id);
-      socket.to(room).emit('user-update', { type: 'leave', id: socket.id });
-      if (r.size === 0) rooms.delete(room);
+    if (room) {
+      socket.to(room).emit('user-left', { id: socket.id });
     }
   });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Rebel Server running on port ${PORT}`);
+  console.log(`Rebel server running on ${PORT}`);
 });
