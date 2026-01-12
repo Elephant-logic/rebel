@@ -78,7 +78,7 @@ io.on('connection', (socket) => {
 
     room.users.set(socket.id, { name, clientType });
 
-    // pick host if none and this is an app client
+    // FIRST APP CLIENT IN ROOM = HOST
     if (!room.hostId && clientType === 'app') {
       room.hostId = socket.id;
     }
@@ -124,7 +124,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ---- STREAM SIGNAL: HOST <-> VIEWERS ----
+  // ---- STREAM SIGNAL: HOST <-> VIEWERS (view.html) ----
   socket.on('webrtc-offer', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     if (!roomName || !data.sdp) return;
@@ -146,7 +146,7 @@ io.on('connection', (socket) => {
   });
 
   // ---- ROOM CALLS (1-to-1 within room) ----
-  // caller → server → *target* only
+  // caller → server → *target only*
   socket.on('call-offer', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     const targetId = data.targetId;
