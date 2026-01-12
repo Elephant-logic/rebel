@@ -10,7 +10,7 @@ let pc = null;
 let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
-let iceCandidatesQueue = []; // FIX: Queue for early candidates
+let iceCandidatesQueue = []; // CRITICAL: Queue for early candidates
 
 // ICE config
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? {
@@ -222,6 +222,7 @@ function createPC() {
     };
     
     pc.ontrack = (event) => {
+        console.log("Track received!", event.streams[0]);
         if (remoteVideo) remoteVideo.srcObject = event.streams[0];
     };
 
@@ -246,11 +247,17 @@ async function ensureLocalStream() {
 
 async function startBroadcast() {
     if (!currentRoom) return alert('Join a room first');
+    
+    // 1. Create PC immediately
+    createPC();
+
+    // 2. Get Media (User prompt happens here)
     const stream = isScreenSharing && screenStream ? screenStream : await ensureLocalStream();
     
-    createPC();
+    // 3. Add Tracks
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
     
+    // 4. Create Offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     
@@ -293,7 +300,6 @@ socket.on('room-error', (msg) => {
 // 3. User Joined -> Auto Connect
 socket.on('user-joined', ({ id, name }) => {
     if (id !== myId) appendChat('System', `${name} joined.`);
-    // If we are already active (have a stream), connect to new user
     if (localStream || screenStream) {
         console.log('User joined, initiating call...');
         startBroadcast().catch(console.error);
@@ -303,25 +309,27 @@ socket.on('user-joined', ({ id, name }) => {
 // 4. WebRTC Offer (Receiver)
 socket.on('webrtc-offer', async ({ sdp }) => {
     if (!currentRoom) return;
-    console.log("Received Offer");
+    console.log("Received Offer - Setting up connection...");
     
-    const stream = await ensureLocalStream();
+    // A. Create PC *BEFORE* waiting for camera permission
+    // This allows us to catch ICE candidates while the user clicks "Allow"
+    if (!pc) createPC();
     
-    // Create PC only if we don't have a stable connection, OR if we are being called fresh
-    if (!pc || pc.signalingState === "closed") createPC();
-    
-    // Add our tracks
-    stream.getTracks().forEach(t => pc.addTrack(t, stream));
-    
+    // B. Set Remote Description immediately
     try {
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         
-        // FIX: Process queued ICE candidates now that Remote Description is set
+        // C. Process any ICE candidates that arrived early
         while (iceCandidatesQueue.length > 0) {
             const candidate = iceCandidatesQueue.shift();
             await pc.addIceCandidate(candidate);
         }
 
+        // D. NOW ask for camera (Blocking UI action)
+        const stream = await ensureLocalStream();
+        stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+        // E. Create Answer
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         
@@ -330,6 +338,7 @@ socket.on('webrtc-offer', async ({ sdp }) => {
         if (startCallBtn) { startCallBtn.disabled = true; startCallBtn.textContent = 'In Call'; }
         if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'In Stream'; }
         if (hangupBtn) hangupBtn.disabled = false;
+        
     } catch(e) {
         console.error("Error handling offer:", e);
     }
@@ -346,11 +355,11 @@ socket.on('webrtc-answer', async ({ sdp }) => {
 
 // 6. ICE Candidates (with QUEUE FIX)
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
-    if (!pc) return;
     const ice = new RTCIceCandidate(candidate);
     
-    // If remote description isn't set yet, queue it.
-    if (!pc.remoteDescription) {
+    // If we don't have a PC yet, or Remote Description isn't set, queue it!
+    if (!pc || !pc.remoteDescription) {
+        console.log("Queueing early ICE candidate");
         iceCandidatesQueue.push(ice);
     } else {
         await pc.addIceCandidate(ice);
