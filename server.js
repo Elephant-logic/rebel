@@ -14,9 +14,10 @@ const io = new Server(server, {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ----------------------------------------------------
-// In-memory room state
+// State
 // ----------------------------------------------------
 const rooms = Object.create(null);
+const roomAliases = Object.create(null); // Map: "public-slug" -> "real-room-id"
 
 function getRoomInfo(roomName) {
   if (!rooms[roomName]) {
@@ -24,6 +25,7 @@ function getRoomInfo(roomName) {
       ownerId: null,
       locked: false,
       streamTitle: 'Untitled Stream',
+      publicSlug: null, // Track the active alias
       users: new Map()
     };
   }
@@ -43,7 +45,8 @@ function broadcastRoomUpdate(roomName) {
     users,
     ownerId: room.ownerId,
     locked: room.locked,
-    streamTitle: room.streamTitle
+    streamTitle: room.streamTitle,
+    publicSlug: room.publicSlug
   });
 }
 
@@ -54,14 +57,20 @@ io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
 
-  // --- JOIN ---
+  // --- JOIN (Updated for Aliases) ---
   socket.on('join-room', ({ room, name }) => {
     if (!room || typeof room !== 'string') {
       socket.emit('room-error', 'Invalid room');
       return;
     }
 
-    const roomName = room.trim();
+    let roomName = room.trim();
+    
+    // 1. Check if this is an alias for another room
+    if (roomAliases[roomName]) {
+      roomName = roomAliases[roomName];
+    }
+
     const displayName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
     const info = getRoomInfo(roomName);
 
@@ -82,20 +91,48 @@ io.on('connection', (socket) => {
 
     info.users.set(socket.id, { name: displayName });
 
-    // Tell client their role
+    // Tell client their role & current alias
     socket.emit('role', { 
       isHost: info.ownerId === socket.id,
-      streamTitle: info.streamTitle
+      streamTitle: info.streamTitle,
+      publicSlug: info.publicSlug
     });
 
-    // Notify others
     socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
 
     broadcastRoomUpdate(roomName);
   });
 
-  // --- HOST ONLY ACTIONS ---
-  
+  // --- HOST: Update Public Link Name (Slug) ---
+  socket.on('update-public-slug', (slug) => {
+    const roomName = socket.data.room;
+    if (!roomName) return;
+    const info = rooms[roomName];
+    
+    // 1. Auth Check
+    if (!info || info.ownerId !== socket.id) return socket.emit('room-error', 'Host only');
+
+    const newSlug = slug ? slug.trim() : null;
+
+    // 2. Clear old alias if exists
+    if (info.publicSlug && roomAliases[info.publicSlug] === roomName) {
+      delete roomAliases[info.publicSlug];
+    }
+
+    // 3. Set new alias
+    if (newSlug) {
+      // Check collision
+      if (roomAliases[newSlug] || rooms[newSlug]) {
+        return socket.emit('room-error', 'Link name already taken');
+      }
+      roomAliases[newSlug] = roomName;
+    }
+
+    info.publicSlug = newSlug;
+    broadcastRoomUpdate(roomName);
+  });
+
+  // --- STANDARD HOST ACTIONS ---
   socket.on('lock-room', (locked) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -121,19 +158,18 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info || info.ownerId !== socket.id) return;
-    if (!info.users.has(targetId)) return;
 
+    if (!info.users.has(targetId)) return;
     const targetSocket = io.sockets.sockets.get(targetId);
     if (targetSocket) {
       targetSocket.emit('kicked');
       targetSocket.leave(roomName);
-      targetSocket.data.room = null;
     }
     info.users.delete(targetId);
     broadcastRoomUpdate(roomName);
   });
 
-  // --- WEBRTC SIGNALING ---
+  // --- SIGNALING ---
   const signal = (event, data) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -144,32 +180,16 @@ io.on('connection', (socket) => {
     }
   };
 
-  socket.on('webrtc-offer', ({ room, sdp }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !sdp) return;
-    socket.to(roomName).emit('webrtc-offer', { sdp });
-  });
-  
-  socket.on('webrtc-answer', ({ room, sdp }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !sdp) return;
-    socket.to(roomName).emit('webrtc-answer', { sdp });
-  });
+  socket.on('webrtc-offer', (d) => signal('webrtc-offer', d));
+  socket.on('webrtc-answer', (d) => signal('webrtc-answer', d));
+  socket.on('webrtc-ice-candidate', (d) => signal('webrtc-ice-candidate', d));
 
-  socket.on('webrtc-ice-candidate', ({ room, candidate }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !candidate) return;
-    socket.to(roomName).emit('webrtc-ice-candidate', { candidate });
-  });
-
-  // Call Signaling (1:1)
   socket.on('call-offer', (d) => io.to(d.targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer: d.offer }));
   socket.on('call-answer', (d) => io.to(d.targetId).emit('call-answer', { from: socket.id, answer: d.answer }));
   socket.on('call-ice', (d) => io.to(d.targetId).emit('call-ice', { from: socket.id, candidate: d.candidate }));
   socket.on('call-end', (d) => io.to(d.targetId).emit('call-end', { from: socket.id }));
   socket.on('ring-user', (id) => io.to(id).emit('ring-alert', { from: socket.data.name, fromId: socket.id }));
 
-  // Chat & Files
   socket.on('chat-message', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
@@ -189,7 +209,7 @@ io.on('connection', (socket) => {
     io.to(roomName).emit('file-share', { name: name || socket.data.name, fileName, fileType, fileData });
   });
 
-  // --- DISCONNECT (Updated Logic) ---
+  // --- DISCONNECT (With Alias Cleanup & Host Pass-on) ---
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -200,26 +220,30 @@ io.on('connection', (socket) => {
     info.users.delete(socket.id);
     socket.to(roomName).emit('user-left', { id: socket.id });
 
-    // Host Left Logic
     if (info.ownerId === socket.id) {
       info.ownerId = null;
-      info.locked = false; // Always unlock if host leaves
+      info.locked = false;
 
-      // PASS THE TORCH: Assign new host if users remain
+      // Pass Host Role
       if (info.users.size > 0) {
-        // The Map keys iterate in insertion order, so the first one is the "oldest" user
         const newHostId = info.users.keys().next().value;
         info.ownerId = newHostId;
-        
-        // Notify the new host immediately
         const newHostSocket = io.sockets.sockets.get(newHostId);
         if (newHostSocket) {
-          newHostSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
+          newHostSocket.emit('role', { 
+            isHost: true, 
+            streamTitle: info.streamTitle,
+            publicSlug: info.publicSlug 
+          });
         }
       }
     }
 
     if (info.users.size === 0) {
+      // Clean up Alias if exists
+      if (info.publicSlug && roomAliases[info.publicSlug] === roomName) {
+        delete roomAliases[info.publicSlug];
+      }
       delete rooms[roomName];
     } else {
       broadcastRoomUpdate(roomName);
