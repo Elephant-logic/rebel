@@ -21,11 +21,20 @@
 
     <!-- Join / lock controls -->
     <section class="connection-panel">
-      <input id="roomInput" class="text-input" type="text" placeholder="Room name (e.g. beefy-room)" />
+      <input id="roomInput" class="text-input" type="text" placeholder="Room name (e.g. Beef)" />
       <input id="nameInput" class="text-input" type="text" placeholder="Your name (e.g. Beefy)" />
       <button id="joinBtn" class="btn primary">Join Room</button>
       <button id="leaveBtn" class="btn" disabled>Leave Room</button>
       <button id="lockRoomBtn" class="btn" disabled>Lock Room</button>
+    </section>
+
+    <!-- Incoming call bar -->
+    <section id="incomingCallBar" class="incoming-call" style="display:none;">
+      <span id="incomingCallText">Incoming call…</span>
+      <div class="incoming-actions">
+        <button id="acceptCallBtn" class="btn primary">Answer</button>
+        <button id="rejectCallBtn" class="btn danger">Reject</button>
+      </div>
     </section>
 
     <main class="main-grid">
@@ -42,24 +51,21 @@
           </div>
         </div>
 
-        <!-- Thumbnails for all people you’re in a call with -->
+        <!-- Thumbnails for call peers -->
         <div id="peerTiles" class="peer-scroll"></div>
 
         <div class="call-controls">
-          <!-- multi video room call -->
           <button id="startCallAllBtn" class="btn">Call Everyone</button>
 
-          <!-- one-way broadcast to viewer page -->
           <button id="startCallBtn" class="btn primary">Start Stream</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="hangupBtn" class="btn" disabled>Stop Stream</button>
 
-          <!-- local media toggles -->
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
         </div>
 
-        <div class="file-row">
+        <div id="streamLinkRow" class="file-row">
           <span class="file-label">Stream Link:</span>
           <input id="streamLinkInput" class="file-name" readonly />
           <button id="openStreamBtn" class="btn">Open</button>
@@ -72,7 +78,6 @@
           <h2>Room Chat</h2>
         </div>
 
-        <!-- people in room (call + end buttons) -->
         <div id="userList" class="user-list"></div>
 
         <div id="chatLog" class="chat-log"></div>
