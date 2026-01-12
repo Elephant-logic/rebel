@@ -216,7 +216,7 @@ function renderUserList(users, ownerId) {
       // Per-user hangup (only this call)
       actions += `<button onclick="endPeerCall('${u.id}')" class="action-btn hang">⛔</button>`;
       if (iAmHost) {
-        // Make them live on stream
+        // Make them live on stream (only if you are in a call with them)
         actions += `<button onclick="makeLive('${u.id}')" class="action-btn live">🎥</button>`;
         // Kick
         actions += `<button onclick="kickUser('${u.id}')" class="action-btn kick">🦵</button>`;
@@ -263,10 +263,15 @@ window.makeLive = async function(target) {
 
   if (target === 'host') {
     streamSource = { type: 'host', id: null };
-    appendChat('System', 'You are now the live stream source.');
+    appendChat('System', 'You are now the live stream source.', Date.now(), false, false);
   } else {
+    // only allow LIVE if we actually have their stream
+    if (!remoteStreams[target]) {
+      alert('You need to be in a video call with this user before putting them live.');
+      return;
+    }
     streamSource = { type: 'user', id: target };
-    appendChat('System', `User is now the live stream source: ${target}`);
+    appendChat('System', `User is now the live stream source: ${target}`, Date.now(), false, false);
   }
 
   // If already streaming, restart broadcast with new source
@@ -429,7 +434,7 @@ socket.on('room-error', (msg) => {
 
 // new user joined → if host is streaming, re-offer so they can join mid-stream
 socket.on('user-joined', ({ id, name }) => {
-  if (id !== myId) appendChat('System', `${name} joined.`);
+  if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
   if (iAmHost && isStreaming) {
     reofferStream().catch(console.error);
   }
@@ -560,7 +565,7 @@ if (openStreamBtn) {
 }
 
 // --- CHAT & FILES ---
-function appendChat(name, text, ts = Date.now(), isOwner = false) {
+function appendChat(name, text, ts = Date.now(), isOwner = false, fromViewer = false) {
   if (!chatLog) return;
   const line = document.createElement('div');
   line.className = 'chat-line';
@@ -570,17 +575,24 @@ function appendChat(name, text, ts = Date.now(), isOwner = false) {
   if (name === 'You') nameHtml = `<span style="color:#4af3a3">${name}</span>`;
   else if (isOwner || name.includes('👑')) nameHtml = `<span style="color:#ffae00">👑 ${name.replace('👑','')}</span>`;
 
-  line.innerHTML = `${nameHtml} <small>${t}</small>: ${text}`;
+  // Tag stream vs room
+  const tagText = fromViewer ? 'STREAM' : 'ROOM';
+  const tag = `<span style="background:#333;padding:2px 6px;border-radius:999px;font-size:0.65rem;margin-right:6px;color:#ccc;">${tagText}</span>`;
+
+  line.innerHTML = `${tag}${nameHtml} <small>${t}</small>: ${text}`;
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
-socket.on('chat-message', (data) => appendChat(data.name, data.text, data.ts, data.isOwner));
+
+socket.on('chat-message', (data) => {
+  appendChat(data.name, data.text, data.ts, data.isOwner, data.fromViewer);
+});
 
 function sendChat() {
   const text = chatInput.value.trim();
   if (!text || !currentRoom) return;
-  socket.emit('chat-message', { room: currentRoom, name: userName, text });
-  appendChat('You', text);
+  socket.emit('chat-message', { room: currentRoom, name: userName, text, fromViewer: false });
+  appendChat('You', text, Date.now(), false, false);
   chatInput.value = '';
 }
 if (sendBtn)   sendBtn.addEventListener('click', sendChat);
@@ -636,7 +648,7 @@ function appendFileLog(name, fileName, href) {
     <a href="${href}" download="${fileName}" class="btn small primary">Download</a>
   `;
   fileLog.appendChild(item);
-  appendChat(name, `Shared a file: ${fileName} (See Files tab)`);
+  appendChat(name, `Shared a file: ${fileName} (See Files tab)`, Date.now(), false, false);
 }
 socket.on('file-share', ({ name, fileName, fileType, fileData }) => {
   appendFileLog(name, fileName, `data:${fileType};base64,${fileData}`);
