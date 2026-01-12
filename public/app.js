@@ -9,8 +9,8 @@ let iAmHost = false;
 // STREAM PC (for host → viewers)
 let pc = null;
 
-// CALL PEERS (for 1:1/mesh calls, separate from stream)
-const callPeers = {}; // { socketId: { pc, stream, videoEl } }
+// CALL PEERS (for multi-call, separate from stream)
+const callPeers = {}; // { socketId: { pc, stream } }
 
 let localStream = null;
 let screenStream = null;
@@ -77,10 +77,10 @@ const fileNameLabel = $('fileNameLabel');
 const fileLog = $('fileLog');
 const userList = $('userList');
 
-// (we’ll add incoming call panel + thumbs later)
-const incomingCallPanel = document.getElementById('incomingCallPanel');
-const mainCallVideoContainer = document.getElementById('mainCallVideoContainer');
-const peerThumbStrip = document.getElementById('peerThumbStrip');
+// (future: incoming call panel / thumbs – safe if missing)
+const incomingCallPanel = $('incomingCallPanel');
+const mainCallVideoContainer = $('mainCallVideoContainer');
+const peerThumbStrip = $('peerThumbStrip');
 
 // --- UI HELPERS ---
 function setSignal(connected) {
@@ -92,7 +92,7 @@ function setSignal(connected) {
 function switchTab(tab) {
     [tabChatBtn, tabFilesBtn, tabUsersBtn].forEach(b => b && b.classList.remove('active'));
     [tabContentChat, tabContentFiles, tabContentUsers].forEach(c => c && c.classList.remove('active'));
-    
+
     if (tab === 'chat') {
         if (tabChatBtn) tabChatBtn.classList.add('active');
         if (tabContentChat) tabContentChat.classList.add('active');
@@ -115,8 +115,16 @@ async function getDevices() {
         const audioInput = devices.filter(d => d.kind === 'audioinput');
         const videoInput = devices.filter(d => d.kind === 'videoinput');
 
-        if (audioSource) audioSource.innerHTML = audioInput.map(d => `<option value="${d.deviceId}">${d.label || 'Mic ' + d.deviceId.slice(0, 5)}</option>`).join('');
-        if (videoSource) videoSource.innerHTML = videoInput.map(d => `<option value="${d.deviceId}">${d.label || 'Cam ' + d.deviceId.slice(0, 5)}</option>`).join('');
+        if (audioSource) {
+            audioSource.innerHTML = audioInput.map(d =>
+                `<option value="${d.deviceId}">${d.label || 'Mic ' + d.deviceId.slice(0,5)}</option>`
+            ).join('');
+        }
+        if (videoSource) {
+            videoSource.innerHTML = videoInput.map(d =>
+                `<option value="${d.deviceId}">${d.label || 'Cam ' + d.deviceId.slice(0,5)}</option>`
+            ).join('');
+        }
     } catch (e) { console.error(e); }
 }
 
@@ -126,12 +134,12 @@ async function switchMedia() {
     }
     const audioId = audioSource ? audioSource.value : undefined;
     const videoId = videoSource ? videoSource.value : undefined;
-    
+
     const constraints = {
         audio: { deviceId: audioId ? { exact: audioId } : undefined },
         video: { deviceId: videoId ? { exact: videoId } : undefined }
     };
-    
+
     try {
         localStream = await navigator.mediaDevices.getUserMedia(constraints);
         if (localVideo) {
@@ -143,10 +151,10 @@ async function switchMedia() {
             const videoTrack = localStream.getVideoTracks()[0];
             const audioTrack = localStream.getAudioTracks()[0];
             const senders = pc.getSenders();
-            
+
             const videoSender = senders.find(s => s.track && s.track.kind === 'video');
             const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-            
+
             if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
             if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
         }
@@ -179,15 +187,19 @@ function renderUserList(users, ownerId) {
     users.forEach(u => {
         const isMe = (u.id === myId);
         const isOwner = (u.id === ownerId);
-        
+
         const div = document.createElement('div');
         div.className = isMe ? 'user-item is-me' : 'user-item';
-        
+
         const displayName = isOwner ? `👑 ${u.name}` : u.name;
-        
+
         let actions = '';
         if (!isMe) {
+            // Call
             actions += `<button onclick="ringUser('${u.id}')" class="action-btn ring">🔔</button>`;
+            // Per-user hangup (ends only call with them)
+            actions += `<button onclick="endPeerCall('${u.id}')" class="action-btn hang">⛔</button>`;
+            // Kick (host only)
             if (iAmHost) {
                 actions += `<button onclick="kickUser('${u.id}')" class="action-btn kick">🦵</button>`;
             }
@@ -213,7 +225,7 @@ window.ringUser = async (id) => {
 
     if (iAmHost && currentRoom) {
         try {
-            await callPeer(id); // use separate call signalling, not stream
+            await callPeer(id); // separate call signalling, not stream
         } catch (e) {
             console.error('Error starting call after ring:', e);
         }
@@ -230,13 +242,13 @@ function createStreamPC() {
     if (pc) { try { pc.close(); } catch (e) {} }
     pc = new RTCPeerConnection(iceConfig);
     iceCandidatesQueue = []; // Reset queue
-    
+
     pc.onicecandidate = e => {
         if (e.candidate && currentRoom) {
             socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
         }
     };
-    
+
     pc.ontrack = (event) => {
         if (remoteVideo) remoteVideo.srcObject = event.streams[0];
     };
@@ -244,7 +256,7 @@ function createStreamPC() {
     pc.onconnectionstatechange = () => {
         console.log("Stream PC state:", pc.connectionState);
     };
-    
+
     return pc;
 }
 
@@ -263,26 +275,26 @@ async function ensureLocalStream() {
 // STREAM ONLY
 async function startBroadcast() {
     if (!currentRoom) return alert('Join a room first');
-    
+
     createStreamPC();
 
     const stream = isScreenSharing && screenStream ? screenStream : await ensureLocalStream();
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
-    
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    
+
     socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
-    
+
     if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'Streaming...'; }
-    if (hangupBtn) hangupBtn.disabled = false;
+    if (hangupBtn) { hangupBtn.disabled = false; }
 }
 
 // --- STREAM SOCKET EVENTS ---
 socket.on('webrtc-offer', async ({ sdp }) => {
     if (!currentRoom) return;
     if (!pc) createStreamPC();
-    
+
     try {
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         while (iceCandidatesQueue.length > 0) {
@@ -295,12 +307,12 @@ socket.on('webrtc-offer', async ({ sdp }) => {
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        
+
         socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
-        
+
         if (startStreamBtn) { startStreamBtn.disabled = true; startStreamBtn.textContent = 'In Stream'; }
-        if (hangupBtn) hangupBtn.disabled = false;
-        
+        if (hangupBtn) { hangupBtn.disabled = false; }
+
     } catch (e) {
         console.error("Error handling stream offer:", e);
     }
@@ -329,6 +341,10 @@ socket.on('connect', () => {
 });
 socket.on('disconnect', () => setSignal(false));
 
+socket.on('role', ({ isHost }) => {
+    iAmHost = !!isHost;
+});
+
 socket.on('room-update', ({ users, ownerId, locked }) => {
     renderUserList(users, ownerId);
     if (lockRoomBtn) {
@@ -344,8 +360,8 @@ socket.on('kicked', () => {
 socket.on('ring-alert', ({ from }) => alert(`🔔 ${from} is calling you!`));
 socket.on('room-error', (msg) => {
     alert(msg);
-    joinBtn.disabled = false;
-    leaveBtn.disabled = true;
+    if (joinBtn) joinBtn.disabled = false;
+    if (leaveBtn) leaveBtn.disabled = true;
 });
 
 // auto re-stream when someone joins if host is streaming
@@ -364,14 +380,14 @@ if (joinBtn) {
         if (!room) return alert('Enter room');
         currentRoom = room;
         userName = nameInput.value.trim() || 'Anon';
-        
+
         socket.connect();
         socket.emit('join-room', { room: currentRoom, name: userName });
-        
+
         joinBtn.disabled = true;
-        leaveBtn.disabled = false;
+        if (leaveBtn) leaveBtn.disabled = false;
         roomInfo.textContent = `Room: ${room}`;
-        
+
         const url = new URL(window.location.href);
         url.pathname = '/view.html';
         url.search = `?room=${encodeURIComponent(room)}`;
@@ -380,31 +396,34 @@ if (joinBtn) {
 }
 if (leaveBtn) leaveBtn.addEventListener('click', () => window.location.reload());
 
-// STREAM BUTTONS ONLY
+// STREAM BUTTON
 if (startStreamBtn) startStreamBtn.addEventListener('click', () => startBroadcast().catch(console.error));
 
-// HANGUP: ends stream PC and all call PCs
+// GLOBAL HANG UP: end stream AND all calls
 if (hangupBtn) hangupBtn.addEventListener('click', () => {
     // Stream PC
-    if (pc) pc.close();
+    if (pc) {
+        try { pc.close(); } catch (e) {}
+    }
     pc = null;
 
-    // Call PCs
+    // End all call peers (emit call-end to each)
     Object.keys(callPeers).forEach(id => {
-        if (callPeers[id].pc) callPeers[id].pc.close();
+        endPeerCall(id, /*fromGlobal*/ true);
     });
-    for (const id in callPeers) delete callPeers[id];
 
+    // Stop local media
     if (localStream) localStream.getTracks().forEach(t => t.stop());
     localStream = null;
     if (screenStream) screenStream.getTracks().forEach(t => t.stop());
     screenStream = null;
+
     if (localVideo) localVideo.srcObject = null;
     if (remoteVideo) remoteVideo.srcObject = null;
-    
+
     if (startStreamBtn) { startStreamBtn.disabled = false; startStreamBtn.textContent = 'Start Stream'; }
     if (startCallBtn) { startCallBtn.disabled = false; startCallBtn.textContent = 'Start Call'; }
-    if (hangupBtn) hangupBtn.disabled = true;
+    if (hangupBtn) { hangupBtn.disabled = true; }
     if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
 });
 
@@ -413,7 +432,7 @@ if (shareScreenBtn) {
     shareScreenBtn.addEventListener('click', async () => {
         if (!currentRoom) return alert('Join room first');
         await ensureLocalStream();
-        
+
         if (!isScreenSharing) {
             try {
                 screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
@@ -422,7 +441,7 @@ if (shareScreenBtn) {
                     const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
                     if (sender) sender.replaceTrack(track);
                 }
-                localVideo.srcObject = screenStream;
+                if (localVideo) localVideo.srcObject = screenStream;
                 isScreenSharing = true;
                 shareScreenBtn.textContent = 'Stop Screen';
                 track.onended = () => stopScreenShare();
@@ -435,15 +454,15 @@ function stopScreenShare() {
     if (!isScreenSharing) return;
     if (screenStream) screenStream.getTracks().forEach(t => t.stop());
     screenStream = null;
-    
+
     if (localStream && pc) {
         const camTrack = localStream.getVideoTracks()[0];
         const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
         if (sender) sender.replaceTrack(camTrack);
-        localVideo.srcObject = localStream;
+        if (localVideo) localVideo.srcObject = localStream;
     }
     isScreenSharing = false;
-    shareScreenBtn.textContent = 'Share Screen';
+    if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
 }
 
 // --- TOGGLES ---
@@ -475,11 +494,11 @@ function appendChat(name, text, ts = Date.now(), isOwner = false) {
     const line = document.createElement('div');
     line.className = 'chat-line';
     const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
+
     let nameHtml = `<strong>${name}</strong>`;
     if (name === 'You') nameHtml = `<span style="color:#4af3a3">${name}</span>`;
-    else if (isOwner || name.includes('👑')) nameHtml = `<span style="color:#ffae00">👑 ${name.replace('👑', '')}</span>`;
-    
+    else if (isOwner || name.includes('👑')) nameHtml = `<span style="color:#ffae00">👑 ${name.replace('👑','')}</span>`;
+
     line.innerHTML = `${nameHtml} <small>${t}</small>: ${text}`;
     chatLog.appendChild(line);
     chatLog.scrollTop = chatLog.scrollHeight;
@@ -519,10 +538,16 @@ if (fileInput && sendFileBtn) {
         reader.onload = () => {
             const base64 = reader.result.split(',')[1];
             socket.emit('file-share', {
-                room: currentRoom, name: userName, fileName: file.name, fileType: file.type, fileData: base64
+                room: currentRoom,
+                name: userName,
+                fileName: file.name,
+                fileType: file.type,
+                fileData: base64
             });
             appendFileLog('You', file.name, `data:${file.type};base64,${base64}`);
-            fileInput.value = ''; fileNameLabel.textContent = 'No file'; sendFileBtn.disabled = true;
+            fileInput.value = '';
+            fileNameLabel.textContent = 'No file';
+            sendFileBtn.disabled = true;
             switchTab('files');
         };
         reader.readAsDataURL(file);
@@ -550,13 +575,11 @@ socket.on('file-share', ({ name, fileName, fileType, fileData }) => {
    CALL SECTION (separate from stream)
    ====================================================== */
 
-// Start Call = host calls everyone in room (later we can refine)
+// Start Call button – for now just tells you to use bells
 if (startCallBtn) {
     startCallBtn.addEventListener('click', async () => {
         if (!currentRoom) return alert('Join a room first');
-        if (!iAmHost) return alert('Only host can start group call for now');
-        // In this step we keep it simple: host will ring individuals manually
-        alert('Use the 🔔 next to a name to call them. (Group call UI next step)');
+        alert('Use the 🔔 next to each name to start calls. (Multi-view UI next step.)');
     });
 }
 
@@ -571,7 +594,7 @@ function createCallPC(targetId) {
     };
 
     cp.ontrack = (event) => {
-        // For now, show last caller in remoteVideo (we’ll add thumbnails later)
+        // For now, show last caller in remoteVideo (thumbnails later)
         if (remoteVideo) remoteVideo.srcObject = event.streams[0];
         if (!callPeers[targetId]) callPeers[targetId] = {};
         callPeers[targetId].stream = event.streams[0];
@@ -597,11 +620,15 @@ async function callPeer(targetId) {
     await cp.setLocalDescription(offer);
 
     socket.emit('call-offer', { targetId, offer });
+
+    // call active → update buttons
+    if (hangupBtn) hangupBtn.disabled = false;
+    if (startCallBtn) startCallBtn.textContent = 'In Call';
 }
 
 // Incoming call
 socket.on('incoming-call', ({ from, name, offer }) => {
-    // For now, basic confirm. (Panel comes next)
+    // Simple confirm for now – panel comes later
     const ok = confirm(`${name} is calling. Accept?`);
     if (!ok) {
         socket.emit('call-reject', { targetId: from });
@@ -622,6 +649,10 @@ async function acceptCall(from, offer) {
     await cp.setLocalDescription(answer);
 
     socket.emit('call-answer', { targetId: from, answer });
+
+    // active
+    if (hangupBtn) hangupBtn.disabled = false;
+    if (startCallBtn) startCallBtn.textContent = 'In Call';
 }
 
 // Call answer
@@ -638,17 +669,67 @@ socket.on('call-ice', ({ from, candidate }) => {
     peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-// Call end
+// Per-peer end (local)
+function endPeerCall(id, fromGlobal = false) {
+    const peer = callPeers[id];
+    if (peer && peer.pc) {
+        try { peer.pc.close(); } catch (e) {}
+    }
+    delete callPeers[id];
+
+    // Tell the other side if this was initiated locally
+    if (!fromGlobal) {
+        socket.emit('call-end', { targetId: id });
+    }
+
+    // If no more calls active, reset buttons (but don't touch stream)
+    if (Object.keys(callPeers).length === 0) {
+        if (startCallBtn) {
+            startCallBtn.disabled = false;
+            startCallBtn.textContent = 'Start Call';
+        }
+        if (!pc && hangupBtn) { // only disable if no stream either
+            hangupBtn.disabled = true;
+        }
+    }
+}
+window.endPeerCall = endPeerCall;
+
+// Remote end → they hung up
 socket.on('call-end', ({ from }) => {
     const peer = callPeers[from];
     if (peer && peer.pc) {
-        peer.pc.close();
+        try { peer.pc.close(); } catch (e) {}
     }
     delete callPeers[from];
-    // If that was the only call, we do not touch stream
+
+    if (Object.keys(callPeers).length === 0) {
+        if (startCallBtn) {
+            startCallBtn.disabled = false;
+            startCallBtn.textContent = 'Start Call';
+        }
+        if (!pc && hangupBtn) {
+            hangupBtn.disabled = true;
+        }
+    }
 });
 
 // Reject
 socket.on('call-reject', ({ from }) => {
     console.log('Call rejected by', from);
+    const peer = callPeers[from];
+    if (peer && peer.pc) {
+        try { peer.pc.close(); } catch (e) {}
+    }
+    delete callPeers[from];
+
+    if (Object.keys(callPeers).length === 0) {
+        if (startCallBtn) {
+            startCallBtn.disabled = false;
+            startCallBtn.textContent = 'Start Call';
+        }
+        if (!pc && hangupBtn) {
+            hangupBtn.disabled = true;
+        }
+    }
 });
