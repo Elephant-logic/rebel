@@ -24,18 +24,21 @@ const roomHosts = new Map(); // room -> socket.id
 
 io.on('connection', (socket) => {
   // ------------- JOIN ROOM -------------
-  socket.on('join-room', ({ room, name }) => {
+  socket.on('join-room', ({ room, name, clientType }) => {
     if (!room) return;
 
-    // If locked, refuse
+    const isViewer = clientType === 'viewer';
+
+    // If locked, block new joins (host + guests + viewers)
     if (lockedRooms.has(room)) {
       socket.emit('room-locked', { room, locked: true });
       return;
     }
 
     let role = 'guest';
-    if (!roomHosts.has(room)) {
-      // First in is host
+
+    // Only non-viewers can become host
+    if (!isViewer && !roomHosts.has(room)) {
       roomHosts.set(room, socket.id);
       role = 'host';
     }
@@ -43,9 +46,14 @@ io.on('connection', (socket) => {
     socket.join(room);
     socket.data.room = room;
     socket.data.name = name || 'Anon';
+    socket.data.clientType = clientType || 'app';
 
     // tell this client their role
     socket.emit('role-assigned', { room, role });
+
+    // broadcast who is host now
+    const hostId = roomHosts.get(room) || null;
+    io.to(room).emit('host-info', { room, hostId });
 
     // tell others someone joined
     socket.to(room).emit('user-joined', {
@@ -170,9 +178,12 @@ io.on('connection', (socket) => {
       const hostId = roomHosts.get(room);
       if (hostId === socket.id) {
         roomHosts.delete(room);
-        io.to(room).emit('host-left', { room });
       }
+
       socket.to(room).emit('user-left', { id: socket.id });
+
+      const newHostId = roomHosts.get(room) || null;
+      io.to(room).emit('host-info', { room, hostId: newHostId });
     }
   });
 });
