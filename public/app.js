@@ -52,7 +52,7 @@ const lockRoomBtn     = $('lockRoomBtn');
 // Media
 const startCallBtn    = $('startCallBtn');
 const startStreamBtn  = $('startStreamBtn');
-const hangupBtn       = $('hangupBtn');   // STREAM hangup (not calls)
+const hangupBtn       = $('hangupBtn');   // GLOBAL hangup (stream + all calls)
 const shareScreenBtn  = $('shareScreenBtn');
 const toggleCamBtn    = $('toggleCamBtn');
 const toggleMicBtn    = $('toggleMicBtn');
@@ -466,16 +466,17 @@ if (startStreamBtn) {
   startStreamBtn.addEventListener('click', () => startBroadcast().catch(console.error));
 }
 
-// GLOBAL HANG UP: end STREAM ONLY (calls via ⛔ per user)
+// 🔴 GLOBAL HANG UP: end STREAM + ALL ACTIVE CALLS
 if (hangupBtn) {
   hangupBtn.addEventListener('click', () => {
+    // 1) End the public stream
     if (pc) {
       try { pc.close(); } catch (e) {}
     }
     pc = null;
     isStreaming = false;
 
-    // stop screen only
+    // Stop screen share if active
     if (screenStream) {
       screenStream.getTracks().forEach(t => t.stop());
     }
@@ -487,6 +488,11 @@ if (hangupBtn) {
       startStreamBtn.disabled = false;
       startStreamBtn.textContent = 'Start Stream';
     }
+
+    // 2) End ALL active calls (same as pressing ⛔ on everyone)
+    Object.keys(callPeers).forEach(id => {
+      endPeerCall(id); // sends call-end to the other side
+    });
 
     updateHangupState();
   });
