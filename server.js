@@ -1,3 +1,5 @@
+// server.js – Rebel Messenger: rooms + calls + files + stream
+
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -11,13 +13,15 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-// serve static files
+// serve static files from /public
 app.use(express.static(path.join(__dirname, 'public')));
+
+// root = app UI
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// in-memory room state
+// ------------ ROOM STATE ------------
 // rooms[roomName] = { hostId, locked, users: Map(socketId -> { name, clientType }) }
 const rooms = new Map();
 
@@ -38,31 +42,33 @@ function pickRandomName(prefix) {
   return `${prefix}-${Math.floor(Math.random() * 1000)}`;
 }
 
+// ------------ SOCKET.IO ------------
 io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
-  socket.data.clientType = 'viewer'; // default for viewer.html
+  socket.data.clientType = 'viewer'; // default; app passes 'app'
 
-  // ------------- JOIN ROOM -------------
+  // ---- JOIN ROOM ----
   socket.on('join-room', (data = {}) => {
     const roomName = (data.room || '').trim();
     if (!roomName) return;
 
-    const clientType = data.clientType || 'viewer'; // 'app' = main messenger, otherwise viewer
+    const clientType = data.clientType || 'viewer'; // 'app' for main messenger, 'viewer' for stream page
     const room = getOrCreateRoom(roomName);
 
-    // if room locked and this is NOT the host, reject join
+    // if room is locked and this isn't the host, block join
     if (room.locked && room.hostId && socket.id !== room.hostId) {
       socket.emit('room-locked', { room: roomName, locked: true });
       return;
     }
 
-    // assign a clean name
+    // clean name
     let name = (data.name && String(data.name).trim()) || null;
     if (!name) {
-      name = clientType === 'app'
-        ? pickRandomName('User')
-        : pickRandomName('Viewer');
+      name =
+        clientType === 'app'
+          ? pickRandomName('User')
+          : pickRandomName('Viewer');
     }
 
     socket.join(roomName);
@@ -72,17 +78,17 @@ io.on('connection', (socket) => {
 
     room.users.set(socket.id, { name, clientType });
 
-    // assign host if none and this is an app client
+    // pick host if none and this is an app client
     if (!room.hostId && clientType === 'app') {
       room.hostId = socket.id;
     }
 
     const role = socket.id === room.hostId ? 'host' : 'guest';
 
-    // tell this socket its role (info only)
+    // tell this client its role (info only; frontend derives real role from host-info)
     socket.emit('role-assigned', { room: roomName, role });
 
-    // broadcast host info to everyone in room
+    // broadcast current host to everyone
     io.to(roomName).emit('host-info', {
       room: roomName,
       hostId: room.hostId
@@ -94,7 +100,7 @@ io.on('connection', (socket) => {
       name
     });
 
-    // send existing users to the newcomer so they see host/others
+    // send existing users to newcomer
     const existing = [];
     for (const [id, user] of room.users) {
       if (id === socket.id) continue;
@@ -103,13 +109,13 @@ io.on('connection', (socket) => {
     socket.emit('room-users', { room: roomName, users: existing });
   });
 
-  // ------------- LOCK ROOM -------------
+  // ---- LOCK / UNLOCK ROOM (host only) ----
   socket.on('lock-room', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     if (!roomName) return;
     const room = rooms.get(roomName);
     if (!room) return;
-    if (room.hostId !== socket.id) return; // only host can lock
+    if (room.hostId !== socket.id) return; // only host may lock
 
     room.locked = !!data.locked;
     io.to(roomName).emit('room-locked', {
@@ -118,7 +124,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ------------- STREAM SIGNAL (HOST <-> VIEWERS) -------------
+  // ---- STREAM SIGNAL: HOST <-> VIEWERS ----
   socket.on('webrtc-offer', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     if (!roomName || !data.sdp) return;
@@ -139,8 +145,8 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ------------- MULTI CALL (ONE-TO-ONE IN ROOM) -------------
-  // caller -> server -> specific target
+  // ---- ROOM CALLS (1-to-1 within room) ----
+  // caller → server → *target* only
   socket.on('call-offer', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     const targetId = data.targetId;
@@ -155,7 +161,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // callee answer -> server -> original caller
+  // callee accepted → answer goes back only to caller
   socket.on('call-answer', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     const targetId = data.targetId;
@@ -168,6 +174,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ICE candidates for calls – also targeted
   socket.on('call-ice-candidate', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     const targetId = data.targetId;
@@ -180,6 +187,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // callee rejected
   socket.on('call-reject', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     const targetId = data.targetId;
@@ -190,7 +198,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ------------- CHAT / FILES -------------
+  // ---- CHAT ----
   socket.on('chat-message', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     const text = (data.text || '').trim();
@@ -204,13 +212,14 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ---- FILE SHARE ----
   socket.on('file-share', (data = {}) => {
     const roomName = (data.room || socket.data.room || '').trim();
     if (!roomName) return;
     socket.to(roomName).emit('file-share', data);
   });
 
-  // ------------- DISCONNECT -------------
+  // ---- DISCONNECT ----
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -221,7 +230,7 @@ io.on('connection', (socket) => {
     room.users.delete(socket.id);
     socket.to(roomName).emit('user-left', { id: socket.id });
 
-    // if host left, pick a new host (first remaining app client)
+    // if host left, elect a new host (first remaining app client)
     if (room.hostId === socket.id) {
       room.hostId = null;
       for (const [id, user] of room.users) {
@@ -230,16 +239,18 @@ io.on('connection', (socket) => {
           break;
         }
       }
+
       io.to(roomName).emit('host-info', {
         room: roomName,
         hostId: room.hostId
       });
+
       if (!room.hostId) {
         io.to(roomName).emit('host-left', { room: roomName });
       }
     }
 
-    // cleanup empty room
+    // clean empty room
     if (room.users.size === 0) {
       rooms.delete(roomName);
     }
