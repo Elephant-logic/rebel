@@ -322,8 +322,7 @@ async function ensureLocalStream() {
       localVideo.muted = true;
     }
   } catch (e) {
-    console.error("Media Error", e);
-    alert('Could not access camera/mic – check browser permissions / HTTPS.');
+    console.error("Media Error", e);   // no alert – just log
   }
   return localStream;
 }
@@ -460,7 +459,7 @@ socket.on('room-error', (msg) => {
 
 // --- JOIN / LEAVE ---
 if (joinBtn) {
-  joinBtn.addEventListener('click', async () => {
+  joinBtn.addEventListener('click', () => {
     const room = roomInput.value.trim();
     if (!room) return alert('Enter room');
     currentRoom = room;
@@ -469,8 +468,7 @@ if (joinBtn) {
     socket.connect();
     socket.emit('join-room', { room: currentRoom, name: userName });
 
-    // 🔥 Auto start cam/mic when you join
-    await ensureLocalStream();
+    // NOTE: no auto ensureLocalStream() here now
 
     joinBtn.disabled = true;
     if (leaveBtn) leaveBtn.disabled = false;
