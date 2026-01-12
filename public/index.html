@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <title>Rebel Messenger</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <h1>Rebel Messenger</h1>
+        <h1 id="headerTitle">Rebel Messenger</h1>
         <p class="subtitle">P2P chat · calls · files</p>
       </div>
       <div class="status-block">
@@ -21,20 +21,27 @@
 
     <main class="layout">
       <aside class="sidebar">
-        <h2>Room</h2>
+        <h2>Connection</h2>
         <div class="field">
-          <label for="roomInput">Room Name</label>
-          <input id="roomInput" type="text" placeholder="e.g. beefy-room" />
+          <label for="roomInput">Room ID (Secret Key)</label>
+          <input id="roomInput" type="text" placeholder="e.g. secret-meeting-99" />
         </div>
         <div class="field">
           <label for="nameInput">Your Name</label>
           <input id="nameInput" type="text" placeholder="e.g. Beefy" />
         </div>
-        <button id="joinBtn" class="btn primary">Join Room</button>
-        <button id="leaveBtn" class="btn" disabled>Leave Room</button>
+        <button id="joinBtn" class="btn primary full-width">Join Room</button>
+        <button id="leaveBtn" class="btn full-width" disabled style="margin-top:8px">Leave Room</button>
 
-        <div id="hostControls" class="host-controls" style="display:none; margin-top:20px; border-top:1px solid var(--border); padding-top:10px;">
-          <h3 style="color:var(--accent); font-size:0.9rem;">👑 Host Controls</h3>
+        <div id="hostControls" class="host-controls">
+          <h3 style="color:var(--accent); font-size:0.9rem; margin-top:0;">👑 Host Controls</h3>
+          
+          <div class="field">
+            <label style="color:var(--muted); font-size:0.75rem;">Public Stream Title</label>
+            <input id="streamTitleInput" class="stream-title-input" type="text" placeholder="Enter Public Title..." />
+            <button id="updateTitleBtn" class="btn small secondary full-width">Update Title</button>
+          </div>
+
           <button id="lockRoomBtn" class="btn full-width">🔓 Lock Room</button>
         </div>
       </aside>
@@ -54,36 +61,31 @@
           <button id="closeSettingsBtn" class="btn small">Done</button>
         </div>
 
-        <div class="video-row">
-          <div class="video-card">
-            <h2>You</h2>
-            <video id="localVideo" autoplay playsinline muted></video>
-          </div>
-          <div class="video-card">
-            <h2>Peer</h2>
-            <video id="remoteVideo" autoplay playsinline></video>
-          </div>
-        </div>
+        <div id="videoGrid" class="video-grid">
+           <div class="video-container" id="localContainer">
+             <h2>You</h2>
+             <video id="localVideo" autoplay playsinline muted></video>
+           </div>
+           </div>
 
         <div class="call-controls">
-          <button id="startCallBtn" class="btn primary">Start Call</button>
           <button id="startStreamBtn" class="btn primary">Start Stream</button>
           
           <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
           <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
+          
           <button id="hangupBtn" class="btn danger" disabled>End Call</button>
         </div>
 
         <div class="file-row" style="margin-top:10px; margin-bottom:10px; padding: 0 4px;">
-           <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Stream Link</span>
+           <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
            <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left: 10px;" />
            <button id="openStreamBtn" class="btn small">Open</button>
         </div>
 
         <div class="chat-panel">
-          
           <div class="tabs-header">
             <button id="tabChatBtn" class="tab-btn active">Chat</button>
             <button id="tabFilesBtn" class="tab-btn">Files</button>
@@ -93,8 +95,7 @@
           <div id="tabContentChat" class="tab-content active">
             <div id="chatLog" class="chat-log"></div>
             <div class="emoji-strip" id="emojiStrip">
-              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
-              <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
             </div>
             <div class="chat-input-row">
               <input id="chatInput" type="text" placeholder="Type a message..." />
@@ -114,14 +115,13 @@
               <button id="sendFileBtn" class="btn primary full-width" disabled>Send File</button>
             </div>
             <div class="files-list">
-              <h3>Shared Files</h3>
               <div id="fileLog" class="file-log"></div>
             </div>
           </div>
 
           <div id="tabContentUsers" class="tab-content">
              <div class="files-list">
-                <h3>Active Users</h3>
+                <h3>Active Users (Ring to Call)</h3>
                 <div id="userList" class="file-log"></div>
              </div>
           </div>
