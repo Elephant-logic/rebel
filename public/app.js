@@ -1,11 +1,12 @@
 // app.js
-// ROOM APP: chat + files + multi video calls + host stream
+// ROOM APP: chat + files + multi video calls + host-only stream
 
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
 let userName = 'Host';
 let myId = null;
+let myRole = 'guest'; // 'host' or 'guest'
 
 // STREAM PC (host -> viewer page)
 let pc = null;
@@ -106,6 +107,33 @@ async function ensureLocalStream() {
   return localStream;
 }
 
+// Host vs guest UI
+function applyRoleUI() {
+  const isHost = myRole === 'host';
+
+  const hostButtons = [
+    startCallBtn,
+    startCallAllBtn,
+    shareScreenBtn,
+    hangupBtn,
+    lockRoomBtn
+  ];
+
+  hostButtons.forEach((btn) => {
+    if (!btn) return;
+    // Host sees them, guest doesn't
+    btn.style.display = isHost ? '' : 'none';
+  });
+
+  // Lock button still needs correct text
+  if (lockRoomBtn) {
+    lockRoomBtn.disabled = !isHost;
+  }
+}
+
+// initial state – hide host-only controls until we know our role
+applyRoleUI();
+
 // ---------- STREAM / BROADCAST (host → view.html) ----------
 
 function createHostPC() {
@@ -141,6 +169,10 @@ function createHostPC() {
 async function startBroadcast() {
   if (!currentRoom) {
     alert('Join a room first');
+    return;
+  }
+  if (myRole !== 'host') {
+    console.warn('Only host can start stream');
     return;
   }
 
@@ -195,13 +227,13 @@ function stopBroadcast() {
   if (hangupBtn) hangupBtn.disabled = true;
 }
 
-// new viewer joined – re-offer stream + track as peer
+// new user joined – track in peers + re-offer stream if host is streaming
 socket.on('user-joined', ({ id, name }) => {
   if (id && name && id !== myId) {
     if (!peers[id]) peers[id] = { name };
     renderUserList();
   }
-  if ((localStream || screenStream) && currentRoom) {
+  if (myRole === 'host' && (localStream || screenStream) && currentRoom) {
     startBroadcast().catch(console.error);
   }
 });
@@ -250,6 +282,23 @@ socket.on('room-locked', ({ room, locked }) => {
     'System',
     locked ? 'Room locked – no new joins.' : 'Room unlocked – new joins allowed.'
   );
+});
+
+// ---------- ROLES FROM SERVER ----------
+
+socket.on('role-assigned', ({ room, role }) => {
+  if (!room || room !== currentRoom) return;
+  myRole = role === 'host' ? 'host' : 'guest';
+  applyRoleUI();
+  appendChat(
+    'System',
+    myRole === 'host' ? 'You are the host for this room.' : 'You joined as a guest.'
+  );
+});
+
+socket.on('host-left', ({ room }) => {
+  if (!room || room !== currentRoom) return;
+  appendChat('System', 'Host left this room.');
 });
 
 // ---------- MULTI-CALL (room app only) ----------
@@ -391,7 +440,7 @@ function endCallWithPeer(peerId) {
   }
 }
 
-// incoming offer – auto accept for now
+// incoming offer – auto accept
 socket.on('call-offer', async ({ fromId, name, sdp }) => {
   if (!currentRoom || !fromId || !sdp) return;
   await ensureLocalStream();
@@ -500,7 +549,7 @@ if (joinBtn) {
 
     joinBtn.disabled = true;
     if (leaveBtn) leaveBtn.disabled = false;
-    if (lockRoomBtn) lockRoomBtn.disabled = false;
+    if (lockRoomBtn) lockRoomBtn.disabled = true; // enabled only for host in applyRoleUI
     if (roomInfo) roomInfo.textContent = `Room: ${room}`;
 
     const url = new URL(window.location.href);
@@ -526,10 +575,10 @@ if (leaveBtn) {
   });
 }
 
-// lock / unlock room
+// lock / unlock room (host only)
 if (lockRoomBtn) {
   lockRoomBtn.addEventListener('click', () => {
-    if (!currentRoom) return;
+    if (!currentRoom || myRole !== 'host') return;
     isRoomLocked = !isRoomLocked;
     socket.emit('lock-room', { room: currentRoom, locked: isRoomLocked });
     updateLockButton();
@@ -561,6 +610,10 @@ if (startCallAllBtn) {
 if (shareScreenBtn) {
   shareScreenBtn.addEventListener('click', async () => {
     if (!currentRoom) return alert('Join a room first');
+    if (myRole !== 'host') {
+      console.warn('Only host can share screen');
+      return;
+    }
     await ensureLocalStream();
     if (!pc) await startBroadcast();
 
