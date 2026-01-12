@@ -56,6 +56,7 @@ async function ensureLocalStream() {
     const aId = $('audioSource') ? $('audioSource').value : undefined;
     const vId = $('videoSource') ? $('videoSource').value : undefined;
 
+    // Use "exact" only if ID is present, otherwise let browser choose
     const constraints = {
         audio: aId ? { deviceId: { exact: aId } } : true,
         video: vId ? { deviceId: { exact: vId } } : true
@@ -68,7 +69,7 @@ async function ensureLocalStream() {
         
         // If we are already streaming, update the track on the fly
         if(isStreaming && pc) {
-            const sender = pc.getSenders().find(s => s.track.kind === 'video');
+            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             if(sender) sender.replaceTrack(localStream.getVideoTracks()[0]);
         }
     }
@@ -238,7 +239,7 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
     if(pc) try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){}
 });
 
-// --- 6. FILE SHARING (THE MISSING PART) ---
+// --- 6. FILE SHARING ---
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
 
@@ -252,9 +253,7 @@ if(fileInput && sendFileBtn) {
     sendFileBtn.addEventListener('click', () => {
         const file = fileInput.files[0];
         if(!file) return;
-
-        // Limit size (e.g. 10MB)
-        if(file.size > 10 * 1024 * 1024) return alert("File too large (Max 10MB)");
+        if(file.size > 20 * 1024 * 1024) return alert("File too large (Max 20MB)");
 
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -394,11 +393,7 @@ if($('updateSlugBtn')) $('updateSlugBtn').addEventListener('click', () => {
 });
 
 if($('lockRoomBtn')) $('lockRoomBtn').addEventListener('click', () => {
-    // We assume current state is unknown, so just toggle via UI text or stored state?
-    // Simplified: Just emit event to toggle.
-    socket.emit('lock-room', true); // Toggle logic is on server usually, or we track locked state
-    // Actually server implementation in Part 1 toggles it.
-    alert("Room lock toggled (check server logs/update)");
+    socket.emit('lock-room', true); // Server toggles state
 });
 window.kickUser = (id) => socket.emit('kick-user', id);
 window.ringUser = (id) => {
