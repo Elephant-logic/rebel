@@ -448,7 +448,7 @@ if (joinBtn) {
 
     joinBtn.disabled = true;
     if (leaveBtn) leaveBtn.disabled = false;
-    roomInfo.textContent = `Room: ${room}`;
+    if (roomInfo) roomInfo.textContent = `Room: ${room}`;
 
     const url = new URL(window.location.href);
     url.pathname = '/view.html';
@@ -471,7 +471,6 @@ if (hangupBtn) {
     }
     pc = null;
     isStreaming = false;
-    broadcastStream = null;
 
     // stop screen only
     if (screenStream) {
@@ -481,9 +480,6 @@ if (hangupBtn) {
     isScreenSharing = false;
     if (shareScreenBtn) shareScreenBtn.textContent = 'Share Screen';
 
-    if (remoteVideo && remoteVideo.srcObject === broadcastStream) {
-      remoteVideo.srcObject = null;
-    }
     if (startStreamBtn) {
       startStreamBtn.disabled = false;
       startStreamBtn.textContent = 'Start Stream';
@@ -539,7 +535,14 @@ if (toggleCamBtn) {
     if (!localStream) return;
     const v = localStream.getVideoTracks()[0];
     v.enabled = !v.enabled;
-    toggleCamBtn.textContent = v.enabled ? 'Camera Off' : 'Camera On';
+
+    if (!v.enabled) {
+      toggleCamBtn.textContent = 'Camera On';
+      if (localVideo) localVideo.srcObject = null;   // stop frozen frame look
+    } else {
+      toggleCamBtn.textContent = 'Camera Off';
+      if (localVideo) localVideo.srcObject = localStream;
+    }
   });
 }
 if (toggleMicBtn) {
@@ -596,7 +599,7 @@ if (emojiStrip) {
 if (fileInput && sendFileBtn) {
   fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
-    fileNameLabel.textContent = file ? file.name : 'No file';
+    if (fileNameLabel) fileNameLabel.textContent = file ? file.name : 'No file';
     sendFileBtn.disabled = !file;
   });
   sendFileBtn.addEventListener('click', () => {
@@ -614,7 +617,7 @@ if (fileInput && sendFileBtn) {
       });
       appendFileLog('You', file.name, `data:${file.type};base64,${base64}`);
       fileInput.value = '';
-      fileNameLabel.textContent = 'No file';
+      if (fileNameLabel) fileNameLabel.textContent = 'No file';
       sendFileBtn.disabled = true;
       switchTab('files');
     };
@@ -646,7 +649,7 @@ socket.on('file-share', ({ name, fileName, fileType, fileData }) => {
 if (startCallBtn) {
   startCallBtn.addEventListener('click', () => {
     if (!currentRoom) return alert('Join a room first');
-    alert('Use the 🔔 next to each name to start calls. (Multi-view UI next step.)');
+    alert('Use the 🔔 next to each name to start calls.');
   });
 }
 
@@ -741,6 +744,12 @@ socket.on('call-ice', ({ from, candidate }) => {
 // Per-peer end (local)
 function endPeerCall(id, fromGlobal = false) {
   const peer = callPeers[id];
+
+  // If the remoteVideo is currently showing this peer, clear it
+  if (peer && peer.stream && remoteVideo && remoteVideo.srcObject === peer.stream) {
+    remoteVideo.srcObject = null;
+  }
+
   if (peer && peer.pc) {
     try { peer.pc.close(); } catch (e) {}
   }
@@ -761,6 +770,11 @@ window.endPeerCall = endPeerCall;
 // Remote end → they hung up
 socket.on('call-end', ({ from }) => {
   const peer = callPeers[from];
+
+  if (peer && peer.stream && remoteVideo && remoteVideo.srcObject === peer.stream) {
+    remoteVideo.srcObject = null;
+  }
+
   if (peer && peer.pc) {
     try { peer.pc.close(); } catch (e) {}
   }
