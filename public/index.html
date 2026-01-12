@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <title>Rebel Messenger</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -51,7 +54,7 @@
           </div>
         </div>
 
-        <!-- Thumbnails for call peers -->
+        <!-- Thumbnails for peers -->
         <div id="peerTiles" class="peer-scroll"></div>
 
         <div class="call-controls">
@@ -78,7 +81,19 @@
           <h2>Room Chat</h2>
         </div>
 
-        <div id="userList" class="user-list"></div>
+        <!-- People in room -->
+        <div class="user-section">
+          <div class="user-section-header">
+            <span>People in room</span>
+          </div>
+          <div id="userList" class="user-list"></div>
+        </div>
+
+        <!-- Shared view next to chat (mirrors active peer / shared screen) -->
+        <div class="chat-preview">
+          <h3>Shared View</h3>
+          <video id="chatSideVideo" autoplay playsinline></video>
+        </div>
 
         <div id="chatLog" class="chat-log"></div>
 
