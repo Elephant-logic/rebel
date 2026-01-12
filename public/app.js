@@ -12,15 +12,13 @@ let isStreaming = false;
 let broadcastStream = null;
 
 // CALL PEERS (Multi-user)
-// callPeers = { [socketId]: { pc: RTCPeerConnection, name: string } }
-const callPeers = {};      
+const callPeers = {};      // { socketId: { pc, name } }
 const remoteStreams = {};  // { socketId: MediaStream }
 
 // Local media
 let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
-let iceCandidatesQueue = [];
 
 // Stream Source (Default to Host)
 let streamSource = { type: 'host', id: null };
@@ -65,6 +63,7 @@ const closeSettingsBtn= $('closeSettingsBtn');
 const chatLog         = $('chatLog');
 const chatInput       = $('chatInput');
 const sendBtn         = $('sendBtn');
+const emojiStrip      = $('emojiStrip');
 const fileInput       = $('fileInput');
 const sendFileBtn     = $('sendFileBtn');
 const fileLog         = $('fileLog');
@@ -88,9 +87,8 @@ function setSignal(connected) {
   signalStatus.className = connected ? 'status-dot status-connected' : 'status-dot status-disconnected';
 }
 
-// --- VIDEO GRID MANAGEMENT (The Fix for "Messed Up" Video) ---
+// --- VIDEO GRID MANAGEMENT ---
 function addRemoteVideo(id, stream, name) {
-  // Check if already exists
   let existing = document.getElementById(`vid-${id}`);
   if (existing) {
     existing.querySelector('video').srcObject = stream;
@@ -106,7 +104,6 @@ function addRemoteVideo(id, stream, name) {
   `;
   const vid = container.querySelector('video');
   vid.srcObject = stream;
-  
   videoGrid.appendChild(container);
 }
 
@@ -132,7 +129,6 @@ socket.on('disconnect', () => setSignal(false));
 
 socket.on('role', ({ isHost, streamTitle }) => {
   iAmHost = isHost;
-  // ONLY Host sees host controls
   if (hostControls) hostControls.style.display = isHost ? 'block' : 'none';
   if (streamTitleInput && isHost) streamTitleInput.value = streamTitle || '';
 });
@@ -140,23 +136,19 @@ socket.on('role', ({ isHost, streamTitle }) => {
 socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
   renderUserList(users, ownerId);
   
-  // Lock button text
   if (lockRoomBtn) {
     lockRoomBtn.textContent = locked ? '🔒 Unlock Room' : '🔓 Lock Room';
-    // Only host can click logic handled in onclick
     lockRoomBtn.onclick = () => {
        if (iAmHost) socket.emit('lock-room', !locked);
     };
   }
   
-  // Title update (for guests seeing what the host set)
   if (streamTitleInput && !iAmHost) {
       streamTitleInput.value = streamTitle || '';
-      streamTitleInput.disabled = true; // Guests can't edit
+      streamTitleInput.disabled = true;
   }
 });
 
-// ... (Keep existing kick/ring handlers) ...
 socket.on('kicked', () => { alert('Kicked by host'); window.location.reload(); });
 socket.on('ring-alert', ({ from, fromId }) => {
     if(confirm(`🔔 ${from} is calling you! Accept?`)) {
@@ -168,6 +160,23 @@ socket.on('room-error', (msg) => { alert(msg); });
 socket.on('user-joined', ({ id, name }) => {
   if (id !== myId) appendChat('System', `${name} joined.`, Date.now());
   if (iAmHost && isStreaming) reofferStream().catch(console.error);
+});
+
+// --- CRITICAL MISSING HANDSHAKE HANDLERS (FIX FOR STREAM) ---
+socket.on('webrtc-answer', async ({ sdp }) => {
+  if (pc) {
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    } catch (e) { console.error("Error setting remote desc:", e); }
+  }
+});
+
+socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+  if (pc) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (e) { console.error("Error adding ice:", e); }
+  }
 });
 
 // --- JOIN / LEAVE ---
@@ -184,14 +193,11 @@ joinBtn.addEventListener('click', () => {
   leaveBtn.disabled = false;
   roomInfo.textContent = `ID: ${room}`;
   
-  // Generate Viewer Link
   const url = new URL(window.location.href);
-  // Assume viewer is viewer.html or view.html depending on your setup
-  url.pathname = url.pathname.replace('index.html', '') + 'view.html'; 
+  url.pathname = url.pathname.replace('index.html', '') + 'view.html';
   url.search = `?room=${encodeURIComponent(room)}`;
   streamLinkInput.value = url.toString();
   
-  // Auto-start local media
   ensureLocalStream();
 });
 
@@ -203,7 +209,7 @@ async function ensureLocalStream() {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
-    localVideo.muted = true; // Mute self locally
+    localVideo.muted = true; 
   } catch (e) {
     console.error("Media Error", e);
     alert("Could not access camera/mic");
@@ -211,8 +217,7 @@ async function ensureLocalStream() {
   return localStream;
 }
 
-// --- CALL LOGIC (1:1 Multi-Mesh) ---
-
+// --- CALL LOGIC ---
 function createCallPC(targetId, targetName) {
   const cp = new RTCPeerConnection(iceConfig);
 
@@ -222,7 +227,7 @@ function createCallPC(targetId, targetName) {
 
   cp.ontrack = (event) => {
     const stream = event.streams[0];
-    remoteStreams[targetId] = stream; // Store for broadcast
+    remoteStreams[targetId] = stream;
     addRemoteVideo(targetId, stream, targetName);
   };
 
@@ -232,10 +237,8 @@ function createCallPC(targetId, targetName) {
 
 async function callPeer(targetId) {
   const stream = await ensureLocalStream();
-  // We need the name of the person we are calling (look up in DOM for now)
   const peerEl = document.querySelector(`[data-userid="${targetId}"]`);
   const peerName = peerEl ? peerEl.dataset.username : "Peer";
-
   const cp = createCallPC(targetId, peerName); 
   
   stream.getTracks().forEach(t => cp.addTrack(t, stream));
@@ -268,13 +271,8 @@ socket.on('call-ice', ({ from, candidate }) => {
   if (peer && peer.pc) peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-socket.on('call-end', ({ from }) => {
-  endPeerCall(from, true); // true = incoming signal
-});
-
-socket.on('user-left', ({ id }) => {
-  endPeerCall(id, true);
-});
+socket.on('call-end', ({ from }) => endPeerCall(from, true));
+socket.on('user-left', ({ id }) => endPeerCall(id, true));
 
 function endPeerCall(id, isIncomingSignal) {
   const peer = callPeers[id];
@@ -289,9 +287,9 @@ function endPeerCall(id, isIncomingSignal) {
       socket.emit('call-end', { targetId: id });
   }
 }
-window.endPeerCall = endPeerCall; // For global button usage
+window.endPeerCall = endPeerCall;
 
-// --- STREAMING LOGIC (Host -> Viewers) ---
+// --- STREAMING LOGIC ---
 async function startBroadcast() {
   if (!currentRoom) return alert('Join room first');
   if (!iAmHost) return alert('Only host can stream');
@@ -302,7 +300,6 @@ async function startBroadcast() {
       if (e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
   };
 
-  // Determine source
   let streamToSend = localStream;
   if (streamSource.type === 'user' && remoteStreams[streamSource.id]) {
       streamToSend = remoteStreams[streamSource.id];
@@ -320,7 +317,8 @@ async function startBroadcast() {
   
   isStreaming = true;
   startStreamBtn.textContent = "Streaming (Live)";
-  startStreamBtn.classList.add('danger'); // Red to indicate live
+  startStreamBtn.classList.add('danger');
+  hangupBtn.disabled = false;
 }
 
 async function reofferStream() {
@@ -329,12 +327,100 @@ async function reofferStream() {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
-  } catch (e) {
-    console.error('reofferStream error:', e);
-  }
+  } catch (e) { console.error(e); }
 }
 
 if (startStreamBtn) startStreamBtn.addEventListener('click', startBroadcast);
+
+// --- MISSING BUTTON LISTENERS (FIX FOR CONTROLS) ---
+
+// Toggle Camera
+if (toggleCamBtn) {
+  toggleCamBtn.addEventListener('click', () => {
+    if (!localStream) return;
+    const track = localStream.getVideoTracks()[0];
+    track.enabled = !track.enabled;
+    toggleCamBtn.textContent = track.enabled ? 'Camera Off' : 'Camera On';
+    toggleCamBtn.classList.toggle('danger', !track.enabled);
+  });
+}
+
+// Toggle Mic
+if (toggleMicBtn) {
+  toggleMicBtn.addEventListener('click', () => {
+    if (!localStream) return;
+    const track = localStream.getAudioTracks()[0];
+    track.enabled = !track.enabled;
+    toggleMicBtn.textContent = track.enabled ? 'Mute' : 'Unmute';
+    toggleMicBtn.classList.toggle('danger', !track.enabled);
+  });
+}
+
+// Share Screen
+if (shareScreenBtn) {
+  shareScreenBtn.addEventListener('click', async () => {
+    if (!isScreenSharing) {
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        isScreenSharing = true;
+        shareScreenBtn.textContent = 'Stop Screen';
+        shareScreenBtn.classList.add('danger');
+        
+        // Show locally
+        localVideo.srcObject = screenStream;
+        
+        // If streaming, replace track
+        if (isStreaming && pc) {
+             const sender = pc.getSenders().find(s => s.track.kind === 'video');
+             if (sender) sender.replaceTrack(screenStream.getVideoTracks()[0]);
+        }
+        
+        screenStream.getVideoTracks()[0].onended = () => stopScreenShare();
+      } catch(e) { console.error(e); }
+    } else {
+      stopScreenShare();
+    }
+  });
+}
+
+function stopScreenShare() {
+  if (!isScreenSharing) return;
+  if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+  screenStream = null;
+  isScreenSharing = false;
+  shareScreenBtn.textContent = 'Share Screen';
+  shareScreenBtn.classList.remove('danger');
+  
+  // Revert to cam
+  localVideo.srcObject = localStream;
+  if (isStreaming && pc && localStream) {
+      const sender = pc.getSenders().find(s => s.track.kind === 'video');
+      if (sender) sender.replaceTrack(localStream.getVideoTracks()[0]);
+  }
+}
+
+// Hang Up / Stop Stream
+if (hangupBtn) {
+  hangupBtn.addEventListener('click', () => {
+    // 1. Stop Stream if active
+    if (isStreaming) {
+      if (pc) pc.close();
+      pc = null;
+      isStreaming = false;
+      startStreamBtn.textContent = 'Start Stream';
+      startStreamBtn.classList.remove('danger');
+    }
+
+    // 2. Stop Screen Share
+    stopScreenShare();
+
+    // 3. End all P2P calls
+    Object.keys(callPeers).forEach(id => endPeerCall(id));
+    
+    hangupBtn.disabled = true;
+  });
+}
+
 
 // --- CHAT & UTILS ---
 function appendChat(name, text, ts) {
@@ -354,6 +440,16 @@ if (sendBtn) sendBtn.addEventListener('click', () => {
     chatInput.value = '';
 });
 
+// --- EMOJI FIX ---
+if (emojiStrip) {
+  emojiStrip.addEventListener('click', (e) => {
+    if (e.target.classList.contains('emoji')) {
+      chatInput.value += e.target.textContent;
+      chatInput.focus();
+    }
+  });
+}
+
 // Render User List
 function renderUserList(users, ownerId) {
   userList.innerHTML = '';
@@ -362,7 +458,6 @@ function renderUserList(users, ownerId) {
       
       const div = document.createElement('div');
       div.className = 'user-item';
-      // Store ID and Name in dataset for easier access later
       div.dataset.userid = u.id;
       div.dataset.username = u.name;
       
