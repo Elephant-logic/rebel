@@ -85,7 +85,7 @@ io.on('connection', (socket) => {
 
     const role = socket.id === room.hostId ? 'host' : 'guest';
 
-    // tell this client its role (info only; frontend derives real role from host-info)
+    // tell this client its role (info only; frontend derives real role from hostId)
     socket.emit('role-assigned', { room: roomName, role });
 
     // broadcast current host to everyone
