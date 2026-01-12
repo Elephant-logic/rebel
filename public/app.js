@@ -3,9 +3,9 @@
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
-let userName = 'Host';
+let userName = null;
 let myId = null;
-let myRole = 'guest'; // 'host' / 'guest' (derived from hostId)
+let myRole = 'guest'; // derived from hostId
 let hostId = null;
 
 // STREAM (host → viewer)
@@ -109,9 +109,20 @@ function appendChat(name, text, ts = Date.now()) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+function ensureUserName() {
+  if (userName) return userName;
+  const typed = nameInput && nameInput.value.trim();
+  if (typed) {
+    userName = typed;
+  } else {
+    userName = `User-${Math.floor(Math.random() * 1000)}`;
+  }
+  return userName;
+}
+
 async function ensureLocalStream() {
   if (localStream) return localStream;
-  userName = (nameInput && nameInput.value.trim()) || 'Host';
+  ensureUserName();
   localStream = await navigator.mediaDevices.getUserMedia({
     video: true,
     audio: true
@@ -324,13 +335,13 @@ socket.on('host-info', ({ room, hostId: hid }) => {
   renderUserList();
 });
 
-// role-assigned is now just informational; host-info is the truth
+// role-assigned is just informational now
 socket.on('role-assigned', ({ room, role }) => {
   if (!room || room !== currentRoom) return;
   appendChat(
     'System',
     role === 'host'
-      ? 'Server thinks you are host – waiting for confirmation from host-info…'
+      ? 'Server marked a host for this room.'
       : 'You joined as guest.'
   );
 });
@@ -567,7 +578,7 @@ function renderUserList() {
     pill.className = 'user-pill';
 
     const left = document.createElement('span');
-    let label = userName || 'You';
+    let label = 'You';
     if (hostId && myId === hostId) {
       label += ' 👑';
     }
@@ -591,7 +602,7 @@ function renderUserList() {
     pill.className = 'user-pill';
 
     const left = document.createElement('span');
-    let label = info.name || id;
+    let label = info.name || `User-${id.slice(-4)}`;
     if (hostId && id === hostId) label += ' 👑';
     left.textContent = label;
 
@@ -626,7 +637,7 @@ if (joinBtn) {
     const room = roomInput && roomInput.value.trim();
     if (!room) return alert('Enter room');
     currentRoom = room;
-    userName = (nameInput && nameInput.value.trim()) || 'Host';
+    ensureUserName();
 
     socket.connect();
     socket.emit('join-room', {
@@ -780,6 +791,7 @@ function sendChat() {
   if (!currentRoom || !chatInput) return;
   const text = chatInput.value.trim();
   if (!text) return;
+  ensureUserName();
   socket.emit('chat-message', {
     room: currentRoom,
     name: userName,
@@ -815,6 +827,7 @@ if (fileInput && sendFileBtn) {
   sendFileBtn.addEventListener('click', () => {
     const file = fileInput.files[0];
     if (!file || !currentRoom) return;
+    ensureUserName();
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result.split(',')[1];
