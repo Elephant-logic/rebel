@@ -11,9 +11,10 @@ let pc = null;
 let isStreaming = false;
 let broadcastStream = null;
 
-// CALL PEERS
-const callPeers = {};      // { socketId: { pc, name } }
-const remoteStreams = {};  // { socketId: MediaStream }
+// CALL PEERS (Multi-user)
+// peer: { pc, name, iceQueue }
+const callPeers = {};      
+const remoteStreams = {};
 
 // Local media
 let localStream = null;
@@ -49,9 +50,8 @@ const updateSlugBtn   = $('updateSlugBtn');
 const videoGrid       = $('videoGrid');
 const localVideo      = $('localVideo');
 const startStreamBtn  = $('startStreamBtn');
-const streamQuality   = $('streamQuality'); // NEW
+const streamQuality   = $('streamQuality'); 
 const hangupBtn       = $('hangupBtn'); 
-// Removed shareScreenBtn global reference, we handle it via dropdown now or fallback
 const toggleCamBtn    = $('toggleCamBtn');
 const toggleMicBtn    = $('toggleMicBtn');
 const settingsBtn     = $('settingsBtn');
@@ -111,7 +111,7 @@ function removeRemoteVideo(id) {
   if (el) el.remove();
 }
 
-// --- SETTINGS (Restored) ---
+// --- SETTINGS ---
 async function getDevices() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -132,14 +132,15 @@ async function getDevices() {
 }
 
 async function switchMedia() {
-  // Stop old tracks
   if (localStream) localStream.getTracks().forEach(t => t.stop());
 
-  const audioId = audioSource ? audioSource.value : undefined;
-  const videoId = videoSource ? videoSource.value : undefined;
+  const audioId = audioSource ? audioSource.value : "";
+  const videoId = videoSource ? videoSource.value : "";
+
+  // FIX: Don't use 'exact' if the ID is empty
   const constraints = {
-    audio: { deviceId: audioId ? { exact: audioId } : undefined },
-    video: { deviceId: videoId ? { exact: videoId } : undefined }
+    audio: audioId ? { deviceId: { exact: audioId } } : true,
+    video: videoId ? { deviceId: { exact: videoId } } : true
   };
 
   try {
@@ -147,25 +148,21 @@ async function switchMedia() {
     localVideo.srcObject = localStream;
     localVideo.muted = true;
 
-    // IF STREAMING: Replace Track on the fly
+    // Refresh active connections with new tracks
+    const replaceTrack = (pc, kind, track) => {
+        const sender = pc.getSenders().find(s => s.track && s.track.kind === kind);
+        if (sender && track) sender.replaceTrack(track);
+    };
+
     if (isStreaming && pc) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      const audioTrack = localStream.getAudioTracks()[0];
-      const senders = pc.getSenders();
-      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-      const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-      if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
-      if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
+      replaceTrack(pc, 'video', localStream.getVideoTracks()[0]);
+      replaceTrack(pc, 'audio', localStream.getAudioTracks()[0]);
     }
     
-    // IF CALLING: Update all peers (Simpler to just renegotiate, but replacing track usually works)
     Object.values(callPeers).forEach(peer => {
        if (peer.pc) {
-          const senders = peer.pc.getSenders();
-          const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-          const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-          if (videoSender) videoSender.replaceTrack(localStream.getVideoTracks()[0]);
-          if (audioSender) audioSender.replaceTrack(localStream.getAudioTracks()[0]);
+          replaceTrack(peer.pc, 'video', localStream.getVideoTracks()[0]);
+          replaceTrack(peer.pc, 'audio', localStream.getAudioTracks()[0]);
        }
     });
 
@@ -179,15 +176,14 @@ settingsBtn.addEventListener('click', async () => {
 
 closeSettingsBtn.addEventListener('click', () => {
   settingsPanel.style.display = 'none';
-  switchMedia(); // Apply changes
+  switchMedia(); 
 });
 
-// --- MEDIA HANDLING ---
 async function ensureLocalStream() {
   if (localStream && localStream.active) return localStream;
-  await switchMedia(); // Use switchMedia to respect settings
+  await switchMedia(); 
   if (!localStream) {
-      // Fallback
+      // Emergency Fallback
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localVideo.srcObject = localStream;
       localVideo.muted = true;
@@ -195,7 +191,7 @@ async function ensureLocalStream() {
   return localStream;
 }
 
-// --- STREAMING LOGIC (With Options) ---
+// --- STREAMING LOGIC ---
 async function startBroadcast() {
   if (!currentRoom) return alert('Join room first');
   if (!iAmHost) return alert('Only host can stream');
@@ -206,22 +202,16 @@ async function startBroadcast() {
       if (e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
   };
 
-  // CHECK OPTION
   const quality = streamQuality.value;
-  
   if (quality === 'screen') {
       try {
         broadcastStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         isScreenSharing = true;
       } catch(e) { return; }
   } else {
-      // Camera with Resolution Constraint
       const height = parseInt(quality) || 720;
       await ensureLocalStream(); 
-      // Apply constraint if possible
-      try {
-        await localStream.getVideoTracks()[0].applyConstraints({ height: { ideal: height } });
-      } catch(e) {}
+      try { await localStream.getVideoTracks()[0].applyConstraints({ height: { ideal: height } }); } catch(e) {}
       broadcastStream = localStream;
       isScreenSharing = false;
   }
@@ -238,9 +228,10 @@ async function startBroadcast() {
   hangupBtn.disabled = false;
 }
 
-// --- SOCKET EVENTS & LOGIC (Same as before, abbreviated) ---
+// --- SOCKET EVENTS ---
 socket.on('connect', () => { setSignal(true); myId = socket.id; });
 socket.on('disconnect', () => setSignal(false));
+
 socket.on('role', ({ isHost, streamTitle, publicSlug }) => {
   iAmHost = isHost;
   if (hostControls) hostControls.style.display = isHost ? 'block' : 'none';
@@ -249,6 +240,7 @@ socket.on('role', ({ isHost, streamTitle, publicSlug }) => {
       if (slugInput) slugInput.value = publicSlug || '';
   }
 });
+
 socket.on('room-update', ({ users, ownerId, locked, streamTitle, publicSlug }) => {
   renderUserList(users, ownerId);
   if (lockRoomBtn) {
@@ -259,7 +251,7 @@ socket.on('room-update', ({ users, ownerId, locked, streamTitle, publicSlug }) =
       streamTitleInput.value = streamTitle || '';
       streamTitleInput.disabled = true;
   }
-  // UPDATE LINK
+  // Link update
   const linkId = publicSlug || currentRoom;
   if (linkId && streamLinkInput) {
     const url = new URL(window.location.href);
@@ -268,10 +260,13 @@ socket.on('room-update', ({ users, ownerId, locked, streamTitle, publicSlug }) =
     streamLinkInput.value = url.toString();
   }
 });
+
 socket.on('user-joined', ({ id, name }) => {
   if (id !== myId) appendChat('System', `${name} joined.`, Date.now());
   if (iAmHost && isStreaming) reofferStream().catch(console.error);
 });
+
+// Stream Handshake
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) try { await pc.setRemoteDescription(new RTCSessionDescription(sdp)); } catch (e) {}
 });
@@ -294,44 +289,83 @@ joinBtn.addEventListener('click', () => {
 });
 leaveBtn.addEventListener('click', () => window.location.reload());
 
-// --- CALL PEER ---
+// --- CALL PEER LOGIC ---
 function createCallPC(targetId, targetName) {
   const cp = new RTCPeerConnection(iceConfig);
-  cp.onicecandidate = (e) => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
+  // Add an ICE Queue to handle candidates arriving before answer
+  callPeers[targetId] = { pc: cp, name: targetName, iceQueue: [] };
+
+  cp.onicecandidate = (e) => { 
+      if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); 
+  };
   cp.ontrack = (event) => addRemoteVideo(targetId, event.streams[0], targetName);
-  callPeers[targetId] = { pc: cp, name: targetName };
+  
   return cp;
 }
+
+// FLUSH ICE QUEUE
+async function flushIceQueue(id) {
+    const peer = callPeers[id];
+    if (!peer || !peer.pc || !peer.iceQueue.length) return;
+    for (const candidate of peer.iceQueue) {
+        try { await peer.pc.addIceCandidate(candidate); } catch(e) {}
+    }
+    peer.iceQueue = [];
+}
+
 async function callPeer(targetId) {
   const stream = await ensureLocalStream();
   const peerEl = document.querySelector(`[data-userid="${targetId}"]`);
   const cp = createCallPC(targetId, peerEl ? peerEl.dataset.username : "Peer"); 
+  
   stream.getTracks().forEach(t => cp.addTrack(t, stream));
+
   const offer = await cp.createOffer();
   await cp.setLocalDescription(offer);
   socket.emit('call-offer', { targetId, offer });
+  
   const btn = document.querySelector(`button[onclick="endPeerCall('${targetId}')"]`);
   if(btn) { btn.disabled = false; btn.classList.add('danger'); }
 }
+
 socket.on('incoming-call', async ({ from, name, offer }) => {
   const stream = await ensureLocalStream();
   const cp = createCallPC(from, name);
+
   await cp.setRemoteDescription(new RTCSessionDescription(offer));
   stream.getTracks().forEach(t => cp.addTrack(t, stream));
+
   const answer = await cp.createAnswer();
   await cp.setLocalDescription(answer);
   socket.emit('call-answer', { targetId: from, answer });
+  
+  // Now we have RemoteDesc, flush any early ICE candidates
+  await flushIceQueue(from);
+
   const btn = document.querySelector(`button[onclick="endPeerCall('${from}')"]`);
   if(btn) { btn.disabled = false; btn.classList.add('danger'); }
 });
+
 socket.on('call-answer', async ({ from, answer }) => {
   const peer = callPeers[from];
-  if (peer && peer.pc) await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+  if (peer && peer.pc) {
+      await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushIceQueue(from);
+  }
 });
+
 socket.on('call-ice', ({ from, candidate }) => {
   const peer = callPeers[from];
-  if (peer && peer.pc) peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+  if (peer && peer.pc) {
+      if (peer.pc.remoteDescription) {
+          peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } else {
+          // Queue it if answer hasn't arrived yet
+          peer.iceQueue.push(new RTCIceCandidate(candidate));
+      }
+  }
 });
+
 socket.on('call-end', ({ from }) => endPeerCall(from, true));
 socket.on('user-left', ({ id }) => endPeerCall(id, true));
 
