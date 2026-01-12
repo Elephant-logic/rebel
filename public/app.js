@@ -174,6 +174,19 @@ async function switchMedia() {
       if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
       if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
     }
+
+    // Also update ALL active call peer connections
+    Object.values(callPeers).forEach(peer => {
+      if (!peer || !peer.pc) return;
+      const senders = peer.pc.getSenders();
+      const vTrack = localStream.getVideoTracks()[0];
+      const aTrack = localStream.getAudioTracks()[0];
+      const vSender = senders.find(s => s.track && s.track.kind === 'video');
+      const aSender = senders.find(s => s.track && s.track.kind === 'audio');
+      if (vSender && vTrack) vSender.replaceTrack(vTrack);
+      if (aSender && aTrack) aSender.replaceTrack(aTrack);
+    });
+
   } catch (e) {
     console.error("Switch media error:", e);
   }
@@ -331,7 +344,8 @@ async function getBroadcastStream() {
 async function startBroadcast() {
   if (!currentRoom) return alert('Join a room first');
 
-  if (!pc) createStreamPC();
+  // Always recreate stream PC when we (re)start broadcast
+  createStreamPC();
 
   const baseStream = isScreenSharing && screenStream
     ? screenStream
@@ -355,6 +369,7 @@ async function startBroadcast() {
   updateHangupState();
 }
 
+// (we keep reofferStream around in case you want it later, but we now use startBroadcast on user-joined)
 async function reofferStream() {
   if (!pc || !isStreaming) return;
   try {
@@ -366,7 +381,7 @@ async function reofferStream() {
   }
 }
 
-// 🔧 FIXED: apply queued ICE after answer so stream actually connects
+// apply queued ICE after answer so stream actually connects
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) {
     try {
@@ -434,10 +449,11 @@ socket.on('room-error', (msg) => {
   if (leaveBtn) leaveBtn.disabled = true;
 });
 
+// 🔑 HERE: when a user joins and you're already streaming, we re-run startBroadcast
 socket.on('user-joined', ({ id, name }) => {
   if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
   if (iAmHost && isStreaming) {
-    reofferStream().catch(console.error);
+    startBroadcast().catch(console.error);
   }
 });
 
