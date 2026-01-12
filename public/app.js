@@ -344,8 +344,7 @@ async function getBroadcastStream() {
 async function startBroadcast() {
   if (!currentRoom) return alert('Join a room first');
 
-  // Always recreate stream PC when we (re)start broadcast
-  createStreamPC();
+  if (!pc) createStreamPC();
 
   const baseStream = isScreenSharing && screenStream
     ? screenStream
@@ -369,7 +368,6 @@ async function startBroadcast() {
   updateHangupState();
 }
 
-// (we keep reofferStream around in case you want it later, but we now use startBroadcast on user-joined)
 async function reofferStream() {
   if (!pc || !isStreaming) return;
   try {
@@ -434,6 +432,14 @@ socket.on('room-update', ({ users, ownerId, locked }) => {
   }
 });
 
+// 🔧 KEY PART: when anyone joins while you are streaming, re-offer stream
+socket.on('user-joined', ({ id, name }) => {
+  if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
+  if (isStreaming) {
+    reofferStream().catch(console.error);
+  }
+});
+
 socket.on('kicked', () => {
   alert('You have been kicked from the room.');
   window.location.reload();
@@ -447,14 +453,6 @@ socket.on('room-error', (msg) => {
   alert(msg);
   if (joinBtn) joinBtn.disabled = false;
   if (leaveBtn) leaveBtn.disabled = true;
-});
-
-// 🔑 HERE: when a user joins and you're already streaming, we re-run startBroadcast
-socket.on('user-joined', ({ id, name }) => {
-  if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
-  if (iAmHost && isStreaming) {
-    startBroadcast().catch(console.error);
-  }
 });
 
 // --- JOIN / LEAVE ---
