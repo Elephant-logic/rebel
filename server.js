@@ -18,7 +18,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// Track which rooms are locked and who is the host in each room
+// Track locked rooms + which socket is host for each room
 const lockedRooms = new Set();
 const roomHosts = new Map(); // room -> socket.id
 
@@ -27,7 +27,7 @@ io.on('connection', (socket) => {
   socket.on('join-room', ({ room, name }) => {
     if (!room) return;
 
-    // If locked, refuse new joins
+    // If locked, refuse
     if (lockedRooms.has(room)) {
       socket.emit('room-locked', { room, locked: true });
       return;
@@ -35,7 +35,7 @@ io.on('connection', (socket) => {
 
     let role = 'guest';
     if (!roomHosts.has(room)) {
-      // First person to join becomes Host
+      // First in is host
       roomHosts.set(room, socket.id);
       role = 'host';
     }
@@ -44,40 +44,40 @@ io.on('connection', (socket) => {
     socket.data.room = room;
     socket.data.name = name || 'Anon';
 
-    // Tell this socket what role it is
+    // tell this client their role
     socket.emit('role-assigned', { room, role });
 
-    // Tell everyone else someone joined
+    // tell others someone joined
     socket.to(room).emit('user-joined', {
       id: socket.id,
       name: socket.data.name
     });
   });
 
-  // ------------- STREAM: HOST → VIEWERS -------------
+  // ------------- STREAM (HOST → VIEWERS) -------------
 
-  // Offer from Host to everyone else
+  // host offers to everyone in room
   socket.on('webrtc-offer', (data) => {
     const { room, sdp } = data || {};
     if (!room || !sdp) return;
 
-    // Only host for this room is allowed to stream
     const hostId = roomHosts.get(room);
     if (hostId !== socket.id) {
+      // only host can stream
       return;
     }
 
     socket.to(room).emit('webrtc-offer', { sdp });
   });
 
-  // Viewer answer back to Host
+  // viewer answers back
   socket.on('webrtc-answer', (data) => {
     const { room, sdp } = data || {};
     if (!room || !sdp) return;
     socket.to(room).emit('webrtc-answer', { sdp });
   });
 
-  // ICE (stream, both ways)
+  // ICE for stream
   socket.on('webrtc-ice-candidate', (data) => {
     const { room, candidate } = data || {};
     if (!room || !candidate) return;
@@ -96,35 +96,30 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ------------- FILE SHARING -------------
+  // ------------- FILE SHARE -------------
 
   socket.on('file-share', (data) => {
     if (!data || !data.room) return;
     socket.to(data.room).emit('file-share', data);
   });
 
-  // ------------- ROOM LOCK (Host only) -------------
+  // ------------- ROOM LOCK (HOST ONLY) -------------
 
   socket.on('lock-room', ({ room, locked }) => {
     if (!room) return;
 
     const hostId = roomHosts.get(room);
-    if (hostId !== socket.id) {
-      // Only host can lock / unlock
-      return;
-    }
+    if (hostId !== socket.id) return;
 
-    if (locked) {
-      lockedRooms.add(room);
-    } else {
-      lockedRooms.delete(room);
-    }
+    if (locked) lockedRooms.add(room);
+    else lockedRooms.delete(room);
+
     io.to(room).emit('room-locked', { room, locked: !!locked });
   });
 
-  // ------------- MULTI VIDEO CALLS (room app) -------------
+  // ------------- MULTI VIDEO CALLS (ROOM APP) -------------
 
-  // Caller → Target: offer
+  // caller → callee
   socket.on('call-offer', (data) => {
     const { room, targetId, sdp } = data || {};
     if (!room || !targetId || !sdp) return;
@@ -136,7 +131,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Callee → Caller: answer
+  // callee → caller
   socket.on('call-answer', (data) => {
     const { room, targetId, sdp } = data || {};
     if (!room || !targetId || !sdp) return;
@@ -158,6 +153,15 @@ io.on('connection', (socket) => {
     });
   });
 
+  // optional: reject notification
+  socket.on('call-reject', (data) => {
+    const { room, targetId } = data || {};
+    if (!room || !targetId) return;
+    io.to(targetId).emit('call-reject', {
+      fromId: socket.id
+    });
+  });
+
   // ------------- DISCONNECT -------------
 
   socket.on('disconnect', () => {
@@ -165,11 +169,9 @@ io.on('connection', (socket) => {
     if (room) {
       const hostId = roomHosts.get(room);
       if (hostId === socket.id) {
-        // Host has gone
         roomHosts.delete(room);
         io.to(room).emit('host-left', { room });
       }
-
       socket.to(room).emit('user-left', { id: socket.id });
     }
   });
