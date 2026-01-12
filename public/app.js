@@ -216,7 +216,7 @@ function renderUserList(users, ownerId) {
       // Per-user hangup (only this call)
       actions += `<button onclick="endPeerCall('${u.id}')" class="action-btn hang">⛔</button>`;
       if (iAmHost) {
-        // Make them live on stream (only if you are in a call with them)
+        // Make them live on stream
         actions += `<button onclick="makeLive('${u.id}')" class="action-btn live">🎥</button>`;
         // Kick
         actions += `<button onclick="kickUser('${u.id}')" class="action-btn kick">🦵</button>`;
@@ -258,18 +258,18 @@ window.kickUser = (id) => {
   if (confirm('Kick this user?')) socket.emit('kick-user', id);
 };
 
+// ✅ makeLive: NO "must be in call" check
 window.makeLive = async function(target) {
   if (!iAmHost) return;
 
   if (target === 'host') {
+    // Host cam is the live source
     streamSource = { type: 'host', id: null };
     appendChat('System', 'You are now the live stream source.', Date.now(), false, false);
   } else {
-    // only allow LIVE if we actually have their stream
-    if (!remoteStreams[target]) {
-      alert('You need to be in a video call with this user before putting them live.');
-      return;
-    }
+    // Try to use this user as live source (their cam)
+    // If their stream isn't here yet, getBroadcastStream()
+    // will fall back to your own cam so the stream never dies.
     streamSource = { type: 'user', id: target };
     appendChat('System', `User is now the live stream source: ${target}`, Date.now(), false, false);
   }
@@ -375,8 +375,6 @@ async function reofferStream() {
     console.error('reofferStream error:', e);
   }
 }
-
-// NOTE: chat page DOES NOT handle 'webrtc-offer' – only viewer.js does.
 
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) {
