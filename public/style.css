@@ -28,7 +28,6 @@ html, body {
   max-width: 1220px; margin: 10px auto 24px; padding: 12px;
 }
 
-/* TOPBAR */
 .topbar {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px; border-radius: var(--radius-xl);
@@ -48,7 +47,6 @@ html, body {
 .status-disconnected { background: rgba(255,75,106,0.1); border-color: var(--danger); color: var(--danger); }
 .room-info { font-size: 0.75rem; color: var(--muted); }
 
-/* LAYOUT */
 .layout {
   margin-top: 16px; display: grid; grid-template-columns: 280px 1fr; gap: 16px;
 }
@@ -66,7 +64,6 @@ html, body {
 }
 .field input:focus { border-color: var(--accent); }
 
-/* BUTTONS */
 .btn {
   padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border);
   background: #14182a; color: var(--text); font-size: 0.85rem; cursor: pointer;
@@ -84,7 +81,6 @@ html, body {
   display: flex; flex-direction: column; gap: 12px;
 }
 
-/* VIDEO GRID */
 .video-grid-container {
     display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
 }
@@ -100,7 +96,6 @@ video { width: 100%; height: 200px; background: black; border-radius: 8px; objec
 .file-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
 .file-label { padding: 4px 8px; border-radius: 6px; border: 1px solid; }
 
-/* TABS SYSTEM */
 .chat-panel {
   background: var(--panel); border-radius: var(--radius-xl); border: 1px solid var(--border);
   box-shadow: var(--shadow-soft); overflow: hidden; display: flex; flex-direction: column; min-height: 400px;
@@ -138,7 +133,6 @@ video { width: 100%; height: 200px; background: black; border-radius: 8px; objec
   background: #080d1b; color: var(--text); outline: none;
 }
 
-/* FILE & USER LIST */
 .file-upload-area {
   background: var(--panel-soft); padding: 15px; border-radius: var(--radius-lg);
   border: 1px dashed var(--border); margin-bottom: 15px;
@@ -154,7 +148,6 @@ video { width: 100%; height: 200px; background: black; border-radius: 8px; objec
 }
 .user-item.is-me { border-color: var(--accent); background: rgba(74,243,163,0.05); }
 
-/* ACTIONS */
 .user-actions { display: flex; gap: 5px; }
 .action-btn {
   background: transparent; border: 1px solid var(--border); color: var(--muted);
@@ -165,7 +158,6 @@ video { width: 100%; height: 200px; background: black; border-radius: 8px; objec
 .action-btn.kick { border-color: var(--danger); color: var(--danger); }
 .action-btn.ring { border-color: #ffd700; color: #ffd700; }
 
-/* SETTINGS PANEL */
 .settings-panel {
   background: var(--panel-soft); border: 1px solid var(--accent);
   border-radius: var(--radius-lg); padding: 15px; margin-bottom: 15px;
