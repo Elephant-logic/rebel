@@ -13,9 +13,7 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ----------------------------------------------------
-// In-memory room state
-// ----------------------------------------------------
+// ---------------- Room state (for host / lock / list) ----------------
 // rooms = {
 //   [roomName]: {
 //      ownerId: <socket.id>,
@@ -52,9 +50,7 @@ function broadcastRoomUpdate(roomName) {
   });
 }
 
-// ----------------------------------------------------
-// Socket.io
-// ----------------------------------------------------
+// ---------------- Socket.io ----------------
 io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
@@ -67,7 +63,7 @@ io.on('connection', (socket) => {
     }
 
     const roomName = room.trim();
-    const displayName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
+    const displayName = (name && String(name).trim()) || `User-${socket.id.slice(0,4)}`;
     const info = getRoomInfo(roomName);
 
     // Respect lock
@@ -90,10 +86,9 @@ io.on('connection', (socket) => {
     // Tell this client their role
     socket.emit('role', { isHost: info.ownerId === socket.id });
 
-    // Let others know someone joined (host uses this to re-offer stream)
+    // Let others know someone joined
     socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
 
-    // Snapshot for user list, crowns, etc.
     broadcastRoomUpdate(roomName);
   });
 
@@ -134,9 +129,7 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --------------------------------------------------
-  // STREAM signalling (host → viewers)
-  // --------------------------------------------------
+  // ---------------- STREAM signalling (host → viewers) ----------------
   socket.on('webrtc-offer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !sdp) return;
@@ -155,14 +148,12 @@ io.on('connection', (socket) => {
     socket.to(roomName).emit('webrtc-ice-candidate', { candidate });
   });
 
-  // --------------------------------------------------
-  // CALL signalling (1:1 / multi-call), separate from stream
-  // --------------------------------------------------
+  // ---------------- CALL signalling (1:1 / multi-call) ----------------
   socket.on('call-offer', ({ targetId, offer }) => {
     if (!targetId || !offer) return;
     io.to(targetId).emit('incoming-call', {
       from: socket.id,
-      name: socket.data.name || `User-${socket.id.slice(0, 4)}`,
+      name: socket.data.name || `User-${socket.id.slice(0,4)}`,
       offer
     });
   });
@@ -185,28 +176,22 @@ io.on('connection', (socket) => {
 
   socket.on('call-reject', ({ targetId }) => {
     if (!targetId) return;
-    io.to(targetId).emit('call-reject', {
-      from: socket.id
-    });
+    io.to(targetId).emit('call-reject', { from: socket.id });
   });
 
   socket.on('call-end', ({ targetId }) => {
     if (!targetId) return;
-    io.to(targetId).emit('call-end', {
-      from: socket.id
-    });
+    io.to(targetId).emit('call-end', { from: socket.id });
   });
 
   // ring ping for UI
   socket.on('ring-user', (targetId) => {
     if (!targetId) return;
-    const fromName = socket.data.name || `User-${socket.id.slice(0, 4)}`;
+    const fromName = socket.data.name || `User-${socket.id.slice(0,4)}`;
     io.to(targetId).emit('ring-alert', { from: fromName, fromId: socket.id });
   });
 
-  // --------------------------------------------------
-  // Chat – host room + stream chat (fromViewer flag)
-  // --------------------------------------------------
+  // ---------------- Chat (room + stream) ----------------
   socket.on('chat-message', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
@@ -215,7 +200,7 @@ io.on('connection', (socket) => {
     const isOwner = info && info.ownerId === socket.id;
 
     io.to(roomName).emit('chat-message', {
-      name: name || socket.data.name || `User-${socket.id.slice(0, 4)}`,
+      name: name || socket.data.name || `User-${socket.id.slice(0,4)}`,
       text,
       ts,
       isOwner,
@@ -223,24 +208,20 @@ io.on('connection', (socket) => {
     });
   });
 
-  // --------------------------------------------------
-  // File share
-  // --------------------------------------------------
+  // ---------------- File share ----------------
   socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !fileName || !fileData) return;
 
     io.to(roomName).emit('file-share', {
-      name: name || socket.data.name || `User-${socket.id.slice(0, 4)}`,
+      name: name || socket.data.name || `User-${socket.id.slice(0,4)}`,
       fileName,
       fileType: fileType || 'application/octet-stream',
       fileData
     });
   });
 
-  // --------------------------------------------------
-  // Disconnect
-  // --------------------------------------------------
+  // ---------------- Disconnect ----------------
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
