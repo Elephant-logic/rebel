@@ -323,6 +323,7 @@ async function ensureLocalStream() {
     }
   } catch (e) {
     console.error("Media Error", e);
+    alert('Could not access camera/mic – check browser permissions / HTTPS.');
   }
   return localStream;
 }
@@ -349,6 +350,8 @@ async function startBroadcast() {
   const baseStream = isScreenSharing && screenStream
     ? screenStream
     : await getBroadcastStream();
+
+  if (!baseStream) return;
 
   broadcastStream = baseStream;
 
@@ -432,7 +435,7 @@ socket.on('room-update', ({ users, ownerId, locked }) => {
   }
 });
 
-// 🔧 KEY PART: when anyone joins while you are streaming, re-offer stream
+// when anyone joins while you are streaming, re-offer stream
 socket.on('user-joined', ({ id, name }) => {
   if (id !== myId) appendChat('System', `${name} joined.`, Date.now(), false, false);
   if (isStreaming) {
@@ -457,7 +460,7 @@ socket.on('room-error', (msg) => {
 
 // --- JOIN / LEAVE ---
 if (joinBtn) {
-  joinBtn.addEventListener('click', () => {
+  joinBtn.addEventListener('click', async () => {
     const room = roomInput.value.trim();
     if (!room) return alert('Enter room');
     currentRoom = room;
@@ -465,6 +468,9 @@ if (joinBtn) {
 
     socket.connect();
     socket.emit('join-room', { room: currentRoom, name: userName });
+
+    // 🔥 Auto start cam/mic when you join
+    await ensureLocalStream();
 
     joinBtn.disabled = true;
     if (leaveBtn) leaveBtn.disabled = false;
