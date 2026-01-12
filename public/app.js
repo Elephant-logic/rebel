@@ -322,6 +322,18 @@ $('sendBtn').addEventListener('click', () => {
     $('chatInput').value = '';
 });
 
+// Emoji
+const emojiStrip = $('emojiStrip');
+if (emojiStrip) {
+    emojiStrip.addEventListener('click', e => {
+        if (e.target.classList.contains('emoji')) {
+            const chatInput = $('chatInput');
+            chatInput.value += e.target.textContent;
+            chatInput.focus();
+        }
+    });
+}
+
 // Files
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
@@ -357,3 +369,57 @@ function appendFileLog(name, fileName, href) {
 socket.on('file-share', ({ name, fileName, fileType, fileData }) => {
     appendFileLog(name, fileName, `data:${fileType};base64,${fileData}`);
 });
+
+// Toggle Buttons
+if (toggleCamBtn) {
+    toggleCamBtn.addEventListener('click', () => {
+        if (!localStream) return;
+        const v = localStream.getVideoTracks()[0];
+        v.enabled = !v.enabled;
+        toggleCamBtn.textContent = v.enabled ? 'Camera Off' : 'Camera On';
+    });
+}
+if (toggleMicBtn) {
+    toggleMicBtn.addEventListener('click', () => {
+        if (!localStream) return;
+        const a = localStream.getAudioTracks()[0];
+        a.enabled = !a.enabled;
+        toggleMicBtn.textContent = a.enabled ? 'Mute' : 'Unmute';
+    });
+}
+if (shareScreenBtn) {
+    shareScreenBtn.addEventListener('click', async () => {
+        if (!currentRoom) return alert('Join room first');
+        
+        if (!isScreenSharing) {
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+                const track = screenStream.getVideoTracks()[0];
+                
+                // Replace tracks in ALL peers
+                Object.values(peers).forEach(({ pc }) => {
+                   const sender = pc.getSenders().find(s => s.track.kind === 'video');
+                   if (sender) sender.replaceTrack(track);
+                });
+                
+                localVideo.srcObject = screenStream;
+                isScreenSharing = true;
+                shareScreenBtn.textContent = 'Stop Screen';
+                
+                track.onended = () => {
+                     // Revert
+                     isScreenSharing = false;
+                     shareScreenBtn.textContent = 'Share Screen';
+                     switchMedia(); // Switch back to cam
+                };
+            } catch (e) { console.error(e); }
+        } else {
+            // Stop sharing
+            if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+            screenStream = null;
+            isScreenSharing = false;
+            shareScreenBtn.textContent = 'Share Screen';
+            switchMedia();
+        }
+    });
+}
