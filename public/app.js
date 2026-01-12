@@ -5,7 +5,7 @@ const socket = io({ autoConnect: false });
 let currentRoom = null;
 let userName = 'Host';
 let myId = null;
-let myRole = 'guest'; // 'host' / 'guest'
+let myRole = 'guest'; // 'host' / 'guest' (derived from hostId)
 let hostId = null;
 
 // STREAM (host → viewer)
@@ -123,7 +123,7 @@ async function ensureLocalStream() {
   return localStream;
 }
 
-// Host vs guest UI
+// Host vs guest UI – driven by myRole (which now follows hostId)
 function applyRoleUI() {
   const isHost = myRole === 'host';
 
@@ -147,7 +147,7 @@ function applyRoleUI() {
   }
 }
 
-// hide host stuff by default until role arrives
+// hide host stuff by default until we know real host
 applyRoleUI();
 
 // incoming call UI
@@ -308,20 +308,30 @@ socket.on('room-locked', ({ room, locked }) => {
   );
 });
 
-// host info from server for crown display
+// REAL host / role is driven from this
 socket.on('host-info', ({ room, hostId: hid }) => {
   if (!currentRoom || room !== currentRoom) return;
   hostId = hid || null;
+
+  // derive myRole purely from hostId
+  if (!hostId) {
+    myRole = 'guest';
+  } else {
+    myRole = myId && myId === hostId ? 'host' : 'guest';
+  }
+
+  applyRoleUI();
   renderUserList();
 });
 
+// role-assigned is now just informational; host-info is the truth
 socket.on('role-assigned', ({ room, role }) => {
   if (!room || room !== currentRoom) return;
-  myRole = role === 'host' ? 'host' : 'guest';
-  applyRoleUI();
   appendChat(
     'System',
-    myRole === 'host' ? 'You are the host for this room.' : 'You joined as a guest.'
+    role === 'host'
+      ? 'Server thinks you are host – waiting for confirmation from host-info…'
+      : 'You joined as guest.'
   );
 });
 
@@ -558,9 +568,7 @@ function renderUserList() {
 
     const left = document.createElement('span');
     let label = userName || 'You';
-    if (myId === hostId) {
-      label += ' 👑';
-    } else if (myRole === 'host') {
+    if (hostId && myId === hostId) {
       label += ' 👑';
     }
     left.textContent = label;
@@ -584,7 +592,7 @@ function renderUserList() {
 
     const left = document.createElement('span');
     let label = info.name || id;
-    if (id === hostId) label += ' 👑';
+    if (hostId && id === hostId) label += ' 👑';
     left.textContent = label;
 
     const right = document.createElement('div');
@@ -624,7 +632,7 @@ if (joinBtn) {
     socket.emit('join-room', {
       room: currentRoom,
       name: userName,
-      clientType: 'app' // important: only app clients can be host
+      clientType: 'app' // IMPORTANT: only app clients can ever be host
     });
 
     joinBtn.disabled = true;
