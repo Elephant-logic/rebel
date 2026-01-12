@@ -11,15 +11,16 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-// Serve static files (index.html, view.html, js, css) from this folder
-app.use(express.static(__dirname));
+// Static files live in ./public (index.html, view.html, app.js, viewer.js, style.css, etc.)
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.use(express.static(PUBLIC_DIR));
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
 app.get('/view.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'view.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'view.html'));
 });
 
 /**
@@ -54,7 +55,7 @@ function broadcastRoomUpdate(roomName) {
   });
 }
 
-io.on('connection', socket => {
+io.on('connection', (socket) => {
   console.log('Socket connected', socket.id);
 
   // JOIN ROOM (host UI and viewers both use this)
