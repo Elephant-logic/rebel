@@ -1,66 +1,67 @@
-// VIEWER – RECONNECTABLE + FIXED CHAT
+// public/viewer.js
+// REBEL STREAM VIEWER (status + fullscreen + reconnect)
+
 const socket = io({ autoConnect: false });
 
 let pc = null;
 let currentRoom = null;
 let myName = `Viewer-${Math.floor(Math.random() * 1000)}`;
 
-// Use ICE from config/ice.js if present
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
-  ? { iceServers: ICE_SERVERS }
-  : {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    };
+const iceConfig =
+  typeof ICE_SERVERS !== "undefined" && ICE_SERVERS.length
+    ? { iceServers: ICE_SERVERS }
+    : {
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
+      };
 
 // DOM
-const viewerVideo        = document.getElementById('viewerVideo');
-const videoContainer     = document.getElementById('videoContainer');
-const statusEl           = document.getElementById('viewerStatus');
-const statusMirror       = document.getElementById('viewerStatusMirror');
-const fullscreenBtn      = document.getElementById('fullscreenBtn');
-const unmuteBtn          = document.getElementById('unmuteBtn');
-const toggleChatBtn      = document.getElementById('toggleChatBtn');
+const viewerVideo = document.getElementById("viewerVideo");
+const viewerStatus = document.getElementById("viewerStatus");
+const viewerStatusMirror = document.getElementById("viewerStatusMirror");
+const toggleChatBtn = document.getElementById("toggleChatBtn");
+const unmuteBtn = document.getElementById("unmuteBtn");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
 
-const chatLog            = document.getElementById('chatLog');
-const chatInput          = document.getElementById('chatInput');
-const sendBtn            = document.getElementById('sendBtn');
-const emojiStrip         = document.getElementById('emojiStrip');
-const chatSection        = document.querySelector('.chat-section');
+const chatLog = document.getElementById("chatLog");
+const chatInput = document.getElementById("chatInput");
+const sendBtn = document.getElementById("sendBtn");
+const emojiStrip = document.getElementById("emojiStrip");
+const chatSection = document.querySelector(".chat-section");
 
 let muted = true;
 let chatVisible = true;
 
 // ---------- Helpers ----------
-
 function setStatus(text) {
-  if (statusEl) statusEl.textContent = text;
-  if (statusMirror) statusMirror.textContent = text;
-}
-
-function timeString(ts) {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (viewerStatus) viewerStatus.textContent = text;
+  if (viewerStatusMirror) viewerStatusMirror.textContent = text;
 }
 
 function appendChat(name, text, ts = Date.now()) {
-  const line = document.createElement('div');
-  line.className = 'chat-line';
-  const who = name === 'You'
-    ? `<span style="color:#4af3a3">${name}</span>`
-    : `<strong>${name}</strong>`;
-  line.innerHTML = `${who} <small>${timeString(ts)}</small>: ${text}`;
-  if (chatLog) {
-    chatLog.appendChild(line);
-    chatLog.scrollTop = chatLog.scrollHeight;
-  }
+  if (!chatLog) return;
+  const line = document.createElement("div");
+  line.className = "chat-line";
+  const t = new Date(ts).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const who =
+    name === "You"
+      ? `<span style="color:#4af3a3">${name}</span>`
+      : `<strong>${name}</strong>`;
+  line.innerHTML = `${who} <small>${t}</small>: ${text}`;
+  chatLog.appendChild(line);
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-// Create/replace RTCPeerConnection every time we get a new offer
 async function createViewerPC() {
   if (pc) {
-    try { pc.close(); } catch (e) {}
+    try {
+      pc.close();
+    } catch (e) {}
   }
   pc = new RTCPeerConnection(iceConfig);
 
@@ -70,25 +71,27 @@ async function createViewerPC() {
       viewerVideo.srcObject = stream;
       viewerVideo.muted = muted;
     }
-    setStatus('LIVE');
+    setStatus("LIVE");
   };
 
-  pc.onicecandidate = (event) => {
-    if (event.candidate && currentRoom) {
-      socket.emit('webrtc-ice-candidate', {
+  pc.onicecandidate = (e) => {
+    if (e.candidate && currentRoom) {
+      socket.emit("webrtc-ice-candidate", {
         room: currentRoom,
-        candidate: event.candidate
+        candidate: e.candidate,
       });
     }
   };
 
+  // Only show Disconnected if we *don't* have a stream
   pc.onconnectionstatechange = () => {
     if (!pc) return;
-    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-      // Only show "Disconnected" if we don't already have a stream
-      if (!viewerVideo || !viewerVideo.srcObject) {
-        setStatus('Disconnected');
-      }
+    if (
+      (pc.connectionState === "failed" ||
+        pc.connectionState === "disconnected") &&
+      (!viewerVideo || !viewerVideo.srcObject)
+    ) {
+      setStatus("Disconnected");
     }
   };
 
@@ -96,82 +99,72 @@ async function createViewerPC() {
 }
 
 // ---------- Socket events ----------
-
-socket.on('connect', () => {
-  setStatus('Waiting for stream…');
+socket.on("connect", () => {
+  setStatus("Waiting for stream…");
 });
 
-socket.on('disconnect', () => {
-  setStatus('Disconnected');
+socket.on("disconnect", () => {
+  setStatus("Disconnected");
 });
 
 // Host → viewer: offer
-socket.on('webrtc-offer', async ({ sdp }) => {
+socket.on("webrtc-offer", async ({ sdp }) => {
   try {
     await createViewerPC();
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    socket.emit('webrtc-answer', {
+    socket.emit("webrtc-answer", {
       room: currentRoom,
-      sdp: pc.localDescription
+      sdp: answer,
     });
 
-    setStatus('Connecting…');
+    setStatus("Connecting…");
   } catch (e) {
-    console.error('Viewer offer error:', e);
-    setStatus('Error');
+    console.error("Viewer offer error:", e);
+    setStatus("Error");
   }
 });
 
 // ICE from host
-socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+socket.on("webrtc-ice-candidate", async ({ candidate }) => {
   if (!pc || !candidate) return;
   try {
     await pc.addIceCandidate(new RTCIceCandidate(candidate));
   } catch (e) {
-    console.error('Viewer ICE error:', e);
+    console.error("Viewer ICE error:", e);
   }
 });
 
-// Chat from host / other viewers
-socket.on('chat-message', ({ name, text, ts, senderId }) => {
-  const label = senderId === socket.id ? 'You' : (name || 'Anon');
-  appendChat(label, text, ts);
+// Chat from host / others
+socket.on("chat-message", ({ name, text, ts }) => {
+  appendChat(name, text, ts);
 });
 
-// ---------- UI ----------
-
-if (fullscreenBtn) {
-  fullscreenBtn.addEventListener('click', () => {
-    if (!document.fullscreenElement) {
-      if (videoContainer && videoContainer.requestFullscreen) {
-        videoContainer.requestFullscreen();
-      } else if (viewerVideo && viewerVideo.webkitEnterFullscreen) {
-        viewerVideo.webkitEnterFullscreen();
-      }
-    } else {
-      document.exitFullscreen();
-    }
+// ---------- UI events ----------
+if (unmuteBtn) {
+  unmuteBtn.addEventListener("click", () => {
+    muted = !muted;
+    if (viewerVideo) viewerVideo.muted = muted;
+    unmuteBtn.textContent = muted ? "🔇 Unmute" : "🔊 Mute";
   });
 }
 
-if (unmuteBtn) {
-  unmuteBtn.addEventListener('click', () => {
-    if (!viewerVideo) return;
-    muted = !muted;
-    viewerVideo.muted = muted;
-    unmuteBtn.textContent = muted ? '🔇 Unmute' : '🔊 Mute';
-    viewerVideo.play().catch(() => {});
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener("click", () => {
+    const body = document.body;
+    const nowFull = !body.classList.contains("fullscreen-mode");
+    body.classList.toggle("fullscreen-mode", nowFull);
+    fullscreenBtn.textContent = nowFull ? "✕ Exit" : "⛶ Fullscreen";
   });
 }
 
 if (toggleChatBtn) {
-  toggleChatBtn.addEventListener('click', () => {
+  toggleChatBtn.addEventListener("click", () => {
     chatVisible = !chatVisible;
-    if (chatSection) chatSection.style.display = chatVisible ? 'flex' : 'none';
-    toggleChatBtn.textContent = chatVisible ? 'Hide Chat' : 'Show Chat';
+    if (chatSection) chatSection.style.display = chatVisible ? "flex" : "none";
+    toggleChatBtn.textContent = chatVisible ? "Hide Chat" : "Show Chat";
   });
 }
 
@@ -180,25 +173,26 @@ function sendChat() {
   const text = chatInput.value.trim();
   if (!text) return;
 
-  socket.emit('chat-message', {
+  socket.emit("chat-message", {
     room: currentRoom,
     name: myName,
-    text
+    text,
   });
 
-  chatInput.value = '';
+  appendChat("You", text);
+  chatInput.value = "";
 }
 
-if (sendBtn) sendBtn.addEventListener('click', sendChat);
+if (sendBtn) sendBtn.addEventListener("click", sendChat);
 if (chatInput) {
-  chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendChat();
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendChat();
   });
 }
 
 if (emojiStrip) {
-  emojiStrip.addEventListener('click', (e) => {
-    if (e.target.classList.contains('emoji')) {
+  emojiStrip.addEventListener("click", (e) => {
+    if (e.target.classList.contains("emoji")) {
       chatInput.value += e.target.textContent;
       chatInput.focus();
     }
@@ -206,15 +200,14 @@ if (emojiStrip) {
 }
 
 // ---------- Init ----------
-
 const params = new URLSearchParams(window.location.search);
-const roomParam = params.get('room');
+const room = params.get("room");
 
-if (!roomParam) {
-  setStatus('No room specified');
+if (!room) {
+  setStatus("No room specified");
 } else {
-  currentRoom = roomParam;
+  currentRoom = room;
   socket.connect();
-  setStatus('Connecting…');
-  socket.emit('join-room', { room: currentRoom, name: myName });
+  setStatus("Connecting…");
+  socket.emit("join-room", { room: currentRoom, name: myName });
 }
