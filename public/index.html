@@ -19,7 +19,7 @@
       </div>
     </header>
 
-    <!-- Connection panel -->
+    <!-- Join / lock controls -->
     <section class="connection-panel">
       <input id="roomInput" class="text-input" type="text" placeholder="Room name (e.g. beefy-room)" />
       <input id="nameInput" class="text-input" type="text" placeholder="Your name (e.g. Beefy)" />
@@ -29,7 +29,7 @@
     </section>
 
     <main class="main-grid">
-      <!-- VIDEO / CALL / STREAM COLUMN -->
+      <!-- VIDEO / STREAM / CALLS -->
       <section class="video-column">
         <div class="video-row">
           <div class="video-card">
@@ -42,19 +42,19 @@
           </div>
         </div>
 
-        <!-- Multi-video peer tiles (thumbnails) -->
+        <!-- Thumbnails for all people you’re in a call with -->
         <div id="peerTiles" class="peer-scroll"></div>
 
         <div class="call-controls">
-          <!-- Multi-video CALL between people in this room (NOT the stream viewer) -->
+          <!-- multi video room call -->
           <button id="startCallAllBtn" class="btn">Call Everyone</button>
 
-          <!-- STREAM to viewer link (one-way broadcast) -->
+          <!-- one-way broadcast to viewer page -->
           <button id="startCallBtn" class="btn primary">Start Stream</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
           <button id="hangupBtn" class="btn" disabled>Stop Stream</button>
 
-          <!-- Local media toggles (affect both stream + calls) -->
+          <!-- local media toggles -->
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
         </div>
@@ -66,14 +66,14 @@
         </div>
       </section>
 
-      <!-- CHAT / USERS / FILES COLUMN -->
+      <!-- CHAT + USER LIST + FILES -->
       <section class="chat-column">
         <div class="chat-header">
           <h2>Room Chat</h2>
         </div>
 
-        <!-- User list for this room with Call buttons -->
-        <div class="user-list" id="userList"></div>
+        <!-- people in room (call + end buttons) -->
+        <div id="userList" class="user-list"></div>
 
         <div id="chatLog" class="chat-log"></div>
 
