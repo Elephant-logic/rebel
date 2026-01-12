@@ -136,7 +136,7 @@ io.on('connection', (socket) => {
 
   // --------------------------------------------------
   // STREAM signalling (host → viewers)
-// --------------------------------------------------
+  // --------------------------------------------------
   socket.on('webrtc-offer', ({ room, sdp }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !sdp) return;
@@ -205,7 +205,7 @@ io.on('connection', (socket) => {
   });
 
   // --------------------------------------------------
-  // Chat – now carries fromViewer flag for stream chat
+  // Chat – host room + stream chat (fromViewer flag)
   // --------------------------------------------------
   socket.on('chat-message', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
