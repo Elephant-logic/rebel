@@ -11,51 +11,29 @@
     <header class="topbar">
       <div>
         <h1>Rebel Messenger</h1>
-        <p class="subtitle">Rooms · Calls · Files · Stream</p>
+        <p class="subtitle">P2P chat · calls · files</p>
       </div>
       <div class="status-block">
         <span id="signalStatus" class="status-dot status-disconnected">Disconnected</span>
-        <span id="roomInfo" class="room-label"></span>
+        <span id="roomInfo" class="room-info"></span>
       </div>
     </header>
 
     <main class="layout">
-      <!-- LEFT: ROOM + USER LIST -->
       <aside class="sidebar">
-        <section class="card">
-          <h2>Room</h2>
-          <label class="field">
-            <span>Room name</span>
-            <input id="roomInput" type="text" placeholder="e.g. beefy-room" />
-          </label>
-          <label class="field">
-            <span>Your name</span>
-            <input id="nameInput" type="text" placeholder="e.g. Beefy" />
-          </label>
-          <div class="btn-row">
-            <button id="joinBtn" class="btn primary">Join Room</button>
-            <button id="leaveBtn" class="btn" disabled>Leave</button>
-          </div>
-          <button id="lockRoomBtn" class="btn small" disabled>Lock Room</button>
-        </section>
-
-        <section class="card">
-          <h2>People in room</h2>
-          <div id="userList" class="user-list">
-            <div class="user-pill"><span>No users yet…</span></div>
-          </div>
-        </section>
-
-        <section class="card">
-          <h2>Stream Link</h2>
-          <div class="file-row" id="streamLinkRow">
-            <input id="streamLinkInput" class="file-name" readonly />
-            <button id="openStreamBtn" class="btn small">Open</button>
-          </div>
-        </section>
+        <h2>Room</h2>
+        <div class="field">
+          <label for="roomInput">Room Name</label>
+          <input id="roomInput" type="text" placeholder="e.g. beefy-room" />
+        </div>
+        <div class="field">
+          <label for="nameInput">Your Name</label>
+          <input id="nameInput" type="text" placeholder="e.g. Beefy" />
+        </div>
+        <button id="joinBtn" class="btn primary">Join Room</button>
+        <button id="leaveBtn" class="btn" disabled>Leave Room</button>
       </aside>
 
-      <!-- CENTER: VIDEO + CONTROLS -->
       <section class="main-panel">
         <div class="video-row">
           <div class="video-card">
@@ -63,75 +41,73 @@
             <video id="localVideo" autoplay playsinline muted></video>
           </div>
           <div class="video-card">
-            <h2>Active Peer / Screen</h2>
+            <h2>Peer</h2>
             <video id="remoteVideo" autoplay playsinline></video>
           </div>
         </div>
-
-        <div class="peer-strip" id="peerTiles">
-          <!-- thumbnails for multi callers get injected here -->
-        </div>
-
+        
         <div class="call-controls">
-          <!-- HOST: STREAM / SCREEN / CALL ALL / STOP -->
-          <button id="startStreamBtn" class="btn primary">Start Stream</button>
+          <button id="startCallBtn" class="btn primary">Start Call</button>
           <button id="shareScreenBtn" class="btn">Share Screen</button>
-          <button id="hangupBtn" class="btn" disabled>Stop</button>
-          <button id="startCallAllBtn" class="btn">Call Everyone</button>
-
-          <!-- EVERYONE: CAMERA / MIC -->
+          <button id="hangupBtn" class="btn" disabled>End Call</button>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
         </div>
+        
+        <div class="file-row" style="margin-top:10px; margin-bottom:10px;">
+           <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Stream Link</span>
+           <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted);" />
+           <button id="openStreamBtn" class="btn small">Open</button>
+        </div>
 
-        <!-- incoming call bar -->
-        <div id="incomingCallBar" class="incoming-call-bar" style="display:none;">
-          <span id="incomingCallText">Incoming call…</span>
-          <div class="btn-row">
-            <button id="acceptCallBtn" class="btn primary small">Accept</button>
-            <button id="rejectCallBtn" class="btn danger small">Reject</button>
+        <div class="chat-panel">
+          
+          <div class="tabs-header">
+            <button id="tabChatBtn" class="tab-btn active">Chat</button>
+            <button id="tabFilesBtn" class="tab-btn">Files</button>
           </div>
+
+          <div id="tabContentChat" class="tab-content active">
+            <div id="chatLog" class="chat-log"></div>
+            
+            <div class="emoji-strip" id="emojiStrip">
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
+              <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">🤯</span>
+              <span class="emoji">💀</span><span class="emoji">🤘</span>
+            </div>
+
+            <div class="chat-input-row">
+              <input id="chatInput" type="text" placeholder="Type a message..." />
+              <button id="sendBtn" class="btn primary">Send</button>
+            </div>
+          </div>
+
+          <div id="tabContentFiles" class="tab-content">
+            <div class="file-upload-area">
+              <div class="upload-controls">
+                <label class="btn secondary">
+                  <input id="fileInput" type="file" hidden />
+                  📎 Select File
+                </label>
+                <span id="fileNameLabel" class="file-info">No file selected</span>
+              </div>
+              <button id="sendFileBtn" class="btn primary full-width" disabled>Send File</button>
+            </div>
+            
+            <div class="files-list">
+              <h3>Shared Files</h3>
+              <div id="fileLog" class="file-log">
+                </div>
+            </div>
+          </div>
+
         </div>
       </section>
-
-      <!-- RIGHT: SHARED VIEW + CHAT -->
-      <aside class="sidebar right-sidebar">
-        <section class="card">
-          <h2>Shared View</h2>
-          <video id="chatSideVideo" autoplay playsinline></video>
-        </section>
-
-        <section class="card chat-card">
-          <h2>Chat</h2>
-          <div id="chatLog" class="chat-log"></div>
-
-          <div id="emojiStrip" class="emoji-strip">
-            <span class="emoji">😀</span>
-            <span class="emoji">🔥</span>
-            <span class="emoji">💀</span>
-            <span class="emoji">🤘</span>
-          </div>
-
-          <div class="chat-input-row">
-            <input id="chatInput" type="text" placeholder="Type a message..." />
-            <button id="sendBtn" class="btn primary">Send</button>
-          </div>
-
-          <div class="file-upload-row">
-            <label class="btn small">
-              <input id="fileInput" type="file" hidden />
-              📎 Attach
-            </label>
-            <span id="fileNameLabel" class="file-name">No file</span>
-            <button id="sendFileBtn" class="btn small" disabled>Send File</button>
-          </div>
-        </section>
-      </aside>
     </main>
   </div>
 
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="ice.js"></script>
+  <script src="config/ice.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
