@@ -1,4 +1,4 @@
-// REBEL STREAM VIEWER (STATUS + FULLSCREEN + CHAT)
+// REBEL STREAM VIEWER
 const socket = io({ autoConnect: false });
 
 let pc = null;
@@ -32,12 +32,11 @@ const viewerStatusMirror= $('viewerStatusMirror');
 const toggleChatBtn     = $('toggleChatBtn');
 const unmuteBtn         = $('unmuteBtn');
 const fullscreenBtn     = $('fullscreenBtn');
-const videoContainer    = $('videoContainer');
-
 const chatLog           = $('chatLog');
 const chatInput         = $('chatInput');
 const sendBtn           = $('sendBtn');
 const emojiStrip        = $('emojiStrip');
+const headerTitle       = document.querySelector('.viewer-header strong'); // To update title
 
 // Status helper
 function setStatus(text) {
@@ -45,16 +44,14 @@ function setStatus(text) {
   if (viewerStatusMirror) viewerStatusMirror.textContent = text;
 }
 
-// Append chat – no special highlight for this viewer
+// Append chat
 function appendChat(name, text, ts = Date.now()) {
   if (!chatLog) return;
   const line = document.createElement('div');
   line.className = 'chat-line';
   const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  const nameHtml = `<strong>${name}</strong>`;
-
-  line.innerHTML = `${nameHtml} <small>${t}</small>: ${text}`;
+  line.innerHTML = `<strong>${name}</strong> <small>${t}</small>: ${text}`;
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
@@ -68,6 +65,12 @@ socket.on('connect', () => {
 
 socket.on('disconnect', () => {
   setStatus('Disconnected');
+});
+
+// LISTEN FOR TITLE UPDATES
+socket.on('room-update', ({ streamTitle }) => {
+  if (headerTitle) headerTitle.textContent = streamTitle || 'Rebel Stream';
+  document.title = streamTitle || 'Rebel Stream';
 });
 
 // Stream offer from host
@@ -89,15 +92,6 @@ socket.on('webrtc-offer', async ({ sdp }) => {
       if (viewerVideo && viewerVideo.srcObject !== stream) {
         viewerVideo.srcObject = stream;
         setStatus('LIVE');
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (!pc) return;
-      if (pc.connectionState === 'disconnected' ||
-          pc.connectionState === 'failed' ||
-          pc.connectionState === 'closed') {
-        setStatus('Disconnected');
       }
     };
 
@@ -127,7 +121,7 @@ socket.on('chat-message', ({ name, text, ts }) => {
   appendChat(name, text, ts);
 });
 
-// VIEWER CHAT SEND (marked as fromViewer: true, uses chosen name)
+// VIEWER CHAT SEND
 function sendChat() {
   if (!chatInput || !currentRoom) return;
   const text = chatInput.value.trim();
@@ -140,19 +134,14 @@ function sendChat() {
     fromViewer: true
   });
 
-  // Show my message with myName, same style as everyone
   appendChat(myName, text);
   chatInput.value = '';
 }
 
-if (sendBtn) {
-  sendBtn.addEventListener('click', sendChat);
-}
-if (chatInput) {
-  chatInput.addEventListener('keydown', (e) => {
+if (sendBtn) sendBtn.addEventListener('click', sendChat);
+if (chatInput) chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChat();
-  });
-}
+});
 if (emojiStrip) {
   emojiStrip.addEventListener('click', (e) => {
     if (e.target.classList.contains('emoji')) {
