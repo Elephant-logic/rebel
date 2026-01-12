@@ -9,179 +9,80 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// Serve the public folder
-app.use(express.static(path.join(__dirname, 'public')));
+// ---- Static files (public folder) ----
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// ------- ROOM STATE (host, lock, users) -------
+app.use(express.static(PUBLIC_DIR));
 
-/**
- * rooms: Map<roomName, {
- *   hostId: string,
- *   locked: boolean,
- *   users: Map<socketId, name>
- * }>
- */
-const rooms = new Map();
+app.get('/', (req, res) => {
+  // This fixes the "Cannot GET /" – always serve index.html from /public
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
 
-function getOrCreateRoom(roomName) {
-  let room = rooms.get(roomName);
-  if (!room) {
-    room = {
-      hostId: null,
-      locked: false,
-      users: new Map()
-    };
-    rooms.set(roomName, room);
-  }
-  return room;
-}
-
-function broadcastRoomState(roomName) {
-  const room = rooms.get(roomName);
-  if (!room) return;
-
-  const users = Array.from(room.users.entries()).map(([id, name]) => ({
-    id,
-    name: name || 'Anon'
-  }));
-
-  io.to(roomName).emit('room-state', {
-    room: roomName,
-    hostId: room.hostId,
-    locked: room.locked,
-    users
-  });
-}
-
-// ------- SOCKET.IO -------
-
+// ---- Socket / signalling ----
 io.on('connection', (socket) => {
-  socket.data.room = null;
-  socket.data.name = 'Anon';
-
-  // Join room
+  // join a room
   socket.on('join-room', ({ room, name }) => {
     if (!room) return;
-    const roomName = room.trim();
-    const displayName = (name && name.trim()) || 'Anon';
+    socket.join(room);
+    socket.data.room = room;
+    socket.data.name = name || 'Anon';
 
-    const r = getOrCreateRoom(roomName);
-
-    // If locked and this socket is not already in
-    if (r.locked && !r.users.has(socket.id)) {
-      socket.emit('room-locked', { room: roomName });
-      return;
-    }
-
-    // Leave previous room if different
-    if (socket.data.room && socket.data.room !== roomName) {
-      socket.leave(socket.data.room);
-    }
-
-    socket.join(roomName);
-    socket.data.room = roomName;
-    socket.data.name = displayName;
-
-    r.users.set(socket.id, displayName);
-    if (!r.hostId) {
-      r.hostId = socket.id; // first in becomes host
-    }
-
-    // Tell others someone joined (used by host to re-offer stream)
-    socket.to(roomName).emit('user-joined', {
+    // tell others in the room someone joined (host uses this to restart stream)
+    socket.to(room).emit('user-joined', {
       id: socket.id,
-      name: displayName
+      name: socket.data.name
     });
-
-    broadcastRoomState(roomName);
   });
 
-  // Host toggles lock
-  socket.on('toggle-lock', ({ room }) => {
-    if (!room) return;
-    const r = rooms.get(room);
-    if (!r) return;
-    if (r.hostId !== socket.id) return; // only host can lock/unlock
-
-    r.locked = !r.locked;
-    broadcastRoomState(room);
-  });
-
-  // WebRTC signalling
+  // Host -> viewers: offer
   socket.on('webrtc-offer', (data) => {
+    // { room, sdp }
     if (!data || !data.room || !data.sdp) return;
-    socket.to(data.room).emit('webrtc-offer', {
-      room: data.room,
-      sdp: data.sdp
-    });
+    socket.to(data.room).emit('webrtc-offer', { sdp: data.sdp });
   });
 
+  // Viewer -> host: answer
   socket.on('webrtc-answer', (data) => {
+    // { room, sdp }
     if (!data || !data.room || !data.sdp) return;
-    socket.to(data.room).emit('webrtc-answer', {
-      room: data.room,
-      sdp: data.sdp
-    });
+    socket.to(data.room).emit('webrtc-answer', { sdp: data.sdp });
   });
 
+  // ICE both ways
   socket.on('webrtc-ice-candidate', (data) => {
+    // { room, candidate }
     if (!data || !data.room || !data.candidate) return;
     socket.to(data.room).emit('webrtc-ice-candidate', {
-      room: data.room,
       candidate: data.candidate
     });
   });
 
-  // Chat – send to EVERYONE in the room, with senderId, so
-  // host & joiner both see messages and we can mark "You"
+  // Chat relay
   socket.on('chat-message', (data) => {
+    // { room, name, text }
     if (!data || !data.room || !data.text) return;
-    const roomName = data.room;
-    const r = rooms.get(roomName);
-    if (!r) return;
-
-    const payload = {
-      room: roomName,
-      name: data.name || r.users.get(socket.id) || 'Anon',
+    socket.to(data.room).emit('chat-message', {
+      name: data.name || 'Anon',
       text: data.text,
-      ts: Date.now(),
-      senderId: socket.id
-    };
-
-    io.to(roomName).emit('chat-message', payload);
+      ts: Date.now()
+    });
   });
 
-  // Files – just relay to others (host keeps local "You" label)
+  // File relay
   socket.on('file-share', (data) => {
     if (!data || !data.room) return;
     socket.to(data.room).emit('file-share', data);
   });
 
   socket.on('disconnect', () => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-
-    const r = rooms.get(roomName);
-    if (!r) return;
-
-    r.users.delete(socket.id);
-
-    // If host left, move host to first remaining user
-    if (r.hostId === socket.id) {
-      const firstUser = r.users.keys().next();
-      r.hostId = firstUser.done ? null : firstUser.value;
-    }
-
-    // Clean up empty room
-    if (r.users.size === 0) {
-      rooms.delete(roomName);
-    } else {
-      socket.to(roomName).emit('user-left', { id: socket.id });
-      broadcastRoomState(roomName);
+    const room = socket.data.room;
+    if (room) {
+      socket.to(room).emit('user-left', { id: socket.id });
     }
   });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Rebel server running on ${PORT}`);
+  console.log(`Rebel server running on port ${PORT}`);
 });
