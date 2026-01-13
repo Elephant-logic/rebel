@@ -11,8 +11,8 @@ const server = http.createServer(app);
 // FIX: 1MB limit prevents crashes. PingTimeout kills laggy connections.
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 1e6, 
-  pingTimeout: 10000,     
+  maxHttpBufferSize: 1e6, // 1 MB limit per message
+  pingTimeout: 10000,     // Drop connection if no pong within 10s
   pingInterval: 25000
 });
 
@@ -66,7 +66,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // FIX: Input Sanitization
+    // FIX: Enforce length limits
     const roomName = room.trim().slice(0, 50); 
     const rawName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
     const displayName = rawName.slice(0, 30); 
@@ -139,7 +139,7 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --- STREAMING SIGNALS (Host -> Viewer) ---
+  // --- STREAMING SIGNALS ---
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
@@ -152,7 +152,7 @@ io.on('connection', (socket) => {
     if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
-  // --- CALLING SIGNALS (P2P) ---
+  // --- CALLING SIGNALS ---
   socket.on('ring-user', (targetId) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
@@ -221,7 +221,7 @@ io.on('connection', (socket) => {
 
     info.users.delete(socket.id);
 
-    // Host Migration Logic
+    // Host Migration
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       info.locked = false;
