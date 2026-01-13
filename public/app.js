@@ -6,7 +6,7 @@ let userName = 'User';
 let myId = null;
 let iAmHost = false;
 
-// STREAM PC (for host → viewers)
+// STREAM PC (for host -> viewers)
 let pc = null;
 let isStreaming = false;
 let broadcastStream = null;
@@ -87,6 +87,126 @@ function setSignal(connected) {
   signalStatus.className = connected ? 'status-dot status-connected' : 'status-dot status-disconnected';
 }
 
+// --- DEVICE SETTINGS (FIXED) ---
+if (settingsBtn) {
+  settingsBtn.addEventListener('click', () => {
+    const isHidden = settingsPanel.style.display === 'none';
+    settingsPanel.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) getDevices(); // Refresh list when opening
+  });
+}
+
+if (closeSettingsBtn) {
+  closeSettingsBtn.addEventListener('click', () => {
+    settingsPanel.style.display = 'none';
+  });
+}
+
+async function getDevices() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    console.log("enumerateDevices() not supported.");
+    return;
+  }
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    
+    // Clear existing
+    audioSource.innerHTML = '';
+    videoSource.innerHTML = '';
+
+    devices.forEach(device => {
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      
+      if (device.kind === 'audioinput') {
+        option.text = device.label || `Microphone ${audioSource.length + 1}`;
+        audioSource.appendChild(option);
+      } else if (device.kind === 'videoinput') {
+        option.text = device.label || `Camera ${videoSource.length + 1}`;
+        videoSource.appendChild(option);
+      }
+    });
+
+    // Set current selection if stream exists
+    if (localStream) {
+      const audioTrack = localStream.getAudioTracks()[0];
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (audioTrack) {
+        const settings = audioTrack.getSettings();
+        if (settings.deviceId) audioSource.value = settings.deviceId;
+      }
+      if (videoTrack) {
+        const settings = videoTrack.getSettings();
+        if (settings.deviceId) videoSource.value = settings.deviceId;
+      }
+    }
+  } catch (e) {
+    console.error("Error listing devices:", e);
+  }
+}
+
+// Switch devices when selection changes
+audioSource.addEventListener('change', startLocalMedia);
+videoSource.addEventListener('change', startLocalMedia);
+
+
+// --- MEDIA HANDLING (FIXED) ---
+async function startLocalMedia() {
+  // If we have a stream, stop it first to release the device
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+  }
+
+  const audioSourceId = audioSource.value;
+  const videoSourceId = videoSource.value;
+
+  const constraints = {
+    audio: { deviceId: audioSourceId ? { exact: audioSourceId } : undefined },
+    video: { deviceId: videoSourceId ? { exact: videoSourceId } : undefined }
+  };
+
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    localVideo.srcObject = localStream;
+    localVideo.muted = true; // Avoid local echo
+
+    // If we are currently streaming/broadcasting, we need to update the peer connection
+    if (isStreaming && pc) {
+       replaceStreamTracks(pc, localStream);
+    }
+    
+    // Enable the "End Call" button since media is active
+    if (hangupBtn) hangupBtn.disabled = false;
+
+    // Refresh device list in case labels were missing before permission
+    getDevices();
+  } catch (e) {
+    console.error("Media Access Error:", e);
+    // If error (e.g. camera busy), fallback to simple constraints
+    if (constraints.video.deviceId) {
+        console.warn("Retrying with default constraints...");
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            localVideo.srcObject = localStream;
+        } catch(err) { alert("Could not start camera/mic"); }
+    }
+  }
+}
+
+// Helper to swap tracks in a live connection without dropping it
+function replaceStreamTracks(peerConnection, newStream) {
+    const videoTrack = newStream.getVideoTracks()[0];
+    const audioTrack = newStream.getAudioTracks()[0];
+
+    const senders = peerConnection.getSenders();
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+    const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+
+    if (videoSender && videoTrack) videoSender.replaceTrack(videoTrack);
+    if (audioSender && audioTrack) audioSender.replaceTrack(audioTrack);
+}
+
 // --- VIDEO GRID MANAGEMENT ---
 function addRemoteVideo(id, stream, name) {
   let existing = document.getElementById(`vid-${id}`);
@@ -151,7 +271,7 @@ socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
 
 socket.on('kicked', () => { alert('Kicked by host'); window.location.reload(); });
 socket.on('ring-alert', ({ from, fromId }) => {
-    if(confirm(`🔔 ${from} is calling you! Accept?`)) {
+    if(confirm(`📞 ${from} is calling you! Accept?`)) {
         callPeer(fromId);
     }
 });
@@ -162,7 +282,6 @@ socket.on('user-joined', ({ id, name }) => {
   if (iAmHost && isStreaming) reofferStream().catch(console.error);
 });
 
-// --- CRITICAL MISSING HANDSHAKE HANDLERS (FIX FOR STREAM) ---
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) {
     try {
@@ -198,24 +317,11 @@ joinBtn.addEventListener('click', () => {
   url.search = `?room=${encodeURIComponent(room)}`;
   streamLinkInput.value = url.toString();
   
-  ensureLocalStream();
+  // Start media immediately upon join
+  startLocalMedia();
 });
 
 leaveBtn.addEventListener('click', () => window.location.reload());
-
-// --- MEDIA HANDLING ---
-async function ensureLocalStream() {
-  if (localStream) return localStream;
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    localVideo.srcObject = localStream;
-    localVideo.muted = true; 
-  } catch (e) {
-    console.error("Media Error", e);
-    alert("Could not access camera/mic");
-  }
-  return localStream;
-}
 
 // --- CALL LOGIC ---
 function createCallPC(targetId, targetName) {
@@ -236,29 +342,32 @@ function createCallPC(targetId, targetName) {
 }
 
 async function callPeer(targetId) {
-  const stream = await ensureLocalStream();
+  if (!localStream) await startLocalMedia();
   const peerEl = document.querySelector(`[data-userid="${targetId}"]`);
   const peerName = peerEl ? peerEl.dataset.username : "Peer";
   const cp = createCallPC(targetId, peerName); 
   
-  stream.getTracks().forEach(t => cp.addTrack(t, stream));
+  localStream.getTracks().forEach(t => cp.addTrack(t, localStream));
 
   const offer = await cp.createOffer();
   await cp.setLocalDescription(offer);
   socket.emit('call-offer', { targetId, offer });
+  
+  hangupBtn.disabled = false;
 }
 
 socket.on('incoming-call', async ({ from, name, offer }) => {
-  const stream = await ensureLocalStream();
+  if (!localStream) await startLocalMedia();
   const cp = createCallPC(from, name);
 
   await cp.setRemoteDescription(new RTCSessionDescription(offer));
-  stream.getTracks().forEach(t => cp.addTrack(t, stream));
+  localStream.getTracks().forEach(t => cp.addTrack(t, localStream));
 
   const answer = await cp.createAnswer();
   await cp.setLocalDescription(answer);
 
   socket.emit('call-answer', { targetId: from, answer });
+  hangupBtn.disabled = false;
 });
 
 socket.on('call-answer', async ({ from, answer }) => {
@@ -306,7 +415,7 @@ async function startBroadcast() {
   }
   if (isScreenSharing && screenStream) streamToSend = screenStream;
 
-  if (!streamToSend) streamToSend = await ensureLocalStream();
+  if (!streamToSend) streamToSend = await startLocalMedia();
   broadcastStream = streamToSend;
 
   broadcastStream.getTracks().forEach(t => pc.addTrack(t, broadcastStream));
@@ -316,7 +425,7 @@ async function startBroadcast() {
   socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
   
   isStreaming = true;
-  startStreamBtn.textContent = "Streaming (Live)";
+  startStreamBtn.textContent = "Live Streaming 🔴";
   startStreamBtn.classList.add('danger');
   hangupBtn.disabled = false;
 }
@@ -332,16 +441,19 @@ async function reofferStream() {
 
 if (startStreamBtn) startStreamBtn.addEventListener('click', startBroadcast);
 
-// --- MISSING BUTTON LISTENERS (FIX FOR CONTROLS) ---
+
+// --- BUTTON LISTENERS ---
 
 // Toggle Camera
 if (toggleCamBtn) {
   toggleCamBtn.addEventListener('click', () => {
     if (!localStream) return;
     const track = localStream.getVideoTracks()[0];
-    track.enabled = !track.enabled;
-    toggleCamBtn.textContent = track.enabled ? 'Camera Off' : 'Camera On';
-    toggleCamBtn.classList.toggle('danger', !track.enabled);
+    if (track) {
+      track.enabled = !track.enabled;
+      toggleCamBtn.textContent = track.enabled ? 'Camera Off' : 'Camera On';
+      toggleCamBtn.classList.toggle('danger', !track.enabled);
+    }
   });
 }
 
@@ -350,9 +462,11 @@ if (toggleMicBtn) {
   toggleMicBtn.addEventListener('click', () => {
     if (!localStream) return;
     const track = localStream.getAudioTracks()[0];
-    track.enabled = !track.enabled;
-    toggleMicBtn.textContent = track.enabled ? 'Mute' : 'Unmute';
-    toggleMicBtn.classList.toggle('danger', !track.enabled);
+    if (track) {
+      track.enabled = !track.enabled;
+      toggleMicBtn.textContent = track.enabled ? 'Mute' : 'Unmute';
+      toggleMicBtn.classList.toggle('danger', !track.enabled);
+    }
   });
 }
 
@@ -361,7 +475,7 @@ if (shareScreenBtn) {
   shareScreenBtn.addEventListener('click', async () => {
     if (!isScreenSharing) {
       try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         isScreenSharing = true;
         shareScreenBtn.textContent = 'Stop Screen';
         shareScreenBtn.classList.add('danger');
@@ -369,7 +483,7 @@ if (shareScreenBtn) {
         // Show locally
         localVideo.srcObject = screenStream;
         
-        // If streaming, replace track
+        // If streaming, replace video track
         if (isStreaming && pc) {
              const sender = pc.getSenders().find(s => s.track.kind === 'video');
              if (sender) sender.replaceTrack(screenStream.getVideoTracks()[0]);
@@ -399,10 +513,10 @@ function stopScreenShare() {
   }
 }
 
-// Hang Up / Stop Stream
+// --- END CALL / HANG UP (FIXED) ---
 if (hangupBtn) {
   hangupBtn.addEventListener('click', () => {
-    // 1. Stop Stream if active
+    // 1. Stop Broadcast
     if (isStreaming) {
       if (pc) pc.close();
       pc = null;
@@ -414,10 +528,21 @@ if (hangupBtn) {
     // 2. Stop Screen Share
     stopScreenShare();
 
-    // 3. End all P2P calls
+    // 3. End P2P Calls
     Object.keys(callPeers).forEach(id => endPeerCall(id));
-    
+
+    // 4. Stop Local Media (Camera/Mic)
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+    }
+    localVideo.srcObject = null;
+
+    // 5. Reset UI
     hangupBtn.disabled = true;
+    // We don't restart media automatically here, user must click Start Stream or Call again
+    // But to keep UI clean, we can restart a fresh local preview
+    setTimeout(startLocalMedia, 1000); 
   });
 }
 
@@ -440,7 +565,7 @@ if (sendBtn) sendBtn.addEventListener('click', () => {
     chatInput.value = '';
 });
 
-// --- EMOJI FIX ---
+// Emojis
 if (emojiStrip) {
   emojiStrip.addEventListener('click', (e) => {
     if (e.target.classList.contains('emoji')) {
