@@ -16,256 +16,323 @@ let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
 
-// STREAM VIEWERS
+// STREAM PC (for host → viewers)
 const viewerPeers = {};
+
+// CALL PEERS (for multi-call)
 const callPeers = {};
 const remoteStreams = {};
 
-let isStreaming = false;
+// ICE
+const ICE_SERVERS = (typeof ICE_CONFIG !== 'undefined' && ICE_CONFIG) ? ICE_CONFIG : [
+    { urls: 'stun:stun.l.google.com:19302' }
+];
 
-// DOM UTILS
-const $ = id => document.getElementById(id);
+const iceConfig = { iceServers: ICE_SERVERS };
+
+// DOM helper
+const $ = (id) => document.getElementById(id);
 
 // TABS
-const tabs = {
-    stream: $('tabStream'),
-    room: $('tabRoom'),
-    files: $('tabFiles'),
-    users: $('tabUsers'),
-};
+const tabStream = $('tabStreamChat');
+const tabRoom   = $('tabRoomChat');
+const tabFiles  = $('tabFiles');
+const tabUsers  = $('tabUsers');
 
-function switchTab(tabName) {
-    const contents = {
-        stream: $('contentStreamChat'),
-        room: $('contentRoomChat'),
-        files: $('contentFiles'),
-        users: $('contentUsers'),
-    };
-    Object.values(contents).forEach(c => c.classList.remove('active'));
-    Object.values(tabs).forEach(b => b.classList.remove('active', 'has-new'));
+const contentStream = $('contentStreamChat');
+const contentRoom   = $('contentRoomChat');
+const contentFiles  = $('contentFiles');
+const contentUsers  = $('contentUsers');
 
-    if (contents[tabName]) contents[tabName].classList.add('active');
-    if (tabs[tabName]) tabs[tabName].classList.add('active');
+function setActiveTab(tabName) {
+    [tabStream, tabRoom, tabFiles, tabUsers].forEach(btn => btn && btn.classList.remove('active'));
+    [contentStream, contentRoom, contentFiles, contentUsers].forEach(c => c && c.classList.remove('active'));
 
-    activeChatMode = (tabName === 'stream') ? 'public' : (tabName === 'room' ? 'private' : activeChatMode);
+    if (tabName === 'stream') {
+        tabStream && tabStream.classList.add('active');
+        contentStream && contentStream.classList.add('active');
+        activeChatMode = 'public';
+    } else if (tabName === 'room') {
+        tabRoom && tabRoom.classList.add('active');
+        contentRoom && contentRoom.classList.add('active');
+        activeChatMode = 'private';
+    } else if (tabName === 'files') {
+        tabFiles && tabFiles.classList.add('active');
+        contentFiles && contentFiles.classList.add('active');
+    } else if (tabName === 'users') {
+        tabUsers && tabUsers.classList.add('active');
+        contentUsers && contentUsers.classList.add('active');
+    }
 }
-if (tabs.stream) tabs.stream.onclick = () => switchTab('stream');
-if (tabs.room) tabs.room.onclick = () => switchTab('room');
-if (tabs.files) tabs.files.onclick = () => switchTab('files');
-if (tabs.users) tabs.users.onclick = () => switchTab('users');
 
+if (tabStream) tabStream.addEventListener('click', () => setActiveTab('stream'));
+if (tabRoom)   tabRoom.addEventListener('click',   () => setActiveTab('room'));
+if (tabFiles)  tabFiles.addEventListener('click',  () => setActiveTab('files'));
+if (tabUsers)  tabUsers.addEventListener('click',  () => setActiveTab('users'));
 
-// --- SETTINGS ---
-const settingsPanel = $('settingsPanel');
-const audioSource = $('audioSource');
-const videoSource = $('videoSource');
+// Settings panel
+const settingsPanel  = $('settingsPanel');
+const settingsBtn    = $('settingsBtn');
+const closeSettingsBtn = $('closeSettingsBtn');
+const audioSource    = $('audioSource');
+const videoSource    = $('videoSource');
+const applySettingsBtn = $('applySettingsBtn');
 
-if ($('settingsBtn')) {
-    $('settingsBtn').addEventListener('click', () => {
-        const isHidden = settingsPanel.style.display === 'none' || settingsPanel.style.display === '';
-        settingsPanel.style.display = isHidden ? 'block' : 'none';
-        if (isHidden) getDevices();
+if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+        settingsPanel.style.display = 'block';
+        getDevices();
+    });
+}
+if (closeSettingsBtn) {
+    closeSettingsBtn.addEventListener('click', () => {
+        settingsPanel.style.display = 'none';
+    });
+}
+if (applySettingsBtn) {
+    applySettingsBtn.addEventListener('click', async () => {
+        await startLocalMedia(true);
+        settingsPanel.style.display = 'none';
     });
 }
 
 async function getDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         audioSource.innerHTML = '';
         videoSource.innerHTML = '';
-
-        devices.forEach(device => {
+        devices.forEach(d => {
             const opt = document.createElement('option');
-            opt.value = device.deviceId;
-            opt.textContent = device.label || `${device.kind} device`;
-            if (device.kind === 'audioinput') audioSource.appendChild(opt);
-            if (device.kind === 'videoinput') videoSource.appendChild(opt);
+            opt.value = d.deviceId;
+            opt.text = d.label || `${d.kind} - ${d.deviceId.slice(0, 5)}`;
+            if (d.kind === 'audioinput') audioSource.appendChild(opt);
+            if (d.kind === 'videoinput') videoSource.appendChild(opt);
         });
+        if (localStream) {
+            const at = localStream.getAudioTracks()[0];
+            const vt = localStream.getVideoTracks()[0];
+            if (at && at.getSettings().deviceId) audioSource.value = at.getSettings().deviceId;
+            if (vt && vt.getSettings().deviceId) videoSource.value = vt.getSettings().deviceId;
+        }
     } catch (e) {
-        console.error('Error getting devices', e);
+        console.error(e);
     }
 }
+if (audioSource) audioSource.onchange = () => startLocalMedia(true);
+if (videoSource) videoSource.onchange = () => startLocalMedia(true);
 
-async function getMedia(useScreen = false) {
-    if (useScreen) {
-        return await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-    }
-    const constraints = {
-        audio: audioSource.value ? { deviceId: { exact: audioSource.value } } : true,
-        video: videoSource.value ? { deviceId: { exact: videoSource.value } } : true
-    };
-    return await navigator.mediaDevices.getUserMedia(constraints);
-}
-
-const localVideo = $('localVideo');
-const startCamBtn = $('startCamBtn');
+// --- MEDIA FUNCTIONS ---
+const localVideo   = $('localVideo');
+const toggleCamBtn = $('toggleCamBtn');
 const toggleMicBtn = $('toggleMicBtn');
-const screenShareBtn = $('screenShareBtn');
+const startCallBtn = $('startCallBtn');
+const hangupBtn    = $('hangupBtn');
+const shareScreenBtn = $('shareScreenBtn');
 
-if (startCamBtn) startCamBtn.onclick = async () => {
+async function startLocalMedia(force = false) {
     try {
-        if (!localStream) {
-            localStream = await getMedia(false);
-            localVideo.srcObject = localStream;
+        if (!localStream || force) {
+            const constraints = {
+                audio: audioSource && audioSource.value ? { deviceId: { exact: audioSource.value } } : true,
+                video: videoSource && videoSource.value ? { deviceId: { exact: videoSource.value } } : true
+            };
+            localStream = await navigator.mediaDevices.getUserMedia(constraints);
+            if (localVideo) localVideo.srcObject = localStream;
+            updateMediaButtons();
         }
-    } catch (err) {
-        console.error('Error starting camera', err);
+    } catch (e) {
+        console.error('Error starting media', e);
+        alert('Could not start camera/mic.');
     }
-};
+}
 
-if (toggleMicBtn) toggleMicBtn.onclick = () => {
+function updateMediaButtons() {
     if (!localStream) return;
-    const audioTracks = localStream.getAudioTracks();
-    if (audioTracks.length === 0) return;
-    const enabled = audioTracks[0].enabled;
-    audioTracks.forEach(t => t.enabled = !enabled);
-    toggleMicBtn.textContent = enabled ? '🎙️ Unmute' : '🎙️ Mute';
-};
+    const aTrack = localStream.getAudioTracks()[0];
+    const vTrack = localStream.getVideoTracks()[0];
+    if (toggleCamBtn) {
+        toggleCamBtn.textContent = (vTrack && vTrack.enabled) ? 'Camera On' : 'Camera Off';
+        toggleCamBtn.classList.toggle('danger', !(vTrack && vTrack.enabled));
+    }
+    if (toggleMicBtn) {
+        toggleMicBtn.textContent = (aTrack && aTrack.enabled) ? 'Mute' : 'Unmute';
+        toggleMicBtn.classList.toggle('danger', !(aTrack && aTrack.enabled));
+    }
+}
 
-if (screenShareBtn) screenShareBtn.onclick = async () => {
-    try {
-        if (!screenStream) {
-            screenStream = await getMedia(true);
-            isScreenSharing = true;
-            if (isStreaming) {
-                Object.values(viewerPeers).forEach(pc => {
-                    pc.getSenders().forEach(s => {
-                        if (s.track && s.track.kind === 'video') {
-                            s.replaceTrack(screenStream.getVideoTracks()[0]);
-                        }
-                    });
-                });
+// --- BUTTON LISTENERS ---
+if (toggleMicBtn) {
+    toggleMicBtn.addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        if (!track) return;
+        track.enabled = !track.enabled;
+        updateMediaButtons();
+    });
+}
+
+if (toggleCamBtn) {
+    toggleCamBtn.addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getVideoTracks()[0];
+        if (!track) return;
+        track.enabled = !track.enabled;
+        updateMediaButtons();
+    });
+}
+
+if (shareScreenBtn) {
+    shareScreenBtn.addEventListener('click', async () => {
+        try {
+            if (!screenStream) {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                isScreenSharing = true;
+            } else {
+                screenStream = null;
+                isScreenSharing = false;
             }
-        } else {
-            isScreenSharing = false;
-            screenStream = null;
-            if (isStreaming && localStream) {
-                Object.values(viewerPeers).forEach(pc => {
-                    pc.getSenders().forEach(s => {
-                        if (s.track && s.track.kind === 'video') {
-                            s.replaceTrack(localStream.getVideoTracks()[0]);
-                        }
-                    });
-                });
-            }
+
+            // Update any existing viewer/call PC with screen vs camera
+            const stream = isScreenSharing ? screenStream : localStream;
+            if (!stream) return;
+
+            const camTrack = stream.getVideoTracks()[0];
+            const updatePC = (pc) => {
+                if (!pc) return;
+                const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (sender && camTrack) sender.replaceTrack(camTrack);
+            };
+            Object.values(viewerPeers).forEach(updatePC);
+            Object.values(callPeers).forEach(p => updatePC(p.pc));
+        } catch (e) {
+            console.error('screen share error', e);
         }
-    } catch (err) {
-        console.error('Error toggling screen share', err);
-    }
-};
+    });
+}
 
-// --- ROOM JOIN ---
-const roomInput = $('roomInput');
-const nameInput = $('nameInput');
-const joinBtn = $('joinBtn');
-const roomStatus = $('roomStatus');
+// --- CALLING (P2P) ---
+if (startCallBtn) {
+    startCallBtn.addEventListener('click', async () => {
+        if (!currentRoom) return alert('Join a room first');
+        await startLocalMedia();
+        hangupBtn && (hangupBtn.disabled = false);
+    });
+}
 
-if (joinBtn) joinBtn.onclick = () => {
-    const room = roomInput.value.trim();
-    const name = nameInput.value.trim();
-    if (!room) {
-        alert('Enter a room name');
-        return;
-    }
-    currentRoom = room;
-    userName = name || 'User';
-    roomStatus.textContent = `Joining ${room}...`;
+if (hangupBtn) {
+    hangupBtn.addEventListener('click', () => {
+        Object.keys(callPeers).forEach(endPeerCall);
+        hangupBtn.disabled = true;
+    });
+}
 
-    socket.connect();
-    socket.emit('join-room', { room, name: userName });
-};
-
-socket.on('room-error', (msg) => {
-    roomStatus.textContent = msg;
-});
-
-socket.on('role', ({ isHost, streamTitle }) => {
-    iAmHost = isHost;
-    const localContainer = $('localContainer');
-    if (localContainer) {
-        localContainer.querySelector('h2').textContent = isHost ? 'You (Host) 👑' : 'You';
-    }
-    const hostControls = $('hostControls');
-    if (hostControls) hostControls.style.display = isHost ? 'block' : 'none';
-
-    if (streamTitle) {
-        $('headerTitle').textContent = `Rebel Messenger — ${streamTitle}`;
+socket.on('ring-alert', async ({ from, fromId }) => {
+    if (confirm(`📞 Incoming call from ${from}. Accept?`)) {
+        await callPeer(fromId);
     }
 });
 
-socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
-    latestUserList = users;
-    currentOwnerId = ownerId;
-    if ($('lockRoomBtn')) {
-        $('lockRoomBtn').textContent = locked ? '🔒 Unlock Room' : '🔓 Lock Room';
-        $('lockRoomBtn').onclick = () => { if(iAmHost) socket.emit('lock-room', !locked); };
-    }
+async function callPeer(targetId) {
+    if (!localStream) await startLocalMedia();
+    const pc = new RTCPeerConnection(iceConfig);
+    callPeers[targetId] = { pc, name: "Peer" };
+    pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
+    pc.ontrack = e => addRemoteVideo(targetId, e.streams[0]);
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('call-offer', { targetId, offer });
+    renderUserList();
+}
+
+socket.on('incoming-call', async ({ from, name, offer }) => {
+    if (!localStream) await startLocalMedia();
+    const pc = new RTCPeerConnection(iceConfig);
+    callPeers[from] = { pc, name };
+    pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
+    pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('call-answer', { targetId: from, answer });
     renderUserList();
 });
 
-socket.on('user-joined', ({ id, name }) => {
-    appendChat($('chatLogPrivate'), 'System', `${name} joined room`, Date.now());
-    if (iAmHost && isStreaming) connectViewer(id);
+socket.on('call-answer', async ({ from, answer }) => {
+    const peer = callPeers[from];
+    if (!peer) return;
+    await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
 });
 
-socket.on('user-left', ({ id }) => {
-    appendChat($('chatLogPrivate'), 'System', `User ${id} left`, Date.now());
-    if (viewerPeers[id]) {
-        viewerPeers[id].close();
-        delete viewerPeers[id];
+socket.on('call-ice', async ({ from, candidate }) => {
+    const peer = callPeers[from];
+    if (!peer || !candidate) return;
+    try {
+        await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (e) {
+        console.error('Error adding ICE', e);
     }
+});
+
+socket.on('call-end', ({ from }) => {
+    endPeerCall(from);
+});
+
+function endPeerCall(id) {
+    const peer = callPeers[id];
+    if (peer && peer.pc) peer.pc.close();
+    delete callPeers[id];
     removeRemoteVideo(id);
     renderUserList();
-});
-
-// --- HOST CONTROLS UI ---
-if ($('lockRoomBtn')) {
-    $('lockRoomBtn').onclick = () => {
-        if (!iAmHost) return;
-        socket.emit('lock-room', true);
-    };
 }
 
-if ($('updateTitleBtn')) {
-    $('updateTitleBtn').onclick = () => {
-        if (!iAmHost) return;
-        const t = $('streamTitleInput').value.trim();
-        socket.emit('update-stream-title', t);
-    };
-}
+// --- STREAMING (HOST) ---
+const startStreamBtn   = $('startStreamBtn');
+const streamLinkInput  = $('streamLinkInput');
+const openStreamBtn    = $('openStreamBtn');
 
-if ($('startStreamBtn')) {
-    $('startStreamBtn').onclick = async () => {
-        if (!iAmHost) return;
-        if (!localStream) {
-            localStream = await getMedia(false);
-            localVideo.srcObject = localStream;
+let isStreaming = false;
+
+if (startStreamBtn) {
+    startStreamBtn.addEventListener('click', async () => {
+        if (!currentRoom || !iAmHost) return alert("Host only");
+
+        // TOGGLE LOGIC: STOP
+        if (isStreaming) {
+            isStreaming = false;
+            startStreamBtn.textContent = "Start Stream";
+            startStreamBtn.classList.remove('danger');
+            
+            // Close all viewer connections
+            Object.values(viewerPeers).forEach(pc => pc.close());
+            for (const k in viewerPeers) delete viewerPeers[k];
+            return;
         }
+
+        // TOGGLE LOGIC: START
+        if (!localStream) await startLocalMedia();
         isStreaming = true;
-        $('streamLinkInput').value = `${window.location.origin}/view.html?room=${encodeURIComponent(currentRoom)}`;
+        startStreamBtn.textContent = "Stop Stream";
+        startStreamBtn.classList.add('danger');
+
+        // Link uses slug or room
+        updateLink(currentRoom);
+
+        // Connect all existing users as viewers
         latestUserList.forEach(u => {
             if (u.id !== myId) connectViewer(u.id);
         });
-    };
+    });
 }
 
-if ($('stopStreamBtn')) {
-    $('stopStreamBtn').onclick = () => {
-        if (!iAmHost) return;
-        isStreaming = false;
-        Object.values(viewerPeers).forEach(pc => pc.close());
-        for (const k in viewerPeers) delete viewerPeers[k];
-    };
+if (openStreamBtn) {
+    openStreamBtn.addEventListener('click', () => {
+        if (!streamLinkInput || !streamLinkInput.value) return;
+        window.open(streamLinkInput.value, '_blank');
+    });
 }
-
-// --- VIEWER WEBRTC HELPERS ---
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
-  ? { iceServers: ICE_SERVERS }
-  : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-socket.on('connect', () => {
-    myId = socket.id;
-});
 
 socket.on('webrtc-answer', async ({ sdp, from }) => {
     const pc = viewerPeers[from];
@@ -302,79 +369,56 @@ async function connectViewer(targetId) {
     socket.emit('webrtc-offer', { targetId, sdp: offer });
 }
 
-// --- CALLING LOGIC (1:1) ---
-socket.on('ring-alert', ({ from, fromId }) => {
-    appendChat($('chatLogPrivate'), 'System', `Incoming ring from ${from}`, Date.now());
-});
+// --- ROOM JOIN / ROLE / LINK ---
+const roomInput = $('roomInput');
+const nameInput = $('nameInput');
+const joinBtn   = $('joinBtn');
+const roomStatus = $('roomStatus');
+const roomNameLabel = $('roomNameLabel');
+const youNameLabel  = $('youNameLabel');
+const roleLabel     = $('roleLabel');
 
-socket.on('incoming-call', async ({ from, name, offer }) => {
-    const accept = confirm(`Accept call from ${name}?`);
-    if (!accept) return;
-
-    let pc = callPeers[from];
-    if (!pc) {
-        pc = new RTCPeerConnection(iceConfig);
-        callPeers[from] = pc;
-    }
-    pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate });
-    };
-    pc.ontrack = e => attachRemoteStream(from, e.streams[0]);
-
-    if (!localStream) {
-        localStream = await getMedia(false);
-        localVideo.srcObject = localStream;
-    }
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    socket.emit('call-answer', { targetId: from, answer });
-});
-
-socket.on('call-answer', async ({ from, answer }) => {
-    const pc = callPeers[from];
-    if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-});
-
-socket.on('call-ice', async ({ from, candidate }) => {
-    const pc = callPeers[from];
-    if (pc && candidate) {
-        try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-            console.error('Call ICE error', err);
+if (joinBtn) {
+    joinBtn.addEventListener('click', () => {
+        const room = roomInput.value.trim();
+        const name = nameInput.value.trim();
+        if (!room) {
+            alert('Enter a room name');
+            return;
         }
-    }
+        currentRoom = room;
+        userName = name || 'User';
+        roomStatus.textContent = `Joining ${room}...`;
+
+        socket.connect();
+        socket.emit('join-room', { room, name: userName });
+    });
+}
+
+socket.on('room-error', (msg) => {
+    roomStatus.textContent = msg;
 });
 
-socket.on('call-end', ({ from }) => {
-    endPeerCall(from);
+socket.on('role', ({ isHost }) => {
+    iAmHost = isHost;
+    if (roleLabel) roleLabel.textContent = isHost ? 'Host 👑' : 'Guest';
+    if ($('localLabel')) $('localLabel').textContent = isHost ? 'You (Host 👑)' : 'You';
 });
 
-function attachRemoteStream(id, stream) {
-    remoteStreams[id] = stream;
-    addRemoteVideo(id, stream);
-}
-
-function endPeerCall(id) {
-    const pc = callPeers[id];
-    if (pc) {
-        pc.close();
-        delete callPeers[id];
+socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
+    latestUserList = users;
+    currentOwnerId = ownerId;
+    if (roomNameLabel && currentRoom) roomNameLabel.textContent = currentRoom;
+    if (youNameLabel && userName) youNameLabel.textContent = userName;
+    if ($('lockRoomBtn')) {
+        $('lockRoomBtn').textContent = locked ? '🔒 Unlock Room' : '🔓 Lock Room';
+        $('lockRoomBtn').onclick = () => { if(iAmHost) socket.emit('lock-room', !locked); };
     }
-    removeRemoteVideo(id);
-}
-
-if ($('endCallBtn')) {
-    $('endCallBtn').onclick = () => {
-        Object.keys(callPeers).forEach(endPeerCall);
-    };
-}
+    if (streamTitle && $('headerTitle')) {
+        $('headerTitle').textContent = `Rebel Messenger — ${streamTitle}`;
+    }
+    renderUserList();
+});
 
 // --- CHAT HELPERS ---
 function appendChat(log, name, text, ts) {
@@ -386,51 +430,58 @@ function appendChat(log, name, text, ts) {
 }
 
 // PUBLIC
-socket.on('public-chat', d => {
-    appendChat($('chatLogPublic'), d.name, d.text, d.ts);
-    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
-});
-$('btnSendPublic').addEventListener('click', () => {
-    const inp = $('inputPublic');
-    const text = inp.value.trim();
-    if(!text) return;
-    socket.emit('public-chat', { room: currentRoom, name: userName, text });
-    inp.value = '';
-});
-
-// PRIVATE
-socket.on('private-chat', d => {
-    appendChat($('chatLogPrivate'), d.name, d.text, d.ts);
-    if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
-});
-$('btnSendPrivate').addEventListener('click', () => {
-    const inp = $('inputPrivate');
-    const text = inp.value.trim();
-    if(!text) return;
-    socket.emit('private-chat', { room: currentRoom, name: userName, text });
-    inp.value = '';
-});
-
-// --- EMOJI LOGIC (FIXED) ---
+const chatLogPublic  = $('chatLogPublic');
+const inputPublic    = $('inputPublic');
+const btnSendPublic  = $('btnSendPublic');
 const emojiStripPublic = $('emojiStripPublic');
-const emojiStripPrivate = $('emojiStripPrivate');
 
-if (emojiStripPublic) {
-    emojiStripPublic.addEventListener('click', (e) => {
-        if (e.target.classList.contains('emoji')) {
-            const inp = $('inputPublic');
-            inp.value += e.target.textContent;
-            inp.focus();
-        }
+socket.on('public-chat', d => {
+    appendChat(chatLogPublic, d.name, d.text, d.ts);
+    if(!tabStream.classList.contains('active')) tabStream.classList.add('has-new');
+});
+
+if (btnSendPublic) {
+    btnSendPublic.addEventListener('click', () => {
+        const text = inputPublic.value.trim();
+        if(!text) return;
+        socket.emit('public-chat', { room: currentRoom, name: userName, text });
+        inputPublic.value = '';
     });
 }
+
+if (emojiStripPublic) {
+    emojiStripPublic.addEventListener('click', e => {
+        if (!e.target.classList.contains('emoji')) return;
+        inputPublic.value += e.target.textContent;
+        inputPublic.focus();
+    });
+}
+
+// PRIVATE
+const chatLogPrivate = $('chatLogPrivate');
+const inputPrivate   = $('inputPrivate');
+const btnSendPrivate = $('btnSendPrivate');
+const emojiStripPrivate = $('emojiStripPrivate');
+
+socket.on('private-chat', d => {
+    appendChat(chatLogPrivate, d.name, d.text, d.ts);
+    if(!tabRoom.classList.contains('active')) tabRoom.classList.add('has-new');
+});
+
+if (btnSendPrivate) {
+    btnSendPrivate.addEventListener('click', () => {
+        const text = inputPrivate.value.trim();
+        if(!text) return;
+        socket.emit('private-chat', { room: currentRoom, name: userName, text });
+        inputPrivate.value = '';
+    });
+}
+
 if (emojiStripPrivate) {
-    emojiStripPrivate.addEventListener('click', (e) => {
-        if (e.target.classList.contains('emoji')) {
-            const inp = $('inputPrivate');
-            inp.value += e.target.textContent;
-            inp.focus();
-        }
+    emojiStripPrivate.addEventListener('click', e => {
+        if (!e.target.classList.contains('emoji')) return;
+        inputPrivate.value += e.target.textContent;
+        inputPrivate.focus();
     });
 }
 
@@ -438,7 +489,7 @@ if (emojiStripPrivate) {
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
 const fileLog = $('fileLog');
-const fileNameLabel = $('fileNameLabel');
+const fileNameLabel = $('fileNameLabel'); // may be null if not in DOM
 
 if (fileInput && sendFileBtn) {
     fileInput.addEventListener('change', () => {
@@ -462,7 +513,7 @@ if (fileInput && sendFileBtn) {
                 name: userName,
                 fileName: file.name,
                 fileType: file.type || 'application/octet-stream',
-                fileData: reader.result,   // data:URL, server saves to /uploads
+                fileData: reader.result   // data:URL → server saves + turns into link
             });
             fileInput.value = '';
             if (fileNameLabel) fileNameLabel.textContent = 'No file selected';
@@ -474,7 +525,8 @@ if (fileInput && sendFileBtn) {
 
 socket.on('file-share', ({ name, fileName, fileData, fileUrl }) => {
     if (!fileLog) return;
-    const href = fileUrl || fileData; // prefer server URL
+    const href = fileUrl || fileData; // prefer server URL, fallback to data: URL
+
     const d = document.createElement('div');
     d.className = 'file-item';
     d.innerHTML = `
@@ -483,7 +535,7 @@ socket.on('file-share', ({ name, fileName, fileData, fileUrl }) => {
     `;
     fileLog.appendChild(d);
     fileLog.scrollTop = fileLog.scrollHeight;
-    if(!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
+    if(!tabFiles.classList.contains('active')) tabFiles.classList.add('has-new');
 });
 
 // --- RENDER USER LIST ---
@@ -527,9 +579,8 @@ function addRemoteVideo(id, stream) {
     const d = document.createElement('div');
     d.className = 'video-container'; d.id = `vid-${id}`;
     d.innerHTML = `<video autoplay playsinline></video>`;
-    const v = d.querySelector('video');
-    v.srcObject = stream;
-    $('remoteVideos').appendChild(d);
+    d.querySelector('video').srcObject = stream;
+    $('videoGrid').appendChild(d);
 }
 
 function removeRemoteVideo(id) {
@@ -537,11 +588,39 @@ function removeRemoteVideo(id) {
     if(el) el.remove();
 }
 
-window.ringUser = (id) => socket.emit('ring-user', id);
-window.endPeerCall = endPeerCall;
-window.kickUser = (id) => socket.emit('kick-user', id);
+// LEAVE BUTTON LOGIC
+if ($('leaveBtn')) {
+    $('leaveBtn').addEventListener('click', () => {
+        window.location.reload();
+    });
+}
 
-if ($('openStreamBtn')) $('openStreamBtn').addEventListener('click', () => {
-   const url = $('streamLinkInput').value;
-   if(url) window.open(url, '_blank');
+function updateLink(roomSlug) {
+    const url = new URL(window.location.href);
+    url.pathname = url.pathname.replace('index.html', '') + 'view.html';
+    url.search = `?room=${encodeURIComponent(roomSlug)}`;
+    $('streamLinkInput').value = url.toString();
+}
+if ($('updateSlugBtn')) $('updateSlugBtn').addEventListener('click', () => {
+    const slug = $('slugInput').value.trim();
+    if (slug) updateLink(slug);
 });
+
+socket.on('connect', () => {
+    myId = socket.id;
+});
+
+socket.on('user-joined', ({ id, name }) => {
+    appendChat(chatLogPrivate, 'System', `${name} joined room`, Date.now());
+    renderUserList();
+});
+
+socket.on('user-left', ({ id }) => {
+    appendChat(chatLogPrivate, 'System', `User ${id} left`, Date.now());
+    removeRemoteVideo(id);
+    renderUserList();
+});
+
+window.ringUser = (id) => socket.emit('ring-user', id);
+window.kickUser = (id) => socket.emit('kick-user', id);
+window.endPeerCall = endPeerCall;
