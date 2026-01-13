@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Rebel Messenger</title>
+  <title>Rebel Stream</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -10,8 +10,10 @@
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <h1 id="headerTitle">Rebel Messenger</h1>
-        <p class="subtitle">Secure P2P Platform</p>
+        <h1 id="headerTitle" class="logo-text">
+            Rebel <span class="logo-highlight">Stream</span>
+        </h1>
+        <p class="subtitle">Secure P2P • Live Stream • Chat • Arcade</p>
       </div>
       <div class="status-block">
         <span id="signalStatus" class="status-dot status-disconnected">Disconnected</span>
@@ -65,7 +67,7 @@
               [Empty]
             </div>
           </div>
-          </div>
+        </div>
       </aside>
 
       <section class="main-panel">
@@ -159,7 +161,6 @@
   </div>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="config/ice.js"></script>
-  
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
