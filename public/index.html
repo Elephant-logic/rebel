@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="style.css" />
   <style>
-    /* Chat Sub-tabs style */
     .chat-sub-tabs { display: flex; gap: 5px; padding: 0 4px; margin-bottom: 8px; }
     .sub-tab { flex: 1; background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; }
     .sub-tab.active { background: var(--panel-soft); color: var(--accent); border-color: var(--accent); }
@@ -42,11 +41,21 @@
 
         <div id="hostControls" class="host-controls">
           <h3 style="color:var(--accent); font-size:0.9rem; margin:0 0 10px;">👑 Host Controls</h3>
+          
           <div class="field">
             <label>Stream Title</label>
             <input id="streamTitleInput" class="stream-title-input" type="text" />
             <button id="updateTitleBtn" class="btn small secondary full-width">Update</button>
           </div>
+
+          <div class="field" style="margin-top:10px;">
+            <label>Custom Link Name (Slug)</label>
+            <div style="display:flex; gap:5px;">
+              <input id="slugInput" class="stream-title-input" type="text" placeholder="e.g. my-show" />
+              <button id="updateSlugBtn" class="btn small secondary">Set</button>
+            </div>
+          </div>
+
           <button id="lockRoomBtn" class="btn full-width" style="margin-top:10px;">🔓 Lock Room</button>
         </div>
       </aside>
