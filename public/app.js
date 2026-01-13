@@ -38,15 +38,10 @@ const contents = {
 };
 
 function switchTab(name) {
-    // Remove active class from all
     Object.values(tabs).forEach(t => t.classList.remove('active'));
     Object.values(contents).forEach(c => c.classList.remove('active'));
-    
-    // Add active class to selected
     tabs[name].classList.add('active');
     contents[name].classList.add('active');
-    
-    // Clear notification dots if any
     tabs[name].classList.remove('has-new');
 }
 
@@ -159,19 +154,66 @@ socket.on('user-left', ({ id }) => {
     endPeerCall(id, true);
 });
 
-// --- CALLING (P2P) ---
+// --- CALLING (RESTORED RING LOGIC) ---
+
+// 1. Receive Ring Alert
+socket.on('ring-alert', async ({ from, fromId }) => {
+    // Show confirmation
+    if (confirm(`📞 Incoming call from ${from}. Accept?`)) {
+        // If accepted, WE initiate the WebRTC connection back to them
+        await callPeer(fromId);
+    }
+});
+
+// 2. Start Call Connection
 async function callPeer(targetId) {
     if (!localStream) await startLocalMedia();
+    
+    // Create Peer Connection
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
+    
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(targetId, e.streams[0]);
+    
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('call-offer', { targetId, offer });
-    renderUserList();
+    
+    renderUserList(); // Update button to "End Call"
 }
+
+// 3. Handle Incoming Connection (Offer)
+socket.on('incoming-call', async ({ from, name, offer }) => {
+  // If we get an offer (meaning they accepted our ring or called back), answer it
+  if (!localStream) await startLocalMedia();
+  
+  const pc = new RTCPeerConnection(iceConfig);
+  callPeers[from] = { pc, name };
+  
+  pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
+  pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
+  
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit('call-answer', { targetId: from, answer });
+  
+  renderUserList();
+});
+
+socket.on('call-answer', async ({ from, answer }) => {
+    if (callPeers[from]) await callPeers[from].pc.setRemoteDescription(new RTCSessionDescription(answer));
+});
+socket.on('call-ice', ({ from, candidate }) => {
+    if (callPeers[from]) callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate));
+});
+socket.on('call-end', ({ from }) => endPeerCall(from, true));
+
 function endPeerCall(id, isIncomingSignal) {
   if (callPeers[id]) { try { callPeers[id].pc.close(); } catch(e){} }
   delete callPeers[id];
@@ -218,7 +260,6 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
 
 socket.on('role', ({ isHost }) => {
     iAmHost = isHost;
-    // Visual Feedback on "You"
     const localContainer = $('localContainer');
     if (localContainer) {
         localContainer.querySelector('h2').textContent = isHost ? 'You (Host) 👑' : 'You';
@@ -298,7 +339,6 @@ socket.on('file-share', ({ name, fileName, fileData }) => {
         <a href="${fileData}" download="${fileName}" class="btn small primary">Download</a>
     `;
     fileLog.appendChild(d);
-    // Notify Files Tab
     if(!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
 });
 
@@ -317,10 +357,14 @@ function renderUserList() {
         const div = document.createElement('div');
         div.className = 'user-item';
         
+        // Determine button state
         const isCalling = !!callPeers[u.id];
+        
+        // If already calling, show "End Call". If not, show "Ring/Call".
+        // Note: We use ringUser() here to start the flow.
         let actionBtn = isCalling 
             ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>`
-            : `<button onclick="callPeer('${u.id}')" class="action-btn">📞 Call</button>`;
+            : `<button onclick="ringUser('${u.id}')" class="action-btn">📞 Call</button>`;
         
         const kickBtn = iAmHost 
             ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` 
@@ -349,10 +393,10 @@ function removeRemoteVideo(id) {
     if(el) el.remove();
 }
 
-window.callPeer = callPeer;
+// EXPORT TO WINDOW FOR BUTTONS
+window.ringUser = (id) => socket.emit('ring-user', id);
 window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
-window.ringUser = (id) => socket.emit('ring-user', id);
 
 if ($('openStreamBtn')) $('openStreamBtn').addEventListener('click', () => {
    const url = $('streamLinkInput').value;
