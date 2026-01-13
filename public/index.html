@@ -64,7 +64,7 @@
                     <button id="addGuestBtn" class="btn small primary">+</button>
                 </div>
                 <div id="guestListDisplay" style="margin-top:5px; max-height:80px; overflow-y:auto; display:flex; flex-wrap:wrap; gap:4px;">
-                    </div>
+                </div>
             </div>
           </div>
 
@@ -87,17 +87,37 @@
       </aside>
 
       <section class="main-panel">
+        
         <div id="settingsPanel" class="settings-panel">
-          <h3>Device Settings</h3>
+          <h3>Broadcast Settings</h3>
+          
           <div class="field">
-            <label>Microphone</label>
+            <label>Microphone Source</label>
             <select id="audioSource"></select>
           </div>
+          
           <div class="field">
-            <label>Camera</label>
+            <label>Camera Source</label>
             <select id="videoSource"></select>
           </div>
-          <button id="closeSettingsBtn" class="btn small full-width">Close</button>
+
+          <div class="field" style="border-top:1px solid var(--border); padding-top:10px; margin-top:10px;">
+            <label style="color:var(--accent);">Audio Profile</label>
+            <select id="audioProfile" style="background:var(--panel-soft);">
+              <option value="voice">🎙️ Voice / Conference (Noise Cancel)</option>
+              <option value="music">🎵 DJ / Music (High Fidelity)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label style="color:var(--accent);">Video Quality</label>
+            <select id="videoQuality" style="background:var(--panel-soft);">
+              <option value="720">Standard HD (720p)</option>
+              <option value="1080">⭐ Premium Full HD (1080p)</option>
+            </select>
+          </div>
+
+          <button id="closeSettingsBtn" class="btn small full-width" style="margin-top:10px;">Close Settings</button>
         </div>
 
         <div id="videoGrid" class="video-grid">
