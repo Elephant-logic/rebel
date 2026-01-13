@@ -25,117 +25,132 @@
       </div>
     </header>
 
-    <main class="main-layout">
-      <section class="column column-left">
-        <div class="local-video-card">
-          <div class="card-header">
-            <h2>You</h2>
-            <div class="settings-row">
-              <button id="settingsBtn" class="btn small secondary">Settings</button>
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="room-info-card">
+          <h2 class="room-title">Room & Host</h2>
+          <div class="room-meta">
+            <div><span class="label">Room:</span> <span id="roomNameLabel">-</span></div>
+            <div><span class="label">You:</span> <span id="youNameLabel">-</span></div>
+            <div><span class="label">Role:</span> <span id="roleLabel">Guest</span></div>
+          </div>
+
+          <div class="field">
+            <label>Stream Title</label>
+            <input id="streamTitleInput" class="stream-title-input" type="text" />
+            <button id="updateTitleBtn" class="btn small secondary full-width">Update</button>
+          </div>
+
+          <div class="field" style="margin-top:10px;">
+            <label>Custom Link Name (Slug)</label>
+            <div style="display:flex; gap:5px;">
+              <input id="slugInput" class="stream-title-input" type="text" placeholder="e.g. my-show" />
+              <button id="updateSlugBtn" class="btn small secondary">Set</button>
             </div>
           </div>
-          <div class="video-wrapper" id="localContainer">
-            <video id="localVideo" autoplay muted playsinline></video>
-          </div>
-          <div class="controls-row">
-            <button id="startCamBtn" class="btn primary">🎥 Start Camera</button>
-            <button id="toggleMicBtn" class="btn secondary">🎙️ Mute</button>
-            <button id="screenShareBtn" class="btn secondary">🖥️ Share Screen</button>
+
+          <div class="field" style="margin-top:10px;">
+            <label>Room Lock</label>
+            <button id="lockRoomBtn" class="btn full-width" style="margin-top:10px;">🔓 Lock Room</button>
           </div>
         </div>
+      </aside>
 
-        <div id="settingsPanel" class="settings-panel" style="display:none;">
-          <h3>Media Settings</h3>
-          <label>Audio Input
+      <section class="main-panel">
+        <div id="settingsPanel" class="settings-panel">
+          <h3>Device Settings</h3>
+          <div class="field">
+            <label>Microphone</label>
             <select id="audioSource"></select>
-          </label>
-          <label>Video Input
+          </div>
+          <div class="field">
+            <label>Camera</label>
             <select id="videoSource"></select>
-          </label>
-        </div>
-
-        <div class="call-controls">
-          <h3>Calls</h3>
-          <div id="callUserList"></div>
-          <div class="call-buttons">
-            <button id="endCallBtn" class="btn danger full-width">End Call</button>
           </div>
-          <div id="remoteVideos" class="remote-videos"></div>
-        </div>
-      </section>
-
-      <section class="column column-right">
-        <div class="host-panel">
-          <div class="card-header">
-            <h2>Host Controls</h2>
-          </div>
-          <div id="hostControls" class="host-controls" style="display:none;">
-            <div class="host-row">
-              <button id="lockRoomBtn" class="btn secondary">🔓 Lock Room</button>
-            </div>
-            <div class="host-row">
-              <input id="streamTitleInput" type="text" placeholder="Stream Title" />
-              <button id="updateTitleBtn" class="btn secondary">Update Title</button>
-            </div>
-            <div class="host-row">
-              <button id="startStreamBtn" class="btn primary">Start Stream</button>
-              <button id="stopStreamBtn" class="btn danger">Stop Stream</button>
-            </div>
-            <div class="host-row">
-              <input id="streamLinkInput" type="text" readonly />
-              <button id="openStreamBtn" class="btn secondary">Open Stream Page</button>
-            </div>
+          <div class="settings-buttons">
+            <button id="applySettingsBtn" class="btn primary">Apply</button>
+            <button id="closeSettingsBtn" class="btn secondary">Close</button>
           </div>
         </div>
 
-        <div class="tabs-card">
-          <div class="tabs-row">
-            <button id="tabStream" class="tab-btn active">Stream</button>
-            <button id="tabRoom" class="tab-btn">Room</button>
+        <div class="video-row">
+          <div class="video-card">
+            <div class="video-header">
+              <span id="localLabel">You</span>
+            </div>
+            <div class="video-wrapper">
+              <video id="localVideo" autoplay muted playsinline></video>
+            </div>
+          </div>
+          <div class="video-card">
+            <div class="video-header">
+              <span>Remote / Calls</span>
+            </div>
+            <div id="videoGrid" class="video-grid"></div>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="startCallBtn" class="btn primary">Start Call</button>
+          <button id="toggleCamBtn" class="btn">Camera Off</button>
+          <button id="toggleMicBtn" class="btn">Mute</button>
+          <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
+          <button id="shareScreenBtn" class="btn secondary">Share Screen</button>
+          <button id="hangupBtn" class="btn danger" disabled>End Call</button>
+        </div>
+
+        <div class="file-row" style="margin:10px 0; padding:0 4px;">
+           <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
+           <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
+           <button id="openStreamBtn" class="btn small">Open</button>
+        </div>
+
+        <div class="chat-panel">
+          <div class="tabs-header">
+            <button id="tabStreamChat" class="tab-btn active">Stream</button>
+            <button id="tabRoomChat" class="tab-btn">Room</button>
             <button id="tabFiles" class="tab-btn">Files</button>
             <button id="tabUsers" class="tab-btn">Users</button>
           </div>
 
-          <div class="tabs-content">
-            <div id="contentStreamChat" class="tab-content active">
-              <div id="chatLogPublic" class="chat-log"></div>
-              <div id="emojiStripPublic" class="emoji-strip">
-                <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
-              </div>
-              <div class="chat-input-row">
-                <input id="inputPublic" type="text" placeholder="Message Stream (Public)..." />
-                <button id="btnSendPublic" class="btn primary">Send</button>
-              </div>
+          <div id="contentStreamChat" class="tab-content active">
+            <div id="chatLogPublic" class="chat-log"></div>
+            <div id="emojiStripPublic" class="emoji-strip">
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
             </div>
-
-            <div id="contentRoomChat" class="tab-content">
-              <div id="chatLogPrivate" class="chat-log"></div>
-              <div id="emojiStripPrivate" class="emoji-strip">
-                <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
-              </div>
-              <div class="chat-input-row">
-                <input id="inputPrivate" type="text" placeholder="Message Room (Private)..." />
-                <button id="btnSendPrivate" class="btn primary">Send</button>
-              </div>
+            <div class="chat-input-row">
+              <input id="inputPublic" type="text" placeholder="Message Stream (Public)..." />
+              <button id="btnSendPublic" class="btn primary">Send</button>
             </div>
+          </div>
 
-            <div id="contentFiles" class="tab-content">
-              <div class="file-upload-area">
+          <div id="contentRoomChat" class="tab-content">
+            <div id="chatLogPrivate" class="chat-log"></div>
+            <div id="emojiStripPrivate" class="emoji-strip">
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
+            </div>
+            <div class="chat-input-row">
+              <input id="inputPrivate" type="text" placeholder="Message Room (Private)..." />
+              <button id="btnSendPrivate" class="btn primary">Send</button>
+            </div>
+          </div>
+
+          <div id="contentFiles" class="tab-content">
+             <div class="file-upload-area">
                 <label class="btn secondary">
                   <input id="fileInput" type="file" hidden /> 📎 Choose File
                 </label>
                 <span id="fileNameLabel" class="file-name">No file selected</span>
                 <button id="sendFileBtn" class="btn primary full-width" disabled>Send</button>
-              </div>
-              <div class="files-list">
+             </div>
+             <div class="files-list">
                 <div id="fileLog" class="file-log"></div>
-              </div>
-            </div>
+             </div>
+          </div>
 
-            <div id="contentUsers" class="tab-content">
-              <h3>Active Users</h3>
-              <div id="userList"></div>
-            </div>
+          <div id="contentUsers" class="tab-content">
+             <h3>Active Users</h3>
+             <div id="userList"></div>
           </div>
         </div>
       </section>
