@@ -39,6 +39,7 @@ const contents = {
 };
 
 function switchTab(name) {
+    if(!tabs[name]) return;
     Object.values(tabs).forEach(t => t.classList.remove('active'));
     Object.values(contents).forEach(c => c.classList.remove('active'));
     tabs[name].classList.add('active');
@@ -272,50 +273,40 @@ socket.on('user-left', ({ id }) => {
     endPeerCall(id, true);
 });
 
-// --- CALLING (DIRECT P2P) ---
-// 1. Start Call (Direct)
-window.startCall = async (targetId) => {
+// --- CALLING (P2P) ---
+socket.on('ring-alert', async ({ from, fromId }) => {
+    if (confirm(`📞 Incoming call from ${from}. Accept?`)) {
+        await callPeer(fromId);
+    }
+});
+
+async function callPeer(targetId) {
     if (!localStream) await startLocalMedia();
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
-    
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(targetId, e.streams[0]);
-    
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-    
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('call-offer', { targetId, offer });
-    
-    // Update Button State Immediately
     renderUserList();
-};
+}
 
-// 2. Incoming Call
 socket.on('incoming-call', async ({ from, name, offer }) => {
-    if (!confirm(`📞 Incoming call from ${name}. Accept?`)) {
-        socket.emit('call-end', { targetId: from });
-        return;
-    }
-
     if (!localStream) await startLocalMedia();
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[from] = { pc, name };
-    
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
-    
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-    
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     socket.emit('call-answer', { targetId: from, answer });
     renderUserList();
 });
 
-// 3. Connect Call
 socket.on('call-answer', async ({ from, answer }) => {
     if (callPeers[from]) await callPeers[from].pc.setRemoteDescription(new RTCSessionDescription(answer));
 });
@@ -323,8 +314,6 @@ socket.on('call-ice', ({ from, candidate }) => {
     if (callPeers[from]) callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 socket.on('call-end', ({ from }) => endPeerCall(from, true));
-
-window.endPeerCall = (id, isIncomingSignal) => endPeerCall(id, isIncomingSignal);
 
 function endPeerCall(id, isIncomingSignal) {
   if (callPeers[id]) { try { callPeers[id].pc.close(); } catch(e){} }
@@ -362,7 +351,6 @@ function updateLink(roomSlug) {
     url.search = `?room=${encodeURIComponent(roomSlug)}`;
     $('streamLinkInput').value = url.toString();
 }
-// CUSTOM LINK NAME (SLUG) LOGIC
 if ($('updateSlugBtn')) $('updateSlugBtn').addEventListener('click', () => {
     const slug = $('slugInput').value.trim();
     if (slug) updateLink(slug);
@@ -503,7 +491,7 @@ function renderUserList() {
         const isCalling = !!callPeers[u.id];
         let actionBtn = isCalling 
             ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>`
-            : `<button onclick="startCall('${u.id}')" class="action-btn">📞 Call</button>`;
+            : `<button onclick="ringUser('${u.id}')" class="action-btn">📞 Call</button>`;
         
         const kickBtn = iAmHost 
             ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` 
@@ -539,6 +527,8 @@ function removeRemoteVideo(id) {
     if(el) el.remove();
 }
 
+window.ringUser = (id) => socket.emit('ring-user', id);
+window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
 
 if ($('openStreamBtn')) $('openStreamBtn').addEventListener('click', () => {
