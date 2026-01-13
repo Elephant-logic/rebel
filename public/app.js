@@ -46,40 +46,48 @@ const streamTitleInput = $('streamTitleInput');
 const updateTitleBtn   = $('updateTitleBtn');
 
 // Media & Grid
-const videoGrid       = $('videoGrid');
-const localVideo      = $('localVideo');
-// 🔹 Mobile-friendly video tag (stops “screenshot” freeze on phones)
+const videoGrid        = $('videoGrid');
+const localVideo       = $('localVideo');
+// mobile-friendly attributes – safe, just helps phones
 if (localVideo) {
   localVideo.setAttribute('playsinline', 'true');
   localVideo.setAttribute('autoplay', 'true');
   localVideo.muted = true;
 }
-const startStreamBtn  = $('startStreamBtn');
-const hangupBtn       = $('hangupBtn'); 
-const shareScreenBtn  = $('shareScreenBtn');
-const toggleCamBtn    = $('toggleCamBtn');
-const toggleMicBtn    = $('toggleMicBtn');
-const settingsBtn     = $('settingsBtn');
-const streamLinkInput = $('streamLinkInput');
-const openStreamBtn   = $('openStreamBtn');
+const startStreamBtn   = $('startStreamBtn');
+const hangupBtn        = $('hangupBtn');
+const shareScreenBtn   = $('shareScreenBtn');
+const toggleCamBtn     = $('toggleCamBtn');
+const toggleMicBtn     = $('toggleMicBtn');
+const settingsBtn      = $('settingsBtn');
+const streamLinkInput  = $('streamLinkInput');
+const openStreamBtn    = $('openStreamBtn');
 
 // Settings & Chat
-const settingsPanel   = $('settingsPanel');
-const audioSource     = $('audioSource');
-const videoSource     = $('videoSource');
-const closeSettingsBtn= $('closeSettingsBtn');
-const chatLog         = $('chatLog');
-const chatInput       = $('chatInput');
-const sendBtn         = $('sendBtn');
-const emojiStrip      = $('emojiStrip');
-const fileInput       = $('fileInput');
-const sendFileBtn     = $('sendFileBtn');
-const fileLog         = $('fileLog');
-const userList        = $('userList');
+const settingsPanel    = $('settingsPanel');
+const audioSource      = $('audioSource');
+const videoSource      = $('videoSource');
+const closeSettingsBtn = $('closeSettingsBtn');
+const chatLog          = $('chatLog');
+const chatInput        = $('chatInput');
+const sendBtn          = $('sendBtn');
+const emojiStrip       = $('emojiStrip');
+const fileInput        = $('fileInput');
+const sendFileBtn      = $('sendFileBtn');
+const fileLog          = $('fileLog');
+const userList         = $('userList');
 
 // Tabs
-const tabs = { chat: $('tabChatBtn'), files: $('tabFilesBtn'), users: $('tabUsersBtn') };
-const contents = { chat: $('tabContentChat'), files: $('tabContentFiles'), users: $('tabContentUsers') };
+const tabs = { 
+  chat:  $('tabChatBtn'),
+  files: $('tabFilesBtn'),
+  users: $('tabUsersBtn')
+};
+const contents = {
+  chat:  $('tabContentChat'),
+  files: $('tabContentFiles'),
+  users: $('tabContentUsers')
+};
 
 function switchTab(name) {
   Object.values(tabs).forEach(t => t.classList.remove('active'));
@@ -177,7 +185,10 @@ socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
   }
 });
 
-socket.on('kicked', () => { alert('Kicked by host'); window.location.reload(); });
+socket.on('kicked', () => { 
+  alert('Kicked by host'); 
+  window.location.reload(); 
+});
 
 socket.on('ring-alert', ({ from, fromId }) => {
   if (confirm(`🔔 ${from} is calling you! Accept?`)) {
@@ -185,7 +196,9 @@ socket.on('ring-alert', ({ from, fromId }) => {
   }
 });
 
-socket.on('room-error', (msg) => { alert(msg); });
+socket.on('room-error', (msg) => {
+  alert(msg);
+});
 
 socket.on('user-joined', ({ id, name }) => {
   if (id !== myId) appendChat('System', `${name} joined.`, Date.now());
@@ -236,9 +249,10 @@ joinBtn.addEventListener('click', () => {
   url.pathname = url.pathname.replace('index.html', '') + 'view.html';
   url.search = `?room=${encodeURIComponent(room)}`;
   streamLinkInput.value = url.toString();
+  
+  ensureLocalStream();
 });
 
-// leave fully reloads (same as your original)
 leaveBtn.addEventListener('click', () => window.location.reload());
 
 // --- MEDIA HANDLING ---
@@ -514,7 +528,7 @@ if (emojiStrip) {
   });
 }
 
-// Render User List
+// Render User List (with End Call added)
 function renderUserList(users, ownerId) {
   userList.innerHTML = '';
   users.forEach(u => {
