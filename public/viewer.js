@@ -36,15 +36,13 @@ const chatLog           = $('chatLog');
 const chatInput         = $('chatInput');
 const sendBtn           = $('sendBtn');
 const emojiStrip        = $('emojiStrip');
-const headerTitle       = document.querySelector('.viewer-header strong'); // To update title
+const headerTitle       = document.querySelector('.viewer-header strong');
 
-// Status helper
 function setStatus(text) {
   if (viewerStatus) viewerStatus.textContent = text;
   if (viewerStatusMirror) viewerStatusMirror.textContent = text;
 }
 
-// Append chat
 function appendChat(name, text, ts = Date.now()) {
   if (!chatLog) return;
   const line = document.createElement('div');
@@ -63,22 +61,16 @@ socket.on('connect', () => {
   socket.emit('join-room', { room: currentRoom, name: myName });
 });
 
-socket.on('disconnect', () => {
-  setStatus('Disconnected');
-});
+socket.on('disconnect', () => { setStatus('Disconnected'); });
 
-// LISTEN FOR TITLE UPDATES
 socket.on('room-update', ({ streamTitle }) => {
   if (headerTitle) headerTitle.textContent = streamTitle || 'Rebel Stream';
   document.title = streamTitle || 'Rebel Stream';
 });
 
-// Stream offer from host
 socket.on('webrtc-offer', async ({ sdp }) => {
   try {
-    if (pc) {
-      try { pc.close(); } catch (e) {}
-    }
+    if (pc) { try { pc.close(); } catch (e) {} }
     pc = new RTCPeerConnection(iceConfig);
 
     pc.onicecandidate = (e) => {
@@ -98,7 +90,6 @@ socket.on('webrtc-offer', async ({ sdp }) => {
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
     socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
   } catch (e) {
     console.error('Viewer offer error:', e);
@@ -106,35 +97,31 @@ socket.on('webrtc-offer', async ({ sdp }) => {
   }
 });
 
-// ICE from host
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
   try {
     if (!pc || !candidate) return;
     await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  } catch (e) {
-    console.error('Viewer ICE error:', e);
-  }
+  } catch (e) { console.error('Viewer ICE error:', e); }
 });
 
-// Chat from host / others
-socket.on('chat-message', ({ name, text, ts }) => {
+// LISTEN FOR PUBLIC CHAT
+socket.on('public-chat', ({ name, text, ts }) => {
   appendChat(name, text, ts);
 });
 
-// VIEWER CHAT SEND
+// VIEWER CHAT SEND (FIXED: No local append)
 function sendChat() {
   if (!chatInput || !currentRoom) return;
   const text = chatInput.value.trim();
   if (!text) return;
 
-  socket.emit('chat-message', {
+  socket.emit('public-chat', {
     room: currentRoom,
     name: myName,
     text,
     fromViewer: true
   });
-
-  appendChat(myName, text);
+  // Removed local append to stop duplicates
   chatInput.value = '';
 }
 
@@ -170,20 +157,22 @@ if (toggleChatBtn) {
   const chatSection = document.querySelector('.chat-section');
   toggleChatBtn.addEventListener('click', () => {
     if (!chatSection) return;
-    const hidden = chatSection.style.display === 'none';
-    chatSection.style.display = hidden ? 'flex' : 'none';
-    toggleChatBtn.textContent = hidden ? 'Hide Chat' : 'Show Chat';
+    if (document.body.classList.contains('fullscreen-mode')) {
+        const current = getComputedStyle(chatSection).display;
+        chatSection.style.display = (current === 'none') ? 'flex' : 'none';
+    } else {
+        const hidden = chatSection.style.display === 'none';
+        chatSection.style.display = hidden ? 'flex' : 'none';
+    }
+    toggleChatBtn.textContent = chatSection.style.display === 'none' ? 'Show Chat' : 'Hide Chat';
   });
 }
 
-// INIT – read room from URL
+// INIT
 (function init() {
   const params = new URLSearchParams(window.location.search);
   const room = params.get('room');
-  if (!room) {
-    setStatus('No room specified');
-    return;
-  }
+  if (!room) { setStatus('No room specified'); return; }
   currentRoom = room;
   setStatus('Connecting…');
   socket.connect();
