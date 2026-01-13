@@ -7,238 +7,114 @@ const PORT = process.env.PORT || 9100;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*' }
-});
+const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ----------------------------------------------------
-// In-memory room state
-// ----------------------------------------------------
-const rooms = Object.create(null);
+// --- ROOMS ---
+const rooms = {};
 
-function getRoomInfo(roomName) {
-  if (!rooms[roomName]) {
-    rooms[roomName] = {
-      ownerId: null,
-      locked: false,
-      streamTitle: 'Untitled Stream', 
-      users: new Map()
-    };
+function getRoom(name) {
+  if (!rooms[name]) {
+    rooms[name] = { owner: null, locked: false, title: 'Untitled', users: new Set() };
   }
-  return rooms[roomName];
+  return rooms[name];
 }
 
-function broadcastRoomUpdate(roomName) {
-  const room = rooms[roomName];
-  if (!room) return;
-
-  const users = [];
-  for (const [id, u] of room.users.entries()) {
-    users.push({ id, name: u.name });
-  }
-
-  io.to(roomName).emit('room-update', {
-    users,
-    ownerId: room.ownerId,
-    locked: room.locked,
-    streamTitle: room.streamTitle
+function updateRoom(roomName) {
+  const r = rooms[roomName];
+  if (!r) return;
+  const userList = Array.from(r.users).map(id => ({ 
+    id, 
+    name: io.sockets.sockets.get(id)?.data.name || 'User' 
+  }));
+  io.to(roomName).emit('room-update', { 
+    users: userList, 
+    owner: r.owner, 
+    locked: r.locked, 
+    title: r.title 
   });
 }
 
-// ----------------------------------------------------
-// Socket.io
-// ----------------------------------------------------
 io.on('connection', (socket) => {
-  socket.data.room = null;
-  socket.data.name = null;
-
-  // --- JOIN ---
+  // JOIN
   socket.on('join-room', ({ room, name }) => {
-    if (!room || typeof room !== 'string') return;
-
-    const roomName = room.trim();
-    const info = getRoomInfo(roomName);
-
-    // Security: Reject if locked and not owner
-    if (info.locked && info.ownerId && info.ownerId !== socket.id) {
-      socket.emit('room-error', 'Room is locked by host');
+    if (!room) return;
+    const r = getRoom(room);
+    
+    // Security: Lock check
+    if (r.locked && r.owner && r.owner !== socket.id) {
+      socket.emit('room-error', 'Room Locked');
       socket.disconnect();
       return;
     }
 
-    const displayName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
+    socket.join(room);
+    socket.data.room = room;
+    socket.data.name = name || `User-${socket.id.substr(0,4)}`;
+    r.users.add(socket.id);
 
-    socket.join(roomName);
-    socket.data.room = roomName;
-    socket.data.name = displayName;
+    // First user becomes Host
+    if (!r.owner) r.owner = socket.id;
 
-    // Claim Host if room is empty
-    if (!info.ownerId) {
-      info.ownerId = socket.id;
-    }
-
-    info.users.set(socket.id, { name: displayName });
-
-    socket.emit('role', { 
-      isHost: info.ownerId === socket.id,
-      streamTitle: info.streamTitle
-    });
-
-    socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
-    broadcastRoomUpdate(roomName);
+    socket.emit('role', { isHost: r.owner === socket.id, title: r.title });
+    socket.to(room).emit('user-joined', { id: socket.id, name: socket.data.name });
+    updateRoom(room);
   });
 
-  // --- HOST CONTROLS ---
-  socket.on('lock-room', (locked) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return;
-
-    info.locked = !!locked;
-    broadcastRoomUpdate(roomName);
-  });
-
-  socket.on('update-stream-title', (title) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return;
-
-    info.streamTitle = title || 'Untitled Stream';
-    broadcastRoomUpdate(roomName);
-  });
-
-  socket.on('kick-user', (targetId) => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-    const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return;
-
-    const targetSocket = io.sockets.sockets.get(targetId);
-    if (targetSocket) {
-      targetSocket.emit('kicked');
-      targetSocket.leave(roomName);
-      targetSocket.disconnect();
-    }
-    info.users.delete(targetId);
-    broadcastRoomUpdate(roomName);
-  });
-
-  // --- STREAMING SIGNALS (Host -> Viewers) ---
-  socket.on('webrtc-offer', ({ targetId, sdp }) => {
-    if (targetId && sdp) {
-        io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
-    }
-  });
-
-  socket.on('webrtc-answer', ({ targetId, sdp }) => {
-    if (targetId) {
-        io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
-    }
-  });
-
-  socket.on('webrtc-ice-candidate', ({ targetId, candidate }) => {
-    if (targetId) {
-        io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
-    }
-  });
-
-  // --- CALLING SIGNALS (Direct Mesh) ---
-  socket.on('call-offer', ({ targetId, offer }) => {
-    if (targetId) io.to(targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer });
+  // HOST COMMANDS
+  socket.on('lock-room', (val) => {
+    const r = rooms[socket.data.room];
+    if (r && r.owner === socket.id) { r.locked = val; updateRoom(socket.data.room); }
   });
   
-  socket.on('call-answer', ({ targetId, answer }) => {
-    if (targetId) io.to(targetId).emit('call-answer', { from: socket.id, answer });
-  });
-  
-  socket.on('call-ice', ({ targetId, candidate }) => {
-    if (targetId) io.to(targetId).emit('call-ice', { from: socket.id, candidate });
-  });
-  
-  socket.on('call-end', ({ targetId }) => {
-    if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
-  });
-  
-  socket.on('ring-user', (targetId) => {
-    if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
+  socket.on('kick-user', (id) => {
+    const r = rooms[socket.data.room];
+    if (r && r.owner === socket.id) {
+      io.to(id).emit('kicked');
+      io.sockets.sockets.get(id)?.disconnect();
+    }
   });
 
-  // --- CHAT & FILES ---
-  socket.on('public-chat', ({ room, name, text, fromViewer }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !text) return;
-    const info = rooms[roomName];
-    
-    io.to(roomName).emit('public-chat', {
-      name: name || socket.data.name || 'Anon',
-      text,
-      ts: Date.now(),
-      isOwner: info && info.ownerId === socket.id,
-      fromViewer: !!fromViewer
-    });
+  socket.on('update-title', (t) => {
+    const r = rooms[socket.data.room];
+    if (r && r.owner === socket.id) { r.title = t; updateRoom(socket.data.room); }
   });
 
-  socket.on('private-chat', ({ room, name, text }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !text) return;
-    
-    io.to(roomName).emit('private-chat', {
-      name: name || socket.data.name || 'Anon',
-      text,
-      ts: Date.now()
-    });
-  });
+  // SIGNALS (Direct & Broadcast)
+  socket.on('webrtc-offer', ({ target, sdp }) => io.to(target).emit('webrtc-offer', { sdp, from: socket.id }));
+  socket.on('webrtc-answer', ({ target, sdp }) => io.to(target).emit('webrtc-answer', { sdp, from: socket.id }));
+  socket.on('webrtc-ice', ({ target, candidate }) => io.to(target).emit('webrtc-ice', { candidate, from: socket.id }));
 
-  socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
-    const roomName = room || socket.data.room;
-    if (!roomName || !fileName || !fileData) return;
-    io.to(roomName).emit('file-share', {
-      name: name || socket.data.name,
-      fileName,
-      fileType: fileType || 'application/octet-stream',
-      fileData
-    });
-  });
+  socket.on('call-offer', ({ target, offer }) => io.to(target).emit('call-offer', { offer, from: socket.id, name: socket.data.name }));
+  socket.on('call-answer', ({ target, answer }) => io.to(target).emit('call-answer', { answer, from: socket.id }));
+  socket.on('call-ice', ({ target, candidate }) => io.to(target).emit('call-ice', { candidate, from: socket.id }));
+  socket.on('call-end', ({ target }) => io.to(target).emit('call-end', { from: socket.id }));
 
-  // --- DISCONNECT ---
+  // CHAT
+  socket.on('chat', (data) => io.to(data.room).emit('chat', { ...data, ts: Date.now() }));
+  socket.on('file', (data) => io.to(data.room).emit('file', data));
+
+  // LEAVE
   socket.on('disconnect', () => {
-    const roomName = socket.data.room;
-    if (!roomName) return;
-
-    const info = rooms[roomName];
-    if (!info) return;
-
-    info.users.delete(socket.id);
-
-    // Auto-Promote new host if owner leaves
-    if (info.ownerId === socket.id) {
-      info.ownerId = null;
-      info.locked = false;
+    const rName = socket.data.room;
+    if (rName && rooms[rName]) {
+      const r = rooms[rName];
+      r.users.delete(socket.id);
+      socket.to(rName).emit('user-left', { id: socket.id });
       
-      if (info.users.size > 0) {
-          const nextId = info.users.keys().next().value;
-          info.ownerId = nextId;
-          const nextSocket = io.sockets.sockets.get(nextId);
-          if (nextSocket) {
-              nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
-          }
+      if (r.owner === socket.id) {
+        r.owner = null;
+        r.locked = false;
+        if (r.users.size > 0) {
+          r.owner = r.users.values().next().value; // Promote next user
+          io.to(r.owner).emit('role', { isHost: true, title: r.title });
+        }
       }
-    }
-
-    socket.to(roomName).emit('user-left', { id: socket.id });
-
-    if (info.users.size === 0) {
-      delete rooms[roomName];
-    } else {
-      broadcastRoomUpdate(roomName);
+      if (r.users.size === 0) delete rooms[rName];
+      else updateRoom(rName);
     }
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Rebel server running on ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on ${PORT}`));
