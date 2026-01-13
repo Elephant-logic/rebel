@@ -5,6 +5,14 @@
   <title>Rebel Messenger</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Inline styles for the chat toggles */
+    .chat-sub-tabs { display: flex; gap: 5px; padding: 0 8px; margin-bottom: 8px; }
+    .sub-tab { flex: 1; background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; }
+    .sub-tab.active { background: var(--panel-soft); color: var(--accent); border-color: var(--accent); }
+    .sub-tab .dot { height: 8px; width: 8px; background: var(--danger); border-radius: 50%; display: inline-block; margin-right: 4px; display: none; }
+    .sub-tab.has-new .dot { display: inline-block; }
+  </style>
 </head>
 <body>
   <div class="app-shell">
@@ -42,14 +50,6 @@
             <button id="updateTitleBtn" class="btn small secondary full-width">Update Title</button>
           </div>
 
-          <div class="field" style="margin-top:10px;">
-            <label style="color:var(--muted); font-size:0.75rem;">Custom Link Name (Slug)</label>
-            <div style="display:flex; gap:5px;">
-              <input id="slugInput" class="stream-title-input" type="text" placeholder="e.g. my-show" />
-              <button id="updateSlugBtn" class="btn small secondary">Set</button>
-            </div>
-          </div>
-
           <button id="lockRoomBtn" class="btn full-width" style="margin-top:10px;">🔓 Lock Room</button>
         </div>
       </aside>
@@ -78,17 +78,13 @@
 
         <div class="call-controls">
           <div style="display:flex; align-items:center; gap:5px; border-right:1px solid var(--border); padding-right:10px; margin-right:5px;">
-             <select id="streamQuality" class="btn secondary small">
-                <option value="720">HD (720p)</option>
-                <option value="360">SD (360p)</option>
-                <option value="screen">Screen Share</option>
-             </select>
              <button id="startStreamBtn" class="btn primary">Start Stream</button>
           </div>
           
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
           <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
+          <button id="shareScreenBtn" class="btn secondary">Share Screen</button>
           
           <button id="hangupBtn" class="btn danger" disabled>End Call</button>
         </div>
@@ -107,7 +103,14 @@
           </div>
 
           <div id="tabContentChat" class="tab-content active">
-            <div id="chatLog" class="chat-log"></div>
+            <div class="chat-sub-tabs">
+                <button id="btnPublicChat" class="sub-tab active"><span class="dot"></span>Stream (Public)</button>
+                <button id="btnPrivateChat" class="sub-tab"><span class="dot"></span>Room (Private)</button>
+            </div>
+
+            <div id="chatLogPublic" class="chat-log"></div>
+            <div id="chatLogPrivate" class="chat-log" style="display:none;"></div>
+
             <div class="emoji-strip" id="emojiStrip">
               <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
             </div>
