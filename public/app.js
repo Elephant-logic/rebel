@@ -5,6 +5,7 @@ let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
+let activeChatMode = 'public';
 
 // GLOBAL DATA
 let latestUserList = [];
@@ -88,8 +89,11 @@ async function getDevices() {
 audioSource.onchange = startLocalMedia;
 videoSource.onchange = startLocalMedia;
 
-// --- MEDIA ---
+// --- MEDIA FUNCTIONS ---
 async function startLocalMedia() {
+    // If sharing screen, don't override with camera yet
+    if (isScreenSharing) return;
+
     if (localStream) localStream.getTracks().forEach(t => t.stop());
     const constraints = {
         audio: { deviceId: audioSource.value ? { exact: audioSource.value } : undefined },
@@ -100,6 +104,7 @@ async function startLocalMedia() {
         $('localVideo').srcObject = localStream;
         $('localVideo').muted = true;
         
+        // Refresh all connections with new track
         const tracks = localStream.getTracks();
         const updatePC = (pc) => {
              if(!pc) return;
@@ -113,9 +118,101 @@ async function startLocalMedia() {
         Object.values(callPeers).forEach(p => updatePC(p.pc));
 
         $('hangupBtn').disabled = false;
+        updateMediaButtons();
     } catch(e) { console.error(e); alert("Camera Error. Check permissions."); }
 }
 
+function updateMediaButtons() {
+    if (!localStream) return;
+    const vTrack = localStream.getVideoTracks()[0];
+    const aTrack = localStream.getAudioTracks()[0];
+    
+    if($('toggleCamBtn')) {
+        $('toggleCamBtn').textContent = (vTrack && vTrack.enabled) ? 'Camera On' : 'Camera Off';
+        $('toggleCamBtn').classList.toggle('danger', !(vTrack && vTrack.enabled));
+    }
+    if($('toggleMicBtn')) {
+        $('toggleMicBtn').textContent = (aTrack && aTrack.enabled) ? 'Mute' : 'Unmute';
+        $('toggleMicBtn').classList.toggle('danger', !(aTrack && aTrack.enabled));
+    }
+}
+
+// --- BUTTON LISTENERS (RESTORED) ---
+if ($('toggleMicBtn')) {
+    $('toggleMicBtn').addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        if (!track) return;
+        track.enabled = !track.enabled;
+        updateMediaButtons();
+    });
+}
+
+if ($('toggleCamBtn')) {
+    $('toggleCamBtn').addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getVideoTracks()[0];
+        if (!track) return;
+        track.enabled = !track.enabled;
+        updateMediaButtons();
+    });
+}
+
+if ($('shareScreenBtn')) {
+    $('shareScreenBtn').addEventListener('click', async () => {
+        if (isScreenSharing) {
+            stopScreenShare();
+        } else {
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                isScreenSharing = true;
+                $('shareScreenBtn').textContent = 'Stop Screen';
+                $('shareScreenBtn').classList.add('danger');
+                
+                // Show screen locally
+                $('localVideo').srcObject = screenStream;
+                
+                // Send screen track to peers
+                const screenTrack = screenStream.getVideoTracks()[0];
+                const updatePC = (pc) => {
+                     if(!pc) return;
+                     const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                     if(sender) sender.replaceTrack(screenTrack);
+                };
+                Object.values(viewerPeers).forEach(updatePC);
+                Object.values(callPeers).forEach(p => updatePC(p.pc));
+                
+                screenTrack.onended = stopScreenShare;
+            } catch(e) { console.error(e); }
+        }
+    });
+}
+
+function stopScreenShare() {
+    if (!isScreenSharing) return;
+    if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+    screenStream = null;
+    isScreenSharing = false;
+    $('shareScreenBtn').textContent = 'Share Screen';
+    $('shareScreenBtn').classList.remove('danger');
+    
+    $('localVideo').srcObject = localStream;
+    
+    // Revert to Camera
+    if (localStream) {
+        const camTrack = localStream.getVideoTracks()[0];
+        const updatePC = (pc) => {
+             if(!pc) return;
+             const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+             if(sender) sender.replaceTrack(camTrack);
+        };
+        Object.values(viewerPeers).forEach(updatePC);
+        Object.values(callPeers).forEach(p => updatePC(p.pc));
+    }
+}
+
+
+// --- STREAMING (HOST) ---
 if ($('startStreamBtn')) {
     $('startStreamBtn').addEventListener('click', async () => {
         if (!currentRoom || !iAmHost) return alert("Host only");
@@ -136,8 +233,10 @@ async function connectViewer(targetId) {
     const pc = new RTCPeerConnection(iceConfig);
     viewerPeers[targetId] = pc;
     pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId, candidate: e.candidate }); };
+    
     const stream = isScreenSharing ? screenStream : localStream;
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
+    
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('webrtc-offer', { targetId, sdp: offer });
@@ -154,56 +253,38 @@ socket.on('user-left', ({ id }) => {
     endPeerCall(id, true);
 });
 
-// --- CALLING (RESTORED RING LOGIC) ---
-
-// 1. Receive Ring Alert
+// --- CALLING (P2P) ---
 socket.on('ring-alert', async ({ from, fromId }) => {
-    // Show confirmation
     if (confirm(`📞 Incoming call from ${from}. Accept?`)) {
-        // If accepted, WE initiate the WebRTC connection back to them
         await callPeer(fromId);
     }
 });
 
-// 2. Start Call Connection
 async function callPeer(targetId) {
     if (!localStream) await startLocalMedia();
-    
-    // Create Peer Connection
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
-    
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(targetId, e.streams[0]);
-    
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-    
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('call-offer', { targetId, offer });
-    
-    renderUserList(); // Update button to "End Call"
+    renderUserList();
 }
 
-// 3. Handle Incoming Connection (Offer)
 socket.on('incoming-call', async ({ from, name, offer }) => {
-  // If we get an offer (meaning they accepted our ring or called back), answer it
-  if (!localStream) await startLocalMedia();
-  
-  const pc = new RTCPeerConnection(iceConfig);
-  callPeers[from] = { pc, name };
-  
-  pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
-  pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
-  
-  await pc.setRemoteDescription(new RTCSessionDescription(offer));
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  socket.emit('call-answer', { targetId: from, answer });
-  
-  renderUserList();
+    if (!localStream) await startLocalMedia();
+    const pc = new RTCPeerConnection(iceConfig);
+    callPeers[from] = { pc, name };
+    pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
+    pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('call-answer', { targetId: from, answer });
+    renderUserList();
 });
 
 socket.on('call-answer', async ({ from, answer }) => {
@@ -268,7 +349,7 @@ socket.on('role', ({ isHost }) => {
     renderUserList();
 });
 
-// --- CHAT LOGIC (Split) ---
+// --- CHAT LOGIC ---
 function appendChat(log, name, text, ts) {
     const d = document.createElement('div');
     d.className = 'chat-line';
@@ -357,11 +438,7 @@ function renderUserList() {
         const div = document.createElement('div');
         div.className = 'user-item';
         
-        // Determine button state
         const isCalling = !!callPeers[u.id];
-        
-        // If already calling, show "End Call". If not, show "Ring/Call".
-        // Note: We use ringUser() here to start the flow.
         let actionBtn = isCalling 
             ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>`
             : `<button onclick="ringUser('${u.id}')" class="action-btn">📞 Call</button>`;
@@ -393,7 +470,6 @@ function removeRemoteVideo(id) {
     if(el) el.remove();
 }
 
-// EXPORT TO WINDOW FOR BUTTONS
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
