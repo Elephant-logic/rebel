@@ -20,58 +20,73 @@ let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
 
-// Stream Source (Default to Host)
+// Stream Source
 let streamSource = { type: 'host', id: null };
 
-// ICE Config
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+// ICE config (from ice.js)
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
+  ? { iceServers: ICE_SERVERS }
+  : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 // --- DOM ELEMENTS ---
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 // Connection
-const nameInput       = $('nameInput');
-const roomInput       = $('roomInput');
-const joinBtn         = $('joinBtn');
-const leaveBtn        = $('leaveBtn');
-const signalStatus    = $('signalStatus');
-const roomInfo        = $('roomInfo');
+const nameInput        = $('nameInput');
+const roomInput        = $('roomInput');
+const joinBtn          = $('joinBtn');
+const leaveBtn         = $('leaveBtn');
+const signalStatus     = $('signalStatus');
+const roomInfo         = $('roomInfo');
 
 // Host Controls
-const hostControls    = $('hostControls');
-const lockRoomBtn     = $('lockRoomBtn');
-const streamTitleInput= $('streamTitleInput');
-const updateTitleBtn  = $('updateTitleBtn');
+const hostControls     = $('hostControls');
+const lockRoomBtn      = $('lockRoomBtn');
+const streamTitleInput = $('streamTitleInput');
+const updateTitleBtn   = $('updateTitleBtn');
 
 // Media & Grid
-const videoGrid       = $('videoGrid');
-const localVideo      = $('localVideo');
-const startStreamBtn  = $('startStreamBtn');
-const hangupBtn       = $('hangupBtn'); 
-const shareScreenBtn  = $('shareScreenBtn');
-const toggleCamBtn    = $('toggleCamBtn');
-const toggleMicBtn    = $('toggleMicBtn');
-const settingsBtn     = $('settingsBtn');
-const streamLinkInput = $('streamLinkInput');
-const openStreamBtn   = $('openStreamBtn');
+const videoGrid        = $('videoGrid');
+const localVideo       = $('localVideo');
+if (localVideo) {
+  localVideo.setAttribute('playsinline', 'true');
+  localVideo.setAttribute('autoplay', 'true');
+  localVideo.muted = true;
+}
+const startStreamBtn   = $('startStreamBtn');
+const hangupBtn        = $('hangupBtn'); 
+const shareScreenBtn   = $('shareScreenBtn');
+const toggleCamBtn     = $('toggleCamBtn');
+const toggleMicBtn     = $('toggleMicBtn');
+const settingsBtn      = $('settingsBtn');
+const streamLinkInput  = $('streamLinkInput');
+const openStreamBtn    = $('openStreamBtn');
 
 // Settings & Chat
-const settingsPanel   = $('settingsPanel');
-const audioSource     = $('audioSource');
-const videoSource     = $('videoSource');
-const closeSettingsBtn= $('closeSettingsBtn');
-const chatLog         = $('chatLog');
-const chatInput       = $('chatInput');
-const sendBtn         = $('sendBtn');
-const emojiStrip      = $('emojiStrip');
-const fileInput       = $('fileInput');
-const sendFileBtn     = $('sendFileBtn');
-const fileLog         = $('fileLog');
-const userList        = $('userList');
+const settingsPanel    = $('settingsPanel');
+const audioSource      = $('audioSource');
+const videoSource      = $('videoSource');
+const closeSettingsBtn = $('closeSettingsBtn');
+const chatLog          = $('chatLog');
+const chatInput        = $('chatInput');
+const sendBtn          = $('sendBtn');
+const emojiStrip       = $('emojiStrip');
+const fileInput        = $('fileInput');
+const sendFileBtn      = $('sendFileBtn');
+const fileLog          = $('fileLog');
+const userList         = $('userList');
 
 // Tabs
-const tabs = { chat: $('tabChatBtn'), files: $('tabFilesBtn'), users: $('tabUsersBtn') };
-const contents = { chat: $('tabContentChat'), files: $('tabContentFiles'), users: $('tabContentUsers') };
+const tabs = { 
+  chat:  $('tabChatBtn'),
+  files: $('tabFilesBtn'),
+  users: $('tabUsersBtn')
+};
+const contents = {
+  chat:  $('tabContentChat'),
+  files: $('tabContentFiles'),
+  users: $('tabContentUsers')
+};
 
 function switchTab(name) {
   Object.values(tabs).forEach(t => t.classList.remove('active'));
@@ -79,19 +94,25 @@ function switchTab(name) {
   if (tabs[name]) tabs[name].classList.add('active');
   if (contents[name]) contents[name].classList.add('active');
 }
-Object.keys(tabs).forEach(k => tabs[k].addEventListener('click', () => switchTab(k)));
+
+Object.keys(tabs).forEach(k => {
+  if (tabs[k]) tabs[k].addEventListener('click', () => switchTab(k));
+});
 
 // --- SIGNALING UI ---
 function setSignal(connected) {
   signalStatus.textContent = connected ? 'Connected' : 'Disconnected';
-  signalStatus.className = connected ? 'status-dot status-connected' : 'status-dot status-disconnected';
+  signalStatus.className = connected
+    ? 'status-dot status-connected'
+    : 'status-dot status-disconnected';
 }
 
 // --- VIDEO GRID MANAGEMENT ---
 function addRemoteVideo(id, stream, name) {
   let existing = document.getElementById(`vid-${id}`);
   if (existing) {
-    existing.querySelector('video').srcObject = stream;
+    const vid = existing.querySelector('video');
+    if (vid) vid.srcObject = stream;
     return;
   }
 
@@ -125,57 +146,87 @@ socket.on('connect', () => {
   setSignal(true);
   myId = socket.id;
 });
-socket.on('disconnect', () => setSignal(false));
+
+socket.on('disconnect', () => {
+  setSignal(false);
+});
 
 socket.on('role', ({ isHost, streamTitle }) => {
   iAmHost = isHost;
-  if (hostControls) hostControls.style.display = isHost ? 'block' : 'none';
-  if (streamTitleInput && isHost) streamTitleInput.value = streamTitle || '';
+  if (hostControls) {
+    hostControls.style.display = isHost ? 'block' : 'none';
+  }
+
+  if (streamTitleInput) {
+    if (isHost) {
+      streamTitleInput.value = streamTitle || '';
+      streamTitleInput.disabled = false;
+    } else {
+      streamTitleInput.value = streamTitle || '';
+      streamTitleInput.disabled = true;
+    }
+  }
 });
 
 socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
   renderUserList(users, ownerId);
-  
+
   if (lockRoomBtn) {
-    lockRoomBtn.textContent = locked ? '🔒 Unlock Room' : '🔓 Lock Room';
+    lockRoomBtn.textContent = locked ? '🔒 Lock Room' : '🔓 Lock Room';
     lockRoomBtn.onclick = () => {
-       if (iAmHost) socket.emit('lock-room', !locked);
+      if (iAmHost) socket.emit('lock-room', !locked);
     };
   }
-  
+
   if (streamTitleInput && !iAmHost) {
-      streamTitleInput.value = streamTitle || '';
-      streamTitleInput.disabled = true;
+    streamTitleInput.value = streamTitle || '';
+    streamTitleInput.disabled = true;
   }
 });
 
-socket.on('kicked', () => { alert('Kicked by host'); window.location.reload(); });
-socket.on('ring-alert', ({ from, fromId }) => {
-    if(confirm(`🔔 ${from} is calling you! Accept?`)) {
-        callPeer(fromId);
-    }
+socket.on('kicked', () => { 
+  alert('Kicked by host'); 
+  window.location.reload(); 
 });
-socket.on('room-error', (msg) => { alert(msg); });
+
+socket.on('ring-alert', ({ from, fromId }) => {
+  if (confirm(`🔔 ${from} is calling you! Accept?`)) {
+    callPeer(fromId);
+  }
+});
+
+socket.on('room-error', (msg) => {
+  alert(msg);
+});
 
 socket.on('user-joined', ({ id, name }) => {
   if (id !== myId) appendChat('System', `${name} joined.`, Date.now());
   if (iAmHost && isStreaming) reofferStream().catch(console.error);
 });
 
-// --- CRITICAL MISSING HANDSHAKE HANDLERS (FIX FOR STREAM) ---
+socket.on('user-left', ({ id, name }) => {
+  endPeerCall(id, true);
+  appendChat('System', `${name || 'User'} left.`, Date.now());
+});
+
+// STREAM HANDSHAKE
 socket.on('webrtc-answer', async ({ sdp }) => {
   if (pc) {
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    } catch (e) { console.error("Error setting remote desc:", e); }
+    } catch (e) {
+      console.error('Error setting remote description', e);
+    }
   }
 });
 
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
-  if (pc) {
+  if (pc && candidate) {
     try {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (e) { console.error("Error adding ice:", e); }
+    } catch (e) {
+      console.error('Error adding ice candidate', e);
+    }
   }
 });
 
@@ -263,16 +314,22 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
 
 socket.on('call-answer', async ({ from, answer }) => {
   const peer = callPeers[from];
-  if (peer && peer.pc) await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+  if (peer && peer.pc) {
+    await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+  }
 });
 
 socket.on('call-ice', ({ from, candidate }) => {
   const peer = callPeers[from];
-  if (peer && peer.pc) peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+  if (peer && peer.pc && candidate) {
+    peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+  }
 });
 
-socket.on('call-end', ({ from }) => endPeerCall(from, true));
-socket.on('user-left', ({ id }) => endPeerCall(id, true));
+// remote or manual end
+socket.on('call-end', ({ from }) => {
+  endPeerCall(from, true);
+});
 
 function endPeerCall(id, isIncomingSignal) {
   const peer = callPeers[id];
@@ -291,34 +348,47 @@ window.endPeerCall = endPeerCall;
 
 // --- STREAMING LOGIC ---
 async function startBroadcast() {
-  if (!currentRoom) return alert('Join room first');
-  if (!iAmHost) return alert('Only host can stream');
+  if (!currentRoom) return alert('Join a room first');
+  if (!iAmHost)  return alert('Only the host can start streaming');
 
   if (pc) pc.close();
   pc = new RTCPeerConnection(iceConfig);
-  pc.onicecandidate = e => {
-      if (e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
+
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      socket.emit('webrtc-ice-candidate', {
+        room: currentRoom,
+        candidate: e.candidate
+      });
+    }
   };
 
   let streamToSend = localStream;
   if (streamSource.type === 'user' && remoteStreams[streamSource.id]) {
-      streamToSend = remoteStreams[streamSource.id];
+    streamToSend = remoteStreams[streamSource.id];
   }
-  if (isScreenSharing && screenStream) streamToSend = screenStream;
+  if (isScreenSharing && screenStream) {
+    streamToSend = screenStream;
+  }
 
-  if (!streamToSend) streamToSend = await ensureLocalStream();
+  if (!streamToSend) {
+    streamToSend = await ensureLocalStream();
+  }
+  if (!streamToSend) return;
+
   broadcastStream = streamToSend;
-
   broadcastStream.getTracks().forEach(t => pc.addTrack(t, broadcastStream));
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
-  
+
   isStreaming = true;
-  startStreamBtn.textContent = "Streaming (Live)";
-  startStreamBtn.classList.add('danger');
-  hangupBtn.disabled = false;
+  if (startStreamBtn) {
+    startStreamBtn.textContent = 'Streaming (Live)';
+    startStreamBtn.classList.add('danger');
+  }
+  if (hangupBtn) hangupBtn.disabled = false;
 }
 
 async function reofferStream() {
@@ -327,118 +397,125 @@ async function reofferStream() {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('webrtc-offer', { room: currentRoom, sdp: offer });
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    console.error('Error re-offering stream', e);
+  }
 }
 
-if (startStreamBtn) startStreamBtn.addEventListener('click', startBroadcast);
+if (startStreamBtn) {
+  startStreamBtn.addEventListener('click', startBroadcast);
+}
 
-// --- MISSING BUTTON LISTENERS (FIX FOR CONTROLS) ---
-
-// Toggle Camera
+// CAMERA / MIC TOGGLES
 if (toggleCamBtn) {
   toggleCamBtn.addEventListener('click', () => {
     if (!localStream) return;
     const track = localStream.getVideoTracks()[0];
+    if (!track) return;
+
     track.enabled = !track.enabled;
     toggleCamBtn.textContent = track.enabled ? 'Camera Off' : 'Camera On';
     toggleCamBtn.classList.toggle('danger', !track.enabled);
   });
 }
 
-// Toggle Mic
 if (toggleMicBtn) {
   toggleMicBtn.addEventListener('click', () => {
     if (!localStream) return;
     const track = localStream.getAudioTracks()[0];
+    if (!track) return;
+
     track.enabled = !track.enabled;
     toggleMicBtn.textContent = track.enabled ? 'Mute' : 'Unmute';
     toggleMicBtn.classList.toggle('danger', !track.enabled);
   });
 }
 
-// Share Screen
-if (shareScreenBtn) {
-  shareScreenBtn.addEventListener('click', async () => {
-    if (!isScreenSharing) {
-      try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-        isScreenSharing = true;
-        shareScreenBtn.textContent = 'Stop Screen';
-        shareScreenBtn.classList.add('danger');
-        
-        // Show locally
-        localVideo.srcObject = screenStream;
-        
-        // If streaming, replace track
-        if (isStreaming && pc) {
-             const sender = pc.getSenders().find(s => s.track.kind === 'video');
-             if (sender) sender.replaceTrack(screenStream.getVideoTracks()[0]);
-        }
-        
-        screenStream.getVideoTracks()[0].onended = () => stopScreenShare();
-      } catch(e) { console.error(e); }
-    } else {
-      stopScreenShare();
-    }
-  });
-}
-
-function stopScreenShare() {
-  if (!isScreenSharing) return;
-  if (screenStream) screenStream.getTracks().forEach(t => t.stop());
-  screenStream = null;
-  isScreenSharing = false;
-  shareScreenBtn.textContent = 'Share Screen';
-  shareScreenBtn.classList.remove('danger');
-  
-  // Revert to cam
-  localVideo.srcObject = localStream;
-  if (isStreaming && pc && localStream) {
-      const sender = pc.getSenders().find(s => s.track.kind === 'video');
-      if (sender) sender.replaceTrack(localStream.getVideoTracks()[0]);
-  }
-}
-
-// Hang Up / Stop Stream
+// HANGUP: stop stream + all calls
 if (hangupBtn) {
   hangupBtn.addEventListener('click', () => {
-    // 1. Stop Stream if active
     if (isStreaming) {
       if (pc) pc.close();
       pc = null;
       isStreaming = false;
-      startStreamBtn.textContent = 'Start Stream';
-      startStreamBtn.classList.remove('danger');
+      if (startStreamBtn) {
+        startStreamBtn.textContent = 'Start Stream';
+        startStreamBtn.classList.remove('danger');
+      }
     }
 
-    // 2. Stop Screen Share
-    stopScreenShare();
-
-    // 3. End all P2P calls
     Object.keys(callPeers).forEach(id => endPeerCall(id));
-    
+
     hangupBtn.disabled = true;
   });
 }
 
+// SETTINGS
+if (settingsBtn && settingsPanel) {
+  settingsBtn.addEventListener('click', async () => {
+    settingsPanel.style.display = 'flex';
+    await populateDevices();
+  });
+}
 
-// --- CHAT & UTILS ---
+if (closeSettingsBtn && settingsPanel) {
+  closeSettingsBtn.addEventListener('click', () => {
+    settingsPanel.style.display = 'none';
+  });
+}
+
+async function populateDevices() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+    const videoInputs = devices.filter(d => d.kind === 'videoinput');
+
+    if (audioSource) {
+      audioSource.innerHTML = '';
+      audioInputs.forEach((d, idx) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Mic ${idx + 1}`;
+        audioSource.appendChild(opt);
+      });
+    }
+
+    if (videoSource) {
+      videoSource.innerHTML = '';
+      videoInputs.forEach((d, idx) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Cam ${idx + 1}`;
+        videoSource.appendChild(opt);
+      });
+    }
+  } catch (e) {
+    console.error('Error enumerating devices', e);
+  }
+}
+
+// CHAT & UTILITIES
 function appendChat(name, text, ts) {
+  if (!chatLog) return;
   const line = document.createElement('div');
   line.className = 'chat-line';
-  const t = new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   line.innerHTML = `<strong>${name}</strong> <small>${t}</small>: ${text}`;
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-socket.on('chat-message', (d) => appendChat(d.name, d.text, d.ts));
+socket.on('chat-message', (d) => {
+  appendChat(d.name, d.text, d.ts || Date.now());
+});
 
-if (sendBtn) sendBtn.addEventListener('click', () => {
+if (sendBtn) {
+  sendBtn.addEventListener('click', () => {
     const text = chatInput.value.trim();
     if(text) socket.emit('chat-message', { room: currentRoom, name: userName, text });
     chatInput.value = '';
-});
+  });
+}
 
 // --- EMOJI FIX ---
 if (emojiStrip) {
@@ -450,7 +527,7 @@ if (emojiStrip) {
   });
 }
 
-// Render User List
+// Render User List (now with End Call)
 function renderUserList(users, ownerId) {
   userList.innerHTML = '';
   users.forEach(u => {
@@ -465,6 +542,7 @@ function renderUserList(users, ownerId) {
         <span>${u.id === ownerId ? '👑' : ''} ${u.name}</span>
         <div class="user-actions">
            <button onclick="ringUser('${u.id}')" class="action-btn ring">📞 Call</button>
+           <button onclick="endPeerCall('${u.id}')" class="action-btn end">⛔ End</button>
            ${iAmHost ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` : ''}
         </div>
       `;
