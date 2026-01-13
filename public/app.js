@@ -99,7 +99,6 @@ function switchTab(name) {
   if (contents[name]) contents[name].classList.add('active');
 }
 
-// Tab handlers
 Object.keys(tabs).forEach((k) => {
   tabs[k].addEventListener('click', () => switchTab(k));
 });
@@ -248,7 +247,7 @@ joinBtn.addEventListener('click', async () => {
     alert('Enter Room ID');
     return;
   }
-  currentRoom = room;
+  currentRoom = room.toLowerCase(); // normalise same as server
   userName = nameInput.value.trim() || 'Anon';
 
   socket.connect();
@@ -256,18 +255,21 @@ joinBtn.addEventListener('click', async () => {
 
   joinBtn.disabled = true;
   leaveBtn.disabled = false;
-  roomInfo.textContent = `ID: ${room}`;
+  roomInfo.textContent = `ID: ${currentRoom}`;
 
   const url = new URL(window.location.href);
   url.pathname = url.pathname.replace('index.html', '') + 'view.html';
-  url.search = `?room=${encodeURIComponent(room)}`;
+  url.search = `?room=${encodeURIComponent(currentRoom)}`;
   streamLinkInput.value = url.toString();
 
   // Grab camera/mic immediately from this click (works on mobile)
   await ensureLocalStream();
 });
 
-leaveBtn.addEventListener('click', () => window.location.reload());
+leaveBtn.addEventListener('click', () => {
+  socket.emit('leave-room');
+  window.location.reload();
+});
 
 // --- MEDIA HANDLING ---
 async function ensureLocalStream() {
@@ -598,10 +600,10 @@ if (emojiStrip) {
   });
 }
 
-// (Files placeholder, you can wire it later)
+// (Files placeholder)
 if (sendFileBtn) {
   sendFileBtn.addEventListener('click', () => {
-    // TODO: file send logic
+    // TODO: implement file sending
   });
 }
 
