@@ -5,10 +5,9 @@ let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
-let activeChatMode = 'public';
 
 // GLOBAL DATA
-let latestUserList = []; // Cache to re-render buttons
+let latestUserList = [];
 let currentOwnerId = null;
 
 // MEDIA
@@ -20,14 +19,44 @@ let isStreaming = false;
 // PEER CONNECTIONS
 const viewerPeers = {}; 
 const callPeers = {}; 
-const remoteStreams = {};
 
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-// DOM
 const $ = id => document.getElementById(id);
 
-// --- SETTINGS LOGIC ---
+// --- TABS LOGIC (4 Tabs) ---
+const tabs = {
+    stream: $('tabStreamChat'),
+    room: $('tabRoomChat'),
+    files: $('tabFiles'),
+    users: $('tabUsers')
+};
+const contents = {
+    stream: $('contentStreamChat'),
+    room: $('contentRoomChat'),
+    files: $('contentFiles'),
+    users: $('contentUsers')
+};
+
+function switchTab(name) {
+    // Remove active class from all
+    Object.values(tabs).forEach(t => t.classList.remove('active'));
+    Object.values(contents).forEach(c => c.classList.remove('active'));
+    
+    // Add active class to selected
+    tabs[name].classList.add('active');
+    contents[name].classList.add('active');
+    
+    // Clear notification dots if any
+    tabs[name].classList.remove('has-new');
+}
+
+tabs.stream.onclick = () => switchTab('stream');
+tabs.room.onclick = () => switchTab('room');
+tabs.files.onclick = () => switchTab('files');
+tabs.users.onclick = () => switchTab('users');
+
+
+// --- SETTINGS ---
 const settingsPanel = $('settingsPanel');
 const audioSource = $('audioSource');
 const videoSource = $('videoSource');
@@ -64,15 +93,13 @@ async function getDevices() {
 audioSource.onchange = startLocalMedia;
 videoSource.onchange = startLocalMedia;
 
-// --- MEDIA START ---
+// --- MEDIA ---
 async function startLocalMedia() {
     if (localStream) localStream.getTracks().forEach(t => t.stop());
-
     const constraints = {
         audio: { deviceId: audioSource.value ? { exact: audioSource.value } : undefined },
         video: { deviceId: videoSource.value ? { exact: videoSource.value } : undefined }
     };
-
     try {
         localStream = await navigator.mediaDevices.getUserMedia(constraints);
         $('localVideo').srcObject = localStream;
@@ -91,17 +118,12 @@ async function startLocalMedia() {
         Object.values(callPeers).forEach(p => updatePC(p.pc));
 
         $('hangupBtn').disabled = false;
-    } catch(e) { 
-        console.error(e); 
-        alert("Camera Error. Check permissions."); 
-    }
+    } catch(e) { console.error(e); alert("Camera Error. Check permissions."); }
 }
 
-// --- STREAMING (HOST -> VIEWERS) ---
 if ($('startStreamBtn')) {
     $('startStreamBtn').addEventListener('click', async () => {
         if (!currentRoom || !iAmHost) return alert("Host only");
-        
         if (!localStream) await startLocalMedia();
         isStreaming = true;
         $('startStreamBtn').textContent = "Live 🔴";
@@ -118,24 +140,19 @@ async function connectViewer(targetId) {
     if (viewerPeers[targetId]) return;
     const pc = new RTCPeerConnection(iceConfig);
     viewerPeers[targetId] = pc;
-    
     pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId, candidate: e.candidate }); };
-    
     const stream = isScreenSharing ? screenStream : localStream;
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
-    
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('webrtc-offer', { targetId, sdp: offer });
 }
 
 socket.on('webrtc-answer', async ({ from, sdp }) => {
-    const pc = viewerPeers[from];
-    if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    if (viewerPeers[from]) await viewerPeers[from].setRemoteDescription(new RTCSessionDescription(sdp));
 });
 socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
-    const pc = viewerPeers[from];
-    if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    if (viewerPeers[from]) await viewerPeers[from].addIceCandidate(new RTCIceCandidate(candidate));
 });
 socket.on('user-left', ({ id }) => {
     if (viewerPeers[id]) { viewerPeers[id].close(); delete viewerPeers[id]; }
@@ -147,25 +164,20 @@ async function callPeer(targetId) {
     if (!localStream) await startLocalMedia();
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
-    
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(targetId, e.streams[0]);
-    
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('call-offer', { targetId, offer });
-    
-    renderUserList(); // Update buttons
+    renderUserList();
 }
-
 function endPeerCall(id, isIncomingSignal) {
   if (callPeers[id]) { try { callPeers[id].pc.close(); } catch(e){} }
   delete callPeers[id];
-  delete remoteStreams[id];
   removeRemoteVideo(id);
   if (!isIncomingSignal) socket.emit('call-end', { targetId: id });
-  renderUserList(); // Update buttons
+  renderUserList();
 }
 
 // --- SOCKET CORE ---
@@ -178,7 +190,6 @@ $('joinBtn').addEventListener('click', () => {
     currentRoom = room; userName = $('nameInput').value.trim() || 'Host';
     socket.connect();
     socket.emit('join-room', { room, name: userName });
-    
     $('joinBtn').disabled = true; $('leaveBtn').disabled = false;
     updateLink(room);
     startLocalMedia();
@@ -190,19 +201,14 @@ function updateLink(roomSlug) {
     url.search = `?room=${encodeURIComponent(roomSlug)}`;
     $('streamLinkInput').value = url.toString();
 }
-
-if ($('updateSlugBtn')) {
-    $('updateSlugBtn').addEventListener('click', () => {
-        const slug = $('slugInput').value.trim();
-        if (slug) updateLink(slug);
-    });
-}
+if ($('updateSlugBtn')) $('updateSlugBtn').addEventListener('click', () => {
+    const slug = $('slugInput').value.trim();
+    if (slug) updateLink(slug);
+});
 
 socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
-    // Cache data for re-renders
     latestUserList = users;
     currentOwnerId = ownerId;
-    
     if ($('lockRoomBtn')) {
         $('lockRoomBtn').textContent = locked ? '🔒 Unlock Room' : '🔓 Lock Room';
         $('lockRoomBtn').onclick = () => { if(iAmHost) socket.emit('lock-room', !locked); };
@@ -212,16 +218,16 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
 
 socket.on('role', ({ isHost }) => {
     iAmHost = isHost;
+    // Visual Feedback on "You"
+    const localContainer = $('localContainer');
+    if (localContainer) {
+        localContainer.querySelector('h2').textContent = isHost ? 'You (Host) 👑' : 'You';
+    }
     $('hostControls').style.display = isHost ? 'block' : 'none';
     renderUserList();
 });
 
-// --- CHAT LOGIC ---
-const chatPublic = $('chatLogPublic');
-const chatPrivate = $('chatLogPrivate');
-const btnPublic = $('btnPublicChat');
-const btnPrivate = $('btnPrivateChat');
-
+// --- CHAT LOGIC (Split) ---
 function appendChat(log, name, text, ts) {
     const d = document.createElement('div');
     d.className = 'chat-line';
@@ -230,37 +236,74 @@ function appendChat(log, name, text, ts) {
     log.scrollTop = log.scrollHeight;
 }
 
+// PUBLIC
 socket.on('public-chat', d => {
-    appendChat(chatPublic, d.name, d.text, d.ts);
-    if(activeChatMode !== 'public') btnPublic.classList.add('has-new');
+    appendChat($('chatLogPublic'), d.name, d.text, d.ts);
+    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
 });
-socket.on('private-chat', d => {
-    appendChat(chatPrivate, d.name, d.text, d.ts);
-    if(activeChatMode !== 'private') btnPrivate.classList.add('has-new');
-});
-
-$('sendBtn').addEventListener('click', () => {
-    const text = $('chatInput').value.trim();
+$('btnSendPublic').addEventListener('click', () => {
+    const inp = $('inputPublic');
+    const text = inp.value.trim();
     if(!text) return;
-    const evt = activeChatMode === 'public' ? 'public-chat' : 'private-chat';
-    socket.emit(evt, { room: currentRoom, name: userName, text });
-    $('chatInput').value = '';
+    socket.emit('public-chat', { room: currentRoom, name: userName, text });
+    inp.value = '';
 });
 
-btnPublic.onclick = () => {
-    activeChatMode = 'public';
-    btnPublic.classList.add('active'); btnPrivate.classList.remove('active');
-    chatPublic.style.display = 'block'; chatPrivate.style.display = 'none';
-    btnPublic.classList.remove('has-new');
-};
-btnPrivate.onclick = () => {
-    activeChatMode = 'private';
-    btnPrivate.classList.add('active'); btnPublic.classList.remove('active');
-    chatPrivate.style.display = 'block'; chatPublic.style.display = 'none';
-    btnPrivate.classList.remove('has-new');
-};
+// PRIVATE
+socket.on('private-chat', d => {
+    appendChat($('chatLogPrivate'), d.name, d.text, d.ts);
+    if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
+});
+$('btnSendPrivate').addEventListener('click', () => {
+    const inp = $('inputPrivate');
+    const text = inp.value.trim();
+    if(!text) return;
+    socket.emit('private-chat', { room: currentRoom, name: userName, text });
+    inp.value = '';
+});
 
-// --- RENDER USER LIST (FIXED) ---
+// --- FILE LOGIC ---
+const fileInput = $('fileInput');
+const sendFileBtn = $('sendFileBtn');
+const fileLog = $('fileLog');
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+        $('fileNameLabel').textContent = fileInput.files[0].name;
+        sendFileBtn.disabled = false;
+    }
+});
+sendFileBtn.addEventListener('click', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        socket.emit('file-share', {
+            room: currentRoom,
+            name: userName,
+            fileName: file.name,
+            fileData: reader.result 
+        });
+        fileInput.value = '';
+        $('fileNameLabel').textContent = 'No file selected';
+        sendFileBtn.disabled = true;
+    };
+    reader.readAsDataURL(file);
+});
+socket.on('file-share', ({ name, fileName, fileData }) => {
+    const d = document.createElement('div');
+    d.className = 'file-item';
+    d.innerHTML = `
+        <div><strong>${name}</strong> shared: ${fileName}</div>
+        <a href="${fileData}" download="${fileName}" class="btn small primary">Download</a>
+    `;
+    fileLog.appendChild(d);
+    // Notify Files Tab
+    if(!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
+});
+
+
+// --- RENDER USER LIST ---
 function renderUserList() {
     const list = $('userList'); 
     if(!list) return;
@@ -274,17 +317,11 @@ function renderUserList() {
         const div = document.createElement('div');
         div.className = 'user-item';
         
-        // Dynamic Call/End Button
         const isCalling = !!callPeers[u.id];
-        let actionBtn = '';
+        let actionBtn = isCalling 
+            ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>`
+            : `<button onclick="callPeer('${u.id}')" class="action-btn">📞 Call</button>`;
         
-        if (isCalling) {
-             actionBtn = `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>`;
-        } else {
-             actionBtn = `<button onclick="callPeer('${u.id}')" class="action-btn">📞 Call</button>`;
-        }
-        
-        // Kick Button (Host Only)
         const kickBtn = iAmHost 
             ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` 
             : '';
@@ -300,7 +337,6 @@ function renderUserList() {
     });
 }
 
-// --- HELPERS & EXPORTS ---
 function addRemoteVideo(id, stream) {
     const d = document.createElement('div');
     d.className = 'video-container'; d.id = `vid-${id}`;
@@ -313,7 +349,6 @@ function removeRemoteVideo(id) {
     if(el) el.remove();
 }
 
-// Make functions available to HTML onclick events
 window.callPeer = callPeer;
 window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
