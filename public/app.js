@@ -7,6 +7,10 @@ let myId = null;
 let iAmHost = false;
 let activeChatMode = 'public';
 
+// GLOBAL DATA
+let latestUserList = []; // Cache to re-render buttons
+let currentOwnerId = null;
+
 // MEDIA
 let localStream = null;
 let screenStream = null;
@@ -14,8 +18,8 @@ let isScreenSharing = false;
 let isStreaming = false;
 
 // PEER CONNECTIONS
-const viewerPeers = {}; // { socketId: PC } - For Host sending to Viewers
-const callPeers = {};   // { socketId: { pc, name } } - For P2P Calls
+const viewerPeers = {}; 
+const callPeers = {}; 
 const remoteStreams = {};
 
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
@@ -28,12 +32,14 @@ const settingsPanel = $('settingsPanel');
 const audioSource = $('audioSource');
 const videoSource = $('videoSource');
 
-$('settingsBtn').addEventListener('click', () => {
-    const isHidden = settingsPanel.style.display === 'none' || settingsPanel.style.display === '';
-    settingsPanel.style.display = isHidden ? 'block' : 'none';
-    if (isHidden) getDevices();
-});
-$('closeSettingsBtn').addEventListener('click', () => settingsPanel.style.display = 'none');
+if ($('settingsBtn')) {
+    $('settingsBtn').addEventListener('click', () => {
+        const isHidden = settingsPanel.style.display === 'none' || settingsPanel.style.display === '';
+        settingsPanel.style.display = isHidden ? 'block' : 'none';
+        if (isHidden) getDevices();
+    });
+}
+if ($('closeSettingsBtn')) $('closeSettingsBtn').addEventListener('click', () => settingsPanel.style.display = 'none');
 
 async function getDevices() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
@@ -47,7 +53,6 @@ async function getDevices() {
             if (d.kind === 'audioinput') audioSource.appendChild(opt);
             if (d.kind === 'videoinput') videoSource.appendChild(opt);
         });
-        // Select current
         if (localStream) {
             const at = localStream.getAudioTracks()[0];
             const vt = localStream.getVideoTracks()[0];
@@ -61,7 +66,6 @@ videoSource.onchange = startLocalMedia;
 
 // --- MEDIA START ---
 async function startLocalMedia() {
-    // Release old tracks
     if (localStream) localStream.getTracks().forEach(t => t.stop());
 
     const constraints = {
@@ -74,7 +78,6 @@ async function startLocalMedia() {
         $('localVideo').srcObject = localStream;
         $('localVideo').muted = true;
         
-        // Update live connections
         const tracks = localStream.getTracks();
         const updatePC = (pc) => {
              if(!pc) return;
@@ -90,26 +93,22 @@ async function startLocalMedia() {
         $('hangupBtn').disabled = false;
     } catch(e) { 
         console.error(e); 
-        alert("Camera Error. Check permissions or select another device."); 
+        alert("Camera Error. Check permissions."); 
     }
 }
 
 // --- STREAMING (HOST -> VIEWERS) ---
-// Secure 1-to-1 handshake for each viewer
-$('startStreamBtn').addEventListener('click', async () => {
-    if (!currentRoom || !iAmHost) return alert("Host only");
-    
-    if (!localStream) await startLocalMedia();
-    const stream = isScreenSharing ? screenStream : localStream;
-    isStreaming = true;
-    $('startStreamBtn').textContent = "Live 🔴";
-    $('startStreamBtn').classList.add('danger');
-    
-    // In a real app, viewers request; here we can't push unless they are connected sockets
-    // Viewers will trigger 'user-joined', we handle that below
-});
+if ($('startStreamBtn')) {
+    $('startStreamBtn').addEventListener('click', async () => {
+        if (!currentRoom || !iAmHost) return alert("Host only");
+        
+        if (!localStream) await startLocalMedia();
+        isStreaming = true;
+        $('startStreamBtn').textContent = "Live 🔴";
+        $('startStreamBtn').classList.add('danger');
+    });
+}
 
-// Host handles new viewer joining
 socket.on('user-joined', ({ id, name }) => {
     appendChat($('chatLogPrivate'), 'System', `${name} joined room`, Date.now());
     if (iAmHost && isStreaming) connectViewer(id);
@@ -130,7 +129,6 @@ async function connectViewer(targetId) {
     socket.emit('webrtc-offer', { targetId, sdp: offer });
 }
 
-// Host handles answer from viewer
 socket.on('webrtc-answer', async ({ from, sdp }) => {
     const pc = viewerPeers[from];
     if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -145,7 +143,6 @@ socket.on('user-left', ({ id }) => {
 });
 
 // --- CALLING (P2P) ---
-// Standard Mesh logic for calls
 async function callPeer(targetId) {
     if (!localStream) await startLocalMedia();
     const pc = new RTCPeerConnection(iceConfig);
@@ -158,6 +155,17 @@ async function callPeer(targetId) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('call-offer', { targetId, offer });
+    
+    renderUserList(); // Update buttons
+}
+
+function endPeerCall(id, isIncomingSignal) {
+  if (callPeers[id]) { try { callPeers[id].pc.close(); } catch(e){} }
+  delete callPeers[id];
+  delete remoteStreams[id];
+  removeRemoteVideo(id);
+  if (!isIncomingSignal) socket.emit('call-end', { targetId: id });
+  renderUserList(); // Update buttons
 }
 
 // --- SOCKET CORE ---
@@ -172,23 +180,40 @@ $('joinBtn').addEventListener('click', () => {
     socket.emit('join-room', { room, name: userName });
     
     $('joinBtn').disabled = true; $('leaveBtn').disabled = false;
-    const url = new URL(window.location.href);
-    url.pathname = url.pathname.replace('index.html', '') + 'view.html';
-    url.search = `?room=${encodeURIComponent(room)}`;
-    $('streamLinkInput').value = url.toString();
+    updateLink(room);
     startLocalMedia();
 });
 
+function updateLink(roomSlug) {
+    const url = new URL(window.location.href);
+    url.pathname = url.pathname.replace('index.html', '') + 'view.html';
+    url.search = `?room=${encodeURIComponent(roomSlug)}`;
+    $('streamLinkInput').value = url.toString();
+}
+
+if ($('updateSlugBtn')) {
+    $('updateSlugBtn').addEventListener('click', () => {
+        const slug = $('slugInput').value.trim();
+        if (slug) updateLink(slug);
+    });
+}
+
 socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
+    // Cache data for re-renders
+    latestUserList = users;
+    currentOwnerId = ownerId;
+    
     if ($('lockRoomBtn')) {
         $('lockRoomBtn').textContent = locked ? '🔒 Unlock Room' : '🔓 Lock Room';
         $('lockRoomBtn').onclick = () => { if(iAmHost) socket.emit('lock-room', !locked); };
     }
-    renderUserList(users, ownerId);
+    renderUserList();
 });
+
 socket.on('role', ({ isHost }) => {
     iAmHost = isHost;
     $('hostControls').style.display = isHost ? 'block' : 'none';
+    renderUserList();
 });
 
 // --- CHAT LOGIC ---
@@ -235,7 +260,47 @@ btnPrivate.onclick = () => {
     btnPrivate.classList.remove('has-new');
 };
 
-// --- HELPERS ---
+// --- RENDER USER LIST (FIXED) ---
+function renderUserList() {
+    const list = $('userList'); 
+    if(!list) return;
+    list.innerHTML = '';
+    
+    if (!latestUserList) return;
+
+    latestUserList.forEach(u => {
+        if (u.id === myId) return;
+        
+        const div = document.createElement('div');
+        div.className = 'user-item';
+        
+        // Dynamic Call/End Button
+        const isCalling = !!callPeers[u.id];
+        let actionBtn = '';
+        
+        if (isCalling) {
+             actionBtn = `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>`;
+        } else {
+             actionBtn = `<button onclick="callPeer('${u.id}')" class="action-btn">📞 Call</button>`;
+        }
+        
+        // Kick Button (Host Only)
+        const kickBtn = iAmHost 
+            ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` 
+            : '';
+
+        div.innerHTML = `
+            <span>${u.id === currentOwnerId ? '👑' : ''} ${u.name}</span> 
+            <div class="user-actions">
+                ${actionBtn}
+                ${kickBtn}
+            </div>
+        `;
+        list.appendChild(div);
+    });
+}
+
+// --- HELPERS & EXPORTS ---
 function addRemoteVideo(id, stream) {
     const d = document.createElement('div');
     d.className = 'video-container'; d.id = `vid-${id}`;
@@ -243,14 +308,18 @@ function addRemoteVideo(id, stream) {
     d.querySelector('video').srcObject = stream;
     $('videoGrid').appendChild(d);
 }
-function renderUserList(users, ownerId) {
-    const list = $('userList'); list.innerHTML = '';
-    users.forEach(u => {
-        if (u.id === myId) return;
-        const d = document.createElement('div');
-        d.className = 'user-item';
-        d.innerHTML = `<span>${u.name}</span> <button onclick="callPeer('${u.id}')" class="action-btn">📞 Call</button>`;
-        list.appendChild(d);
-    });
+function removeRemoteVideo(id) {
+    const el = document.getElementById(`vid-${id}`);
+    if(el) el.remove();
 }
+
+// Make functions available to HTML onclick events
 window.callPeer = callPeer;
+window.endPeerCall = endPeerCall;
+window.kickUser = (id) => socket.emit('kick-user', id);
+window.ringUser = (id) => socket.emit('ring-user', id);
+
+if ($('openStreamBtn')) $('openStreamBtn').addEventListener('click', () => {
+   const url = $('streamLinkInput').value;
+   if(url) window.open(url, '_blank');
+});
