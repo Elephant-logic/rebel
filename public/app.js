@@ -1,6 +1,6 @@
 import { pushFileToPeer } from './side-loader.js';
 
-// REBEL MESSENGER - FINAL PRODUCTION VERSION
+// REBEL MESSENGER - REPAIRED & COMPLETE
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -18,8 +18,8 @@ let screenStream = null;
 let isScreenSharing = false;
 let isStreaming = false;
 
-// ARCADE / TOOLBOX STATE
-let activeToolboxFile = null; // <--- The Game/Tool currently loaded
+// ARCADE STATE
+let activeToolboxFile = null;
 
 // PEER CONNECTIONS
 const viewerPeers = {}; 
@@ -55,7 +55,6 @@ if(tabs.stream) tabs.stream.onclick = () => switchTab('stream');
 if(tabs.room) tabs.room.onclick = () => switchTab('room');
 if(tabs.files) tabs.files.onclick = () => switchTab('files');
 if(tabs.users) tabs.users.onclick = () => switchTab('users');
-
 
 // --- SETTINGS ---
 const settingsPanel = $('settingsPanel');
@@ -170,9 +169,7 @@ if ($('shareScreenBtn')) {
                 isScreenSharing = true;
                 $('shareScreenBtn').textContent = 'Stop Screen';
                 $('shareScreenBtn').classList.add('danger');
-                
                 $('localVideo').srcObject = screenStream;
-                
                 const screenTrack = screenStream.getVideoTracks()[0];
                 const updatePC = (pc) => {
                      if(!pc) return;
@@ -181,7 +178,6 @@ if ($('shareScreenBtn')) {
                 };
                 Object.values(viewerPeers).forEach(updatePC);
                 Object.values(callPeers).forEach(p => updatePC(p.pc));
-                
                 screenTrack.onended = stopScreenShare;
             } catch(e) { console.error(e); }
         }
@@ -196,7 +192,6 @@ function stopScreenShare() {
     $('shareScreenBtn').textContent = 'Share Screen';
     $('shareScreenBtn').classList.remove('danger');
     $('localVideo').srcObject = localStream;
-    
     if (localStream) {
         const camTrack = localStream.getVideoTracks()[0];
         const updatePC = (pc) => {
@@ -209,12 +204,10 @@ function stopScreenShare() {
     }
 }
 
-
 // --- STREAMING (HOST) ---
 if ($('startStreamBtn')) {
     $('startStreamBtn').addEventListener('click', async () => {
         if (!currentRoom || !iAmHost) return alert("Host only");
-        
         if (isStreaming) {
             isStreaming = false;
             $('startStreamBtn').textContent = "Start Stream";
@@ -223,12 +216,10 @@ if ($('startStreamBtn')) {
             for (const k in viewerPeers) delete viewerPeers[k];
             return;
         }
-
         if (!localStream) await startLocalMedia();
         isStreaming = true;
         $('startStreamBtn').textContent = "Stop Stream"; 
         $('startStreamBtn').classList.add('danger');
-        
         latestUserList.forEach(u => {
             if(u.id !== myId) connectViewer(u.id);
         });
@@ -249,13 +240,11 @@ async function connectViewer(targetId) {
     const stream = isScreenSharing ? screenStream : localStream;
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
     
-    // --- ARCADE CHECK ---
-    // If we have a tool loaded, push it to this NEW viewer automatically
+    // ARCADE PUSH
     if (activeToolboxFile) {
-        console.log(`[Arcade] Auto-pushing tool to new viewer ${targetId}`);
+        console.log(`[Arcade] Auto-pushing tool to ${targetId}`);
         pushFileToPeer(pc, activeToolboxFile, null); 
     }
-    // --------------------
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -275,9 +264,7 @@ socket.on('user-left', ({ id }) => {
 
 // --- CALLING (P2P) ---
 socket.on('ring-alert', async ({ from, fromId }) => {
-    if (confirm(`到 Incoming call from ${from}. Accept?`)) {
-        await callPeer(fromId);
-    }
+    if (confirm(`Incoming call from ${from}. Accept?`)) await callPeer(fromId);
 });
 
 async function callPeer(targetId) {
@@ -359,7 +346,7 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     latestUserList = users;
     currentOwnerId = ownerId;
     if ($('lockRoomBtn')) {
-        $('lockRoomBtn').textContent = locked ? '白 Unlock Room' : '箔 Lock Room';
+        $('lockRoomBtn').textContent = locked ? 'Unlock Room' : 'Lock Room';
         $('lockRoomBtn').onclick = () => { if(iAmHost) socket.emit('lock-room', !locked); };
     }
     renderUserList();
@@ -369,7 +356,7 @@ socket.on('role', ({ isHost }) => {
     iAmHost = isHost;
     const localContainer = $('localContainer');
     if (localContainer) {
-        localContainer.querySelector('h2').textContent = isHost ? 'You (Host) 荘' : 'You';
+        localContainer.querySelector('h2').textContent = isHost ? 'You (Host)' : 'You';
     }
     $('hostControls').style.display = isHost ? 'block' : 'none';
     renderUserList();
@@ -384,31 +371,37 @@ function appendChat(log, name, text, ts) {
     log.scrollTop = log.scrollHeight;
 }
 
-socket.on('public-chat', d => {
-    appendChat($('chatLogPublic'), d.name, d.text, d.ts);
-    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
-});
-$('btnSendPublic').addEventListener('click', () => {
+// PUBLIC CHAT
+function sendPublic() {
     const inp = $('inputPublic');
     const text = inp.value.trim();
     if(!text) return;
     socket.emit('public-chat', { room: currentRoom, name: userName, text });
     inp.value = '';
+}
+$('btnSendPublic').addEventListener('click', sendPublic);
+$('inputPublic').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPublic(); }); // Added Enter Support
+socket.on('public-chat', d => {
+    appendChat($('chatLogPublic'), d.name, d.text, d.ts);
+    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
 });
 
-socket.on('private-chat', d => {
-    appendChat($('chatLogPrivate'), d.name, d.text, d.ts);
-    if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
-});
-$('btnSendPrivate').addEventListener('click', () => {
+// PRIVATE CHAT
+function sendPrivate() {
     const inp = $('inputPrivate');
     const text = inp.value.trim();
     if(!text) return;
     socket.emit('private-chat', { room: currentRoom, name: userName, text });
     inp.value = '';
+}
+$('btnSendPrivate').addEventListener('click', sendPrivate);
+$('inputPrivate').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPrivate(); }); // Added Enter Support
+socket.on('private-chat', d => {
+    appendChat($('chatLogPrivate'), d.name, d.text, d.ts);
+    if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
 });
 
-// --- EMOJI ---
+// EMOJI
 const emojiStripPublic = $('emojiStripPublic');
 const emojiStripPrivate = $('emojiStripPrivate');
 if (emojiStripPublic) {
@@ -418,18 +411,26 @@ if (emojiStripPrivate) {
     emojiStripPrivate.addEventListener('click', (e) => { if (e.target.classList.contains('emoji')) $('inputPrivate').value += e.target.textContent; });
 }
 
-// --- FILE CHAT ---
+// --- FILE TAB LOGIC (Original) ---
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
 const fileLog = $('fileLog');
-fileInput.addEventListener('change', () => { if (fileInput.files.length > 0) { $('fileNameLabel').textContent = fileInput.files[0].name; sendFileBtn.disabled = false; } });
+fileInput.addEventListener('change', () => { 
+    if (fileInput.files.length > 0) { 
+        $('fileNameLabel').textContent = fileInput.files[0].name; 
+        sendFileBtn.disabled = false; 
+    } 
+});
 sendFileBtn.addEventListener('click', () => {
     const file = fileInput.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
         socket.emit('file-share', { room: currentRoom, name: userName, fileName: file.name, fileData: reader.result });
-        fileInput.value = ''; $('fileNameLabel').textContent = 'No file selected'; sendFileBtn.disabled = true;
+        fileInput.value = ''; 
+        // Note: we can't easily reset a file input text, but we can reset the label
+        if($('fileNameLabel')) $('fileNameLabel').textContent = 'No file selected'; 
+        sendFileBtn.disabled = true;
     };
     reader.readAsDataURL(file);
 });
@@ -440,8 +441,7 @@ socket.on('file-share', ({ name, fileName, fileData }) => {
     if(!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
 });
 
-
-// --- ARCADE / TOOLBOX LOGIC ---
+// --- ARCADE LOGIC (New) ---
 const arcadeInput = $('arcadeInput');
 const arcadeStatus = $('arcadeStatus');
 
@@ -449,27 +449,19 @@ if (arcadeInput) {
     arcadeInput.addEventListener('change', async () => {
         const file = arcadeInput.files[0];
         if (!file) return;
-
-        // 1. Set State (Persistent)
         activeToolboxFile = file; 
-
-        // 2. Update UI
         arcadeStatus.textContent = `Active Tool: ${file.name}`;
-        
-        // 3. Push to ALL Existing Peers
         const peers = Object.values(viewerPeers);
         if (peers.length > 0) {
             console.log(`[Arcade] Syncing ${file.name} to ${peers.length} existing viewers...`);
             peers.forEach(pc => {
                 pushFileToPeer(pc, file, (percent) => {
-                     // Only logging progress for host to avoid UI clutter
                      if(percent % 20 === 0) console.log(`[Sync] ${percent}%`);
                 });
             });
         }
     });
 }
-
 
 // --- RENDER USER LIST ---
 function renderUserList() {
@@ -481,9 +473,9 @@ function renderUserList() {
         if (u.id === myId) return;
         const div = document.createElement('div'); div.className = 'user-item';
         const isCalling = !!callPeers[u.id];
-        let actionBtn = isCalling ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>` : `<button onclick="ringUser('${u.id}')" class="action-btn">到 Call</button>`;
+        let actionBtn = isCalling ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>` : `<button onclick="ringUser('${u.id}')" class="action-btn">Call</button>`;
         const kickBtn = iAmHost ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` : '';
-        div.innerHTML = `<span>${u.id === currentOwnerId ? '荘' : ''} ${u.name}</span><div class="user-actions">${actionBtn}${kickBtn}</div>`;
+        div.innerHTML = `<span>${u.id === currentOwnerId ? '👑' : ''} ${u.name}</span><div class="user-actions">${actionBtn}${kickBtn}</div>`;
         list.appendChild(div);
     });
 }
