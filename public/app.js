@@ -459,19 +459,14 @@ socket.on('call-ice', ({ from, candidate }) => {
     if (callPeers[from]) callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-// --- END CALL BUTTON LOGIC ---
+// --- END CALL BUTTON LOGIC (FIXED) ---
 if ($('hangupBtn')) $('hangupBtn').addEventListener('click', () => {
-    // 1. Close all P2P calls
+    // 1. Close all P2P calls (disconnect connection)
     Object.keys(callPeers).forEach(id => endPeerCall(id));
     
-    // 2. Only stop camera if we are NOT streaming to others
-    if (!isStreaming) {
-        if (localStream) localStream.getTracks().forEach(t => t.stop());
-        localStream = null;
-        $('localVideo').srcObject = null;
-        $('hangupBtn').disabled = true;
-        updateMediaButtons();
-    }
+    // 2. DO NOT STOP CAMERA. 
+    // User requested "It just needs to end call", not turn off hardware.
+    // They have a separate "Camera Off" button for that.
 });
 
 socket.on('call-end', ({ from }) => endPeerCall(from, true));
