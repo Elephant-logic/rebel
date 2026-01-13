@@ -1,5 +1,5 @@
 // ======================================================
-// 1. ARCADE ENGINE (P2P File Transfer)
+// 1. ARCADE / SIDE-LOADER ENGINE
 // ======================================================
 // This handles splitting games/tools into chunks 
 // and sending them securely over WebRTC.
@@ -354,7 +354,6 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
-    
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
     
