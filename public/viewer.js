@@ -5,14 +5,27 @@ let currentRoom = null;
 const $ = id => document.getElementById(id);
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
+// --- HELPER: ASK FOR NAME ---
+function pickName() {
+  const input = prompt("Enter your name for the chat:") || "";
+  const clean = input.trim();
+  return clean ? clean : `Viewer-${Math.floor(Math.random() * 1000)}`;
+}
+
 // --- CONNECTION ---
 const params = new URLSearchParams(window.location.search);
 const room = params.get('room');
+
 if (room) {
     currentRoom = room;
     $('viewerStatus').textContent = 'Connecting...';
+    
+    // 1. Ask for Name
+    const myName = pickName();
+    
+    // 2. Connect
     socket.connect();
-    socket.emit('join-room', { room, name: `Viewer-${Math.floor(Math.random()*1000)}` });
+    socket.emit('join-room', { room, name: myName });
 } else {
     $('viewerStatus').textContent = 'No Room ID';
 }
@@ -47,7 +60,7 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
     if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-// --- CHAT (FIXED) ---
+// --- CHAT ---
 socket.on('public-chat', ({ name, text, ts }) => {
     const log = $('chatLog');
     const d = document.createElement('div');
@@ -60,7 +73,7 @@ socket.on('public-chat', ({ name, text, ts }) => {
 $('sendBtn').addEventListener('click', () => {
     const text = $('chatInput').value.trim();
     if (!text) return;
-    // Emit only, do NOT append locally (avoids double message)
+    // Emit only, do NOT append locally
     socket.emit('public-chat', { room: currentRoom, text, fromViewer: true });
     $('chatInput').value = '';
 });
@@ -73,7 +86,6 @@ $('fullscreenBtn').addEventListener('click', () => {
 $('toggleChatBtn').addEventListener('click', () => {
     const section = document.querySelector('.chat-section');
     const isHidden = section.style.display === 'none';
-    // Logic for fullscreen overlay toggle
     if (document.body.classList.contains('fullscreen-mode')) {
         section.style.display = (getComputedStyle(section).display === 'none') ? 'flex' : 'none';
     } else {
