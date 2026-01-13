@@ -219,16 +219,26 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 3. File Sharing
-  socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
+  // 3. File Sharing (targeted OR whole room)
+  socket.on('file-share', ({ room, name, fileName, fileType, fileData, targetId }) => {
     const roomName = room || socket.data.room;
-    if (!roomName || !fileName || !fileData) return;
-    io.to(roomName).emit('file-share', {
+    if (!fileName || !fileData) return;
+
+    const payload = {
       name: name || socket.data.name,
       fileName,
       fileType: fileType || 'application/octet-stream',
       fileData
-    });
+    };
+
+    // Send to a single user if targetId specified
+    if (targetId) {
+      io.to(targetId).emit('file-share', payload);
+    }
+    // Otherwise send to the whole room
+    else if (roomName) {
+      io.to(roomName).emit('file-share', payload);
+    }
   });
 
   // --- DISCONNECT HANDLING ---
