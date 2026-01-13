@@ -438,30 +438,42 @@ if (emojiStripPrivate) {
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
 const fileLog = $('fileLog');
+const fileNameLabel = $('fileNameLabel');
 
-fileInput.addEventListener('change', () => {
-    if (fileInput.files.length > 0) {
-        $('fileNameLabel').textContent = fileInput.files[0].name;
-        sendFileBtn.disabled = false;
-    }
-});
-sendFileBtn.addEventListener('click', () => {
-    const file = fileInput.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-        socket.emit('file-share', {
-            room: currentRoom,
-            name: userName,
-            fileName: file.name,
-            fileData: reader.result 
-        });
-        fileInput.value = '';
-        $('fileNameLabel').textContent = 'No file selected';
-        sendFileBtn.disabled = true;
-    };
-    reader.readAsDataURL(file);
-});
+if (fileInput && sendFileBtn) {
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files && fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            if (fileNameLabel) fileNameLabel.textContent = file.name;
+            sendFileBtn.disabled = false;
+        } else {
+            if (fileNameLabel) fileNameLabel.textContent = 'No file selected';
+            sendFileBtn.disabled = true;
+        }
+    });
+
+    sendFileBtn.addEventListener('click', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            socket.emit('file-share', {
+                room: currentRoom,
+                name: userName,
+                fileName: file.name,
+                fileData: reader.result 
+            });
+
+            // reset UI
+            fileInput.value = '';
+            if (fileNameLabel) fileNameLabel.textContent = 'No file selected';
+            sendFileBtn.disabled = true;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 socket.on('file-share', ({ name, fileName, fileData }) => {
     const d = document.createElement('div');
     d.className = 'file-item';
