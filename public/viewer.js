@@ -43,11 +43,9 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
             console.log("Arcade Item Ready:", name);
             const url = URL.createObjectURL(blob);
             
-            // UI: Remove any old buttons
             const oldBtn = document.getElementById('arcadeBtn');
             if(oldBtn) oldBtn.remove();
 
-            // UI: Create "Arcade Ready" Button
             const btn = document.createElement('a');
             btn.id = 'arcadeBtn';
             btn.href = url;
@@ -55,7 +53,6 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
             btn.innerHTML = `🕹️ <strong>LAUNCH TOOL</strong><br/><small>${name}</small>`;
             btn.className = 'btn primary';
             
-            // Style it to sit at top-right or center
             Object.assign(btn.style, {
                 position: 'absolute',
                 top: '20px', right: '20px',
@@ -76,7 +73,6 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
             $('viewerStatus').textContent = `Loading Toolbox: ${percent}%`;
         }
     );
-    // ---------------------------
 
     pc.onicecandidate = e => {
         if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId: from, candidate: e.candidate });
@@ -99,12 +95,21 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => {
     if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
-// --- CHAT ---
+// --- CHAT (SECURITY FIX) ---
 socket.on('public-chat', ({ name, text, ts }) => {
     const log = $('chatLog');
     const d = document.createElement('div');
     d.className = 'chat-line';
-    d.innerHTML = `<strong>${name}</strong>: ${text}`;
+    
+    // SECURITY FIX: Create DOM elements
+    const strong = document.createElement('strong');
+    strong.textContent = name;
+    
+    const msgText = document.createTextNode(`: ${text}`);
+    
+    d.appendChild(strong);
+    d.appendChild(msgText);
+    
     log.appendChild(d);
     log.scrollTop = log.scrollHeight;
 });
