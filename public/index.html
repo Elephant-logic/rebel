@@ -100,6 +100,7 @@
             <button id="tabUsers" class="tab-btn">Users</button>
           </div>
 
+          <!-- STREAM CHAT -->
           <div id="contentStreamChat" class="tab-content active">
             <div id="chatLogPublic" class="chat-log"></div>
             <div id="emojiStripPublic" class="emoji-strip">
@@ -111,6 +112,7 @@
             </div>
           </div>
 
+          <!-- ROOM CHAT -->
           <div id="contentRoomChat" class="tab-content">
             <div id="chatLogPrivate" class="chat-log"></div>
             <div id="emojiStripPrivate" class="emoji-strip">
@@ -122,26 +124,39 @@
             </div>
           </div>
 
+          <!-- FILES TAB -->
           <div id="contentFiles" class="tab-content">
              <div class="file-upload-area">
                 <label class="btn secondary">
                   <input id="fileInput" type="file" hidden /> 📎 Choose File
                 </label>
-                <button id="sendFileBtn" class="btn primary full-width" disabled>Send</button>
+
+                <!-- NEW: FILE NAME LABEL (needed by app.js) -->
+                <span id="fileNameLabel" class="file-name" style="margin-left:8px;">
+                  No file selected
+                </span>
+
+                <button id="sendFileBtn" class="btn primary full-width" disabled>
+                  Send
+                </button>
              </div>
+
              <div class="files-list">
                 <div id="fileLog" class="file-log"></div>
              </div>
           </div>
 
+          <!-- USERS TAB -->
           <div id="contentUsers" class="tab-content">
              <h3>Active Users</h3>
              <div id="userList"></div>
           </div>
+
         </div>
       </section>
     </main>
   </div>
+
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="config/ice.js"></script>
   <script src="app.js"></script>
