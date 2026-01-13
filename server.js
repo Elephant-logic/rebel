@@ -12,7 +12,6 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-// Serve static client from /public
 app.use(express.static(path.join(__dirname, 'public')));
 
 // -----------------------------
@@ -35,7 +34,7 @@ app.get('/files/:id', (req, res) => {
     return res.status(404).send('File not found or expired');
   }
 
-  // Check expiry on access
+  // Expire on access
   if (Date.now() - meta.createdAt > FILE_TTL_MS) {
     try { fs.unlinkSync(meta.path); } catch (e) {}
     storedFiles.delete(id);
@@ -45,7 +44,7 @@ app.get('/files/:id', (req, res) => {
   res.sendFile(meta.path);
 });
 
-// Periodic cleanup just in case
+// Periodic cleanup of expired files
 setInterval(() => {
   const now = Date.now();
   for (const [id, meta] of storedFiles.entries()) {
@@ -178,21 +177,24 @@ io.on('connection', (socket) => {
   });
 
   // --- STREAMING SIGNALS (Host -> Viewer) ---
+  // Host sends Offer to a specific Viewer
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) {
-      io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
+        io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
     }
   });
 
+  // Viewer sends Answer back to Host
   socket.on('webrtc-answer', ({ targetId, sdp }) => {
     if (targetId && sdp) {
-      io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
+        io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
     }
   });
 
+  // ICE candidates from either side
   socket.on('webrtc-ice-candidate', ({ targetId, candidate }) => {
     if (targetId && candidate) {
-      io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
+        io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
     }
   });
 
@@ -234,7 +236,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- CHAT & FILES ---
+  // --- CHAT ---
 
   // 1. Public chat (room + viewers)
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
@@ -264,10 +266,10 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 3. FILE SHARE: save to disk -> send link
+  // 3. File Sharing (upload → link → 15-min expiry)
   socket.on('file-share', ({ room, name, fileName, fileType, fileData, targetId }) => {
     const roomName = room || socket.data.room;
-    if (!fileName || !fileData) return;
+    if (!roomName || !fileName || !fileData) return;
 
     // Expect data: URL → split header + base64
     const parts = String(fileData).split(',');
@@ -303,7 +305,7 @@ io.on('connection', (socket) => {
 
       if (targetId) {
         io.to(targetId).emit('file-share', payload);
-      } else if (roomName) {
+      } else {
         io.to(roomName).emit('file-share', payload);
       }
     });
@@ -317,27 +319,26 @@ io.on('connection', (socket) => {
     const info = rooms[roomName];
     if (!info) return;
 
+    // Remove user
     info.users.delete(socket.id);
 
+    // If Host left, assign new Host or unlock
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       info.locked = false;
 
-      // Promote next user if exists
-      if (info.users.size > 0) {
-        const nextId = info.users.keys().next().value;
+      const next = info.users.keys().next();
+      if (!next.done) {
+        const nextId = next.value;
         info.ownerId = nextId;
-
         const nextSocket = io.sockets.sockets.get(nextId);
         if (nextSocket) {
-          nextSocket.emit('role', {
-            isHost: true,
-            streamTitle: info.streamTitle
-          });
+          nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
         }
       }
     }
 
+    // Notify others in room
     socket.to(roomName).emit('user-left', { id: socket.id });
 
     // Cleanup empty room
