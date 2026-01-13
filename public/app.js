@@ -226,18 +226,16 @@ if ($('startStreamBtn')) {
             // Close all viewer connections
             Object.values(viewerPeers).forEach(pc => pc.close());
             for (const k in viewerPeers) delete viewerPeers[k];
-            
-            // Note: We don't stop local media here so you can keep chatting in P2P calls
             return;
         }
 
         // TOGGLE LOGIC: START
         if (!localStream) await startLocalMedia();
         isStreaming = true;
-        $('startStreamBtn').textContent = "Stop Stream"; // Updated text
+        $('startStreamBtn').textContent = "Stop Stream"; 
         $('startStreamBtn').classList.add('danger');
         
-        // Connect to everyone currently in the room immediately
+        // Connect to everyone currently in the room
         latestUserList.forEach(u => {
             if(u.id !== myId) connectViewer(u.id);
         });
@@ -412,6 +410,29 @@ $('btnSendPrivate').addEventListener('click', () => {
     inp.value = '';
 });
 
+// --- EMOJI LOGIC (FIXED) ---
+const emojiStripPublic = $('emojiStripPublic');
+const emojiStripPrivate = $('emojiStripPrivate');
+
+if (emojiStripPublic) {
+    emojiStripPublic.addEventListener('click', (e) => {
+        if (e.target.classList.contains('emoji')) {
+            const inp = $('inputPublic');
+            inp.value += e.target.textContent;
+            inp.focus();
+        }
+    });
+}
+if (emojiStripPrivate) {
+    emojiStripPrivate.addEventListener('click', (e) => {
+        if (e.target.classList.contains('emoji')) {
+            const inp = $('inputPrivate');
+            inp.value += e.target.textContent;
+            inp.focus();
+        }
+    });
+}
+
 // --- FILE LOGIC ---
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
@@ -486,22 +507,15 @@ function renderUserList() {
     });
 }
 
-// "RIGHT WAY" FIX: Prevent duplicate videos (2 screens)
 function addRemoteVideo(id, stream) {
     let existing = document.getElementById(`vid-${id}`);
-    
-    // If it exists, just update the source (handle re-negotiation or audio/video track updates)
     if (existing) {
         const vid = existing.querySelector('video');
-        if (vid && vid.srcObject !== stream) {
-            vid.srcObject = stream;
-        }
+        if (vid && vid.srcObject !== stream) vid.srcObject = stream;
         return; 
     }
-
     const d = document.createElement('div');
-    d.className = 'video-container'; 
-    d.id = `vid-${id}`;
+    d.className = 'video-container'; d.id = `vid-${id}`;
     d.innerHTML = `<video autoplay playsinline></video>`;
     d.querySelector('video').srcObject = stream;
     $('videoGrid').appendChild(d);
