@@ -3,7 +3,9 @@ let pc = null;
 let currentRoom = null;
 
 const $ = id => document.getElementById(id);
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
+  ? { iceServers: ICE_SERVERS }
+  : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 // --- HELPER: ASK FOR NAME ---
 function pickName() {
@@ -13,6 +15,7 @@ function pickName() {
 }
 
 let myName = "";
+const fileLogViewer = $('fileLogViewer');
 
 // --- CONNECTION ---
 const params = new URLSearchParams(window.location.search);
@@ -40,7 +43,8 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
     pc = new RTCPeerConnection(iceConfig);
     
     pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId: from, candidate: e.candidate });
+        if (e.candidate)
+          socket.emit('webrtc-ice-candidate', { targetId: from, candidate: e.candidate });
     };
     pc.ontrack = e => {
         const vid = $('viewerVideo');
@@ -83,6 +87,16 @@ function sendChat() {
 $('sendBtn').addEventListener('click', sendChat);
 $('chatInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChat();
+});
+
+// --- FILES (VIEWER) ---
+socket.on('file-share', ({ name, fileName, fileData }) => {
+    if (!fileLogViewer) return;
+    const d = document.createElement('div');
+    d.className = 'chat-line';
+    d.innerHTML = `<strong>${name}</strong> shared <a href="${fileData}" download="${fileName}">${fileName}</a>`;
+    fileLogViewer.appendChild(d);
+    fileLogViewer.scrollTop = fileLogViewer.scrollHeight;
 });
 
 // --- EMOJI FIX (FOR VIEWER) ---
