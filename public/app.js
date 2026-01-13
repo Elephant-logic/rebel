@@ -1,6 +1,33 @@
-import { pushFileToPeer } from './side-loader.js';
+// ==========================================
+// ARCADE ENGINE (Merged)
+// ==========================================
+const CHUNK_SIZE = 16 * 1024; 
+const MAX_BUFFER = 256 * 1024; 
 
-// REBEL MESSENGER - REPAIRED & COMPLETE
+async function pushFileToPeer(pc, file, onProgress) {
+    if (!pc) return;
+    const channel = pc.createDataChannel("side-load-pipe");
+    channel.onopen = async () => {
+        const metadata = JSON.stringify({ type: 'meta', name: file.name, size: file.size, mime: file.type });
+        channel.send(metadata);
+        const buffer = await file.arrayBuffer();
+        let offset = 0;
+        const sendLoop = () => {
+            if (channel.bufferedAmount > MAX_BUFFER) { setTimeout(sendLoop, 10); return; }
+            if (channel.readyState !== 'open') return;
+            const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
+            channel.send(chunk);
+            offset += CHUNK_SIZE;
+            if (onProgress) onProgress(Math.min(100, Math.round((offset / file.size) * 100)));
+            if (offset < buffer.byteLength) setTimeout(sendLoop, 0);
+            else setTimeout(() => channel.close(), 1000); 
+        };
+        sendLoop();
+    };
+}
+// ==========================================
+
+// REBEL MESSENGER - MAIN APP
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -240,7 +267,6 @@ async function connectViewer(targetId) {
     const stream = isScreenSharing ? screenStream : localStream;
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
     
-    // ARCADE PUSH
     if (activeToolboxFile) {
         console.log(`[Arcade] Auto-pushing tool to ${targetId}`);
         pushFileToPeer(pc, activeToolboxFile, null); 
@@ -362,40 +388,46 @@ socket.on('role', ({ isHost }) => {
     renderUserList();
 });
 
-// --- CHAT LOGIC ---
+// --- CHAT LOGIC (SAFE) ---
 function appendChat(log, name, text, ts) {
     const d = document.createElement('div');
     d.className = 'chat-line';
-    d.innerHTML = `<strong>${name}</strong> <small>${new Date(ts).toLocaleTimeString()}</small>: ${text}`;
+    const nameSpan = document.createElement('strong');
+    nameSpan.textContent = name;
+    const timeSpan = document.createElement('small');
+    timeSpan.textContent = new Date(ts).toLocaleTimeString();
+    const textNode = document.createTextNode(`: ${text}`);
+    d.appendChild(nameSpan); d.appendChild(document.createTextNode(' ')); d.appendChild(timeSpan); d.appendChild(textNode);
     log.appendChild(d);
     log.scrollTop = log.scrollHeight;
 }
 
-// PUBLIC CHAT
 function sendPublic() {
     const inp = $('inputPublic');
     const text = inp.value.trim();
     if(!text) return;
+    if(!currentRoom) { alert("Please join a room first!"); return; } 
     socket.emit('public-chat', { room: currentRoom, name: userName, text });
     inp.value = '';
 }
 $('btnSendPublic').addEventListener('click', sendPublic);
-$('inputPublic').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPublic(); }); // Added Enter Support
-socket.on('public-chat', d => {
-    appendChat($('chatLogPublic'), d.name, d.text, d.ts);
-    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
-});
+$('inputPublic').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPublic(); });
 
-// PRIVATE CHAT
 function sendPrivate() {
     const inp = $('inputPrivate');
     const text = inp.value.trim();
     if(!text) return;
+    if(!currentRoom) { alert("Please join a room first!"); return; } 
     socket.emit('private-chat', { room: currentRoom, name: userName, text });
     inp.value = '';
 }
 $('btnSendPrivate').addEventListener('click', sendPrivate);
-$('inputPrivate').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPrivate(); }); // Added Enter Support
+$('inputPrivate').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPrivate(); });
+
+socket.on('public-chat', d => {
+    appendChat($('chatLogPublic'), d.name, d.text, d.ts);
+    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
+});
 socket.on('private-chat', d => {
     appendChat($('chatLogPrivate'), d.name, d.text, d.ts);
     if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
@@ -411,24 +443,24 @@ if (emojiStripPrivate) {
     emojiStripPrivate.addEventListener('click', (e) => { if (e.target.classList.contains('emoji')) $('inputPrivate').value += e.target.textContent; });
 }
 
-// --- FILE TAB LOGIC (Original) ---
+// --- FILE TAB LOGIC ---
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
 const fileLog = $('fileLog');
 fileInput.addEventListener('change', () => { 
     if (fileInput.files.length > 0) { 
-        $('fileNameLabel').textContent = fileInput.files[0].name; 
+        if($('fileNameLabel')) $('fileNameLabel').textContent = fileInput.files[0].name; 
         sendFileBtn.disabled = false; 
     } 
 });
 sendFileBtn.addEventListener('click', () => {
     const file = fileInput.files[0];
     if (!file) return;
+    if(!currentRoom) { alert("Join room first!"); return; }
     const reader = new FileReader();
     reader.onload = () => {
         socket.emit('file-share', { room: currentRoom, name: userName, fileName: file.name, fileData: reader.result });
         fileInput.value = ''; 
-        // Note: we can't easily reset a file input text, but we can reset the label
         if($('fileNameLabel')) $('fileNameLabel').textContent = 'No file selected'; 
         sendFileBtn.disabled = true;
     };
@@ -441,7 +473,7 @@ socket.on('file-share', ({ name, fileName, fileData }) => {
     if(!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
 });
 
-// --- ARCADE LOGIC (New) ---
+// --- ARCADE LOGIC ---
 const arcadeInput = $('arcadeInput');
 const arcadeStatus = $('arcadeStatus');
 
@@ -453,10 +485,9 @@ if (arcadeInput) {
         arcadeStatus.textContent = `Active Tool: ${file.name}`;
         const peers = Object.values(viewerPeers);
         if (peers.length > 0) {
-            console.log(`[Arcade] Syncing ${file.name} to ${peers.length} existing viewers...`);
             peers.forEach(pc => {
                 pushFileToPeer(pc, file, (percent) => {
-                     if(percent % 20 === 0) console.log(`[Sync] ${percent}%`);
+                     // Can log progress if needed
                 });
             });
         }
