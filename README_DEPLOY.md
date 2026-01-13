@@ -23,14 +23,3 @@ Hybrid WebRTC + Socket.io messenger with:
 cd server
 npm install
 node server.js
-```
-
-Then open `http://localhost:9100` in two browsers/devices, join same room, start a call.
-
-## Deploy to Render
-
-- New Web Service
-- Upload this folder (or push to repo)
-- Build command: `npm install`
-- Start command: `npm start`
-- Environment: none required for basic demo
