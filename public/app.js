@@ -1,4 +1,4 @@
-// REBEL MESSENGER - FINAL FIXED VERSION
+// REBEL MESSENGER - FINAL PRODUCTION VERSION
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -46,10 +46,10 @@ function switchTab(name) {
     tabs[name].classList.remove('has-new');
 }
 
-tabs.stream.onclick = () => switchTab('stream');
-tabs.room.onclick = () => switchTab('room');
-tabs.files.onclick = () => switchTab('files');
-tabs.users.onclick = () => switchTab('users');
+if(tabs.stream) tabs.stream.onclick = () => switchTab('stream');
+if(tabs.room) tabs.room.onclick = () => switchTab('room');
+if(tabs.files) tabs.files.onclick = () => switchTab('files');
+if(tabs.users) tabs.users.onclick = () => switchTab('users');
 
 
 // --- SETTINGS ---
@@ -137,7 +137,7 @@ function updateMediaButtons() {
     }
 }
 
-// --- BUTTON LISTENERS (RESTORED) ---
+// --- BUTTON LISTENERS ---
 if ($('toggleMicBtn')) {
     $('toggleMicBtn').addEventListener('click', () => {
         if (!localStream) return;
@@ -216,10 +216,31 @@ function stopScreenShare() {
 if ($('startStreamBtn')) {
     $('startStreamBtn').addEventListener('click', async () => {
         if (!currentRoom || !iAmHost) return alert("Host only");
+        
+        // TOGGLE LOGIC: STOP
+        if (isStreaming) {
+            isStreaming = false;
+            $('startStreamBtn').textContent = "Start Stream";
+            $('startStreamBtn').classList.remove('danger');
+            
+            // Close all viewer connections
+            Object.values(viewerPeers).forEach(pc => pc.close());
+            for (const k in viewerPeers) delete viewerPeers[k];
+            
+            // Note: We don't stop local media here so you can keep chatting in P2P calls
+            return;
+        }
+
+        // TOGGLE LOGIC: START
         if (!localStream) await startLocalMedia();
         isStreaming = true;
-        $('startStreamBtn').textContent = "Live 🔴";
+        $('startStreamBtn').textContent = "Stop Stream"; // Updated text
         $('startStreamBtn').classList.add('danger');
+        
+        // Connect to everyone currently in the room immediately
+        latestUserList.forEach(u => {
+            if(u.id !== myId) connectViewer(u.id);
+        });
     });
 }
 
@@ -317,6 +338,13 @@ $('joinBtn').addEventListener('click', () => {
     updateLink(room);
     startLocalMedia();
 });
+
+// LEAVE BUTTON LOGIC
+if ($('leaveBtn')) {
+    $('leaveBtn').addEventListener('click', () => {
+        window.location.reload();
+    });
+}
 
 function updateLink(roomSlug) {
     const url = new URL(window.location.href);
@@ -458,13 +486,27 @@ function renderUserList() {
     });
 }
 
+// "RIGHT WAY" FIX: Prevent duplicate videos (2 screens)
 function addRemoteVideo(id, stream) {
+    let existing = document.getElementById(`vid-${id}`);
+    
+    // If it exists, just update the source (handle re-negotiation or audio/video track updates)
+    if (existing) {
+        const vid = existing.querySelector('video');
+        if (vid && vid.srcObject !== stream) {
+            vid.srcObject = stream;
+        }
+        return; 
+    }
+
     const d = document.createElement('div');
-    d.className = 'video-container'; d.id = `vid-${id}`;
+    d.className = 'video-container'; 
+    d.id = `vid-${id}`;
     d.innerHTML = `<video autoplay playsinline></video>`;
     d.querySelector('video').srcObject = stream;
     $('videoGrid').appendChild(d);
 }
+
 function removeRemoteVideo(id) {
     const el = document.getElementById(`vid-${id}`);
     if(el) el.remove();
