@@ -13,7 +13,9 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- ROOM STATE ---
+// ----------------------------------------------------
+// In-memory room state
+// ----------------------------------------------------
 const rooms = Object.create(null);
 
 function getRoomInfo(roomName) {
@@ -45,21 +47,24 @@ function broadcastRoomUpdate(roomName) {
   });
 }
 
+// ----------------------------------------------------
+// Socket.io
+// ----------------------------------------------------
 io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
 
-  // --- JOIN (WITH SECURITY LOCK) ---
+  // --- JOIN ---
   socket.on('join-room', ({ room, name }) => {
     if (!room || typeof room !== 'string') return;
 
     const roomName = room.trim();
     const info = getRoomInfo(roomName);
 
-    // SECURITY: REJECT CONNECTION IF LOCKED
+    // Security: Reject if locked and not owner
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       socket.emit('room-error', 'Room is locked by host');
-      socket.disconnect(); // Force disconnect
+      socket.disconnect();
       return;
     }
 
@@ -69,7 +74,11 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
-    if (!info.ownerId) info.ownerId = socket.id;
+    // Claim Host if room is empty
+    if (!info.ownerId) {
+      info.ownerId = socket.id;
+    }
+
     info.users.set(socket.id, { name: displayName });
 
     socket.emit('role', { 
@@ -86,7 +95,7 @@ io.on('connection', (socket) => {
     const roomName = socket.data.room;
     if (!roomName) return;
     const info = rooms[roomName];
-    if (!info || info.ownerId !== socket.id) return; // Only host
+    if (!info || info.ownerId !== socket.id) return;
 
     info.locked = !!locked;
     broadcastRoomUpdate(roomName);
@@ -97,6 +106,7 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info || info.ownerId !== socket.id) return;
+
     info.streamTitle = title || 'Untitled Stream';
     broadcastRoomUpdate(roomName);
   });
@@ -117,39 +127,57 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --- WEBRTC HANDSHAKE (DIRECT SIGNALING) ---
-  // This allows the host to send a unique offer to a specific viewer
+  // --- STREAMING SIGNALS (Host -> Viewers) ---
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) {
         io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
     }
   });
 
-  socket.on('webrtc-answer', ({ targetId, room, sdp }) => {
+  socket.on('webrtc-answer', ({ targetId, sdp }) => {
     if (targetId) {
         io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
-    } else if (room) {
-        // Fallback for viewers responding to host
-        socket.to(room).emit('webrtc-answer', { sdp, from: socket.id });
     }
   });
 
-  socket.on('webrtc-ice-candidate', ({ targetId, room, candidate }) => {
+  socket.on('webrtc-ice-candidate', ({ targetId, candidate }) => {
     if (targetId) {
         io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
-    } else if (room) {
-        socket.to(room).emit('webrtc-ice-candidate', { candidate, from: socket.id });
     }
   });
 
-  // --- CHAT CHANNELS ---
+  // --- CALLING SIGNALS (Direct Mesh) ---
+  socket.on('call-offer', ({ targetId, offer }) => {
+    if (targetId) io.to(targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer });
+  });
+  
+  socket.on('call-answer', ({ targetId, answer }) => {
+    if (targetId) io.to(targetId).emit('call-answer', { from: socket.id, answer });
+  });
+  
+  socket.on('call-ice', ({ targetId, candidate }) => {
+    if (targetId) io.to(targetId).emit('call-ice', { from: socket.id, candidate });
+  });
+  
+  socket.on('call-end', ({ targetId }) => {
+    if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
+  });
+  
+  socket.on('ring-user', (targetId) => {
+    if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
+  });
+
+  // --- CHAT & FILES ---
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
+    const info = rooms[roomName];
+    
     io.to(roomName).emit('public-chat', {
       name: name || socket.data.name || 'Anon',
       text,
       ts: Date.now(),
+      isOwner: info && info.ownerId === socket.id,
       fromViewer: !!fromViewer
     });
   });
@@ -157,7 +185,7 @@ io.on('connection', (socket) => {
   socket.on('private-chat', ({ room, name, text }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
-    // Only people in the room (not external viewers) see this
+    
     io.to(roomName).emit('private-chat', {
       name: name || socket.data.name || 'Anon',
       text,
@@ -165,30 +193,52 @@ io.on('connection', (socket) => {
     });
   });
 
-  // --- CALLING / FILES ---
-  socket.on('call-offer', ({ targetId, offer }) => io.to(targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer }));
-  socket.on('call-answer', ({ targetId, answer }) => io.to(targetId).emit('call-answer', { from: socket.id, answer }));
-  socket.on('call-ice', ({ targetId, candidate }) => io.to(targetId).emit('call-ice', { from: socket.id, candidate }));
-  socket.on('call-end', ({ targetId }) => io.to(targetId).emit('call-end', { from: socket.id }));
-  socket.on('ring-user', (targetId) => io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id }));
-
-  socket.on('file-share', ({ room, name, fileName, fileData }) => {
-      const roomName = room || socket.data.room;
-      if (roomName) io.to(roomName).emit('file-share', { name, fileName, fileData });
+  socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
+    const roomName = room || socket.data.room;
+    if (!roomName || !fileName || !fileData) return;
+    io.to(roomName).emit('file-share', {
+      name: name || socket.data.name,
+      fileName,
+      fileType: fileType || 'application/octet-stream',
+      fileData
+    });
   });
 
+  // --- DISCONNECT ---
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
+
     const info = rooms[roomName];
-    if (info) {
-      info.users.delete(socket.id);
-      if (info.ownerId === socket.id) { info.ownerId = null; info.locked = false; }
-      socket.to(roomName).emit('user-left', { id: socket.id });
-      if (info.users.size === 0) delete rooms[roomName];
-      else broadcastRoomUpdate(roomName);
+    if (!info) return;
+
+    info.users.delete(socket.id);
+
+    // Auto-Promote new host if owner leaves
+    if (info.ownerId === socket.id) {
+      info.ownerId = null;
+      info.locked = false;
+      
+      if (info.users.size > 0) {
+          const nextId = info.users.keys().next().value;
+          info.ownerId = nextId;
+          const nextSocket = io.sockets.sockets.get(nextId);
+          if (nextSocket) {
+              nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
+          }
+      }
+    }
+
+    socket.to(roomName).emit('user-left', { id: socket.id });
+
+    if (info.users.size === 0) {
+      delete rooms[roomName];
+    } else {
+      broadcastRoomUpdate(roomName);
     }
   });
 });
 
-server.listen(PORT, () => console.log(`Rebel running on ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Rebel server running on ${PORT}`);
+});
