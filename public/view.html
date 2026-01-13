@@ -155,7 +155,7 @@
         color: #050814;
         font-weight: 600;
       }
-      /* ---------- FAKE FULLSCREEN MODE (no browser API) ---------- */
+      /* ---------- FULLSCREEN MODE ---------- */
       body.fullscreen-mode {
         overflow: hidden;
       }
@@ -177,12 +177,23 @@
         max-height: none;
         object-fit: contain;
       }
+      /* Chat Overlay in Fullscreen */
       body.fullscreen-mode .chat-section {
-        display: none;
+        display: flex;
+        position: absolute;
+        bottom: 60px;
+        left: 20px;
+        width: 320px;
+        height: 250px;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
       }
       body.fullscreen-mode .controls-overlay {
         bottom: 14px;
         right: 14px;
+        z-index: 1001;
       }
     </style>
   </head>
