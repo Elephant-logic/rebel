@@ -6,12 +6,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="style.css" />
   <style>
-    /* Inline styles for the chat toggles */
-    .chat-sub-tabs { display: flex; gap: 5px; padding: 0 8px; margin-bottom: 8px; }
+    /* Chat Sub-tabs style */
+    .chat-sub-tabs { display: flex; gap: 5px; padding: 0 4px; margin-bottom: 8px; }
     .sub-tab { flex: 1; background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px; font-size: 0.75rem; border-radius: 6px; cursor: pointer; }
     .sub-tab.active { background: var(--panel-soft); color: var(--accent); border-color: var(--accent); }
-    .sub-tab .dot { height: 8px; width: 8px; background: var(--danger); border-radius: 50%; display: inline-block; margin-right: 4px; display: none; }
-    .sub-tab.has-new .dot { display: inline-block; }
+    .sub-tab.has-new { border-color: var(--danger); color: var(--danger); }
   </style>
 </head>
 <body>
@@ -19,7 +18,7 @@
     <header class="topbar">
       <div>
         <h1 id="headerTitle">Rebel Messenger</h1>
-        <p class="subtitle">P2P chat · calls · files</p>
+        <p class="subtitle">Secure P2P Platform</p>
       </div>
       <div class="status-block">
         <span id="signalStatus" class="status-dot status-disconnected">Disconnected</span>
@@ -31,42 +30,39 @@
       <aside class="sidebar">
         <h2>Connection</h2>
         <div class="field">
-          <label for="roomInput">Room ID (Secret Key)</label>
-          <input id="roomInput" type="text" placeholder="e.g. secret-admin-123" />
+          <label>Room ID (Secret)</label>
+          <input id="roomInput" type="text" placeholder="e.g. secure-room-99" />
         </div>
         <div class="field">
-          <label for="nameInput">Your Name</label>
-          <input id="nameInput" type="text" placeholder="e.g. Beefy" />
+          <label>Your Name</label>
+          <input id="nameInput" type="text" placeholder="e.g. Host" />
         </div>
         <button id="joinBtn" class="btn primary full-width">Join Room</button>
-        <button id="leaveBtn" class="btn full-width" disabled style="margin-top:8px">Leave Room</button>
+        <button id="leaveBtn" class="btn full-width" disabled style="margin-top:8px">Leave</button>
 
         <div id="hostControls" class="host-controls">
-          <h3 style="color:var(--accent); font-size:0.9rem; margin-top:0;">👑 Host Controls</h3>
-          
+          <h3 style="color:var(--accent); font-size:0.9rem; margin:0 0 10px;">👑 Host Controls</h3>
           <div class="field">
-            <label style="color:var(--muted); font-size:0.75rem;">Public Stream Title</label>
-            <input id="streamTitleInput" class="stream-title-input" type="text" placeholder="Display Title..." />
-            <button id="updateTitleBtn" class="btn small secondary full-width">Update Title</button>
+            <label>Stream Title</label>
+            <input id="streamTitleInput" class="stream-title-input" type="text" />
+            <button id="updateTitleBtn" class="btn small secondary full-width">Update</button>
           </div>
-
           <button id="lockRoomBtn" class="btn full-width" style="margin-top:10px;">🔓 Lock Room</button>
         </div>
       </aside>
 
       <section class="main-panel">
-        
-        <div id="settingsPanel" class="settings-panel" style="display:none;">
+        <div id="settingsPanel" class="settings-panel">
           <h3>Device Settings</h3>
           <div class="field">
             <label>Microphone</label>
-            <select id="audioSource" class="full-width"></select>
+            <select id="audioSource"></select>
           </div>
           <div class="field">
             <label>Camera</label>
-            <select id="videoSource" class="full-width"></select>
+            <select id="videoSource"></select>
           </div>
-          <button id="closeSettingsBtn" class="btn small">Done</button>
+          <button id="closeSettingsBtn" class="btn small full-width">Close</button>
         </div>
 
         <div id="videoGrid" class="video-grid">
@@ -77,21 +73,19 @@
         </div>
 
         <div class="call-controls">
-          <div style="display:flex; align-items:center; gap:5px; border-right:1px solid var(--border); padding-right:10px; margin-right:5px;">
+          <div style="display:flex; gap:5px; border-right:1px solid var(--border); padding-right:10px; margin-right:5px;">
              <button id="startStreamBtn" class="btn primary">Start Stream</button>
           </div>
-          
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
           <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
           <button id="shareScreenBtn" class="btn secondary">Share Screen</button>
-          
           <button id="hangupBtn" class="btn danger" disabled>End Call</button>
         </div>
 
-        <div class="file-row" style="margin-top:10px; margin-bottom:10px; padding: 0 4px;">
+        <div class="file-row" style="margin:10px 0; padding:0 4px;">
            <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
-           <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left: 10px;" />
+           <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
            <button id="openStreamBtn" class="btn small">Open</button>
         </div>
 
@@ -104,15 +98,14 @@
 
           <div id="tabContentChat" class="tab-content active">
             <div class="chat-sub-tabs">
-                <button id="btnPublicChat" class="sub-tab active"><span class="dot"></span>Stream (Public)</button>
-                <button id="btnPrivateChat" class="sub-tab"><span class="dot"></span>Room (Private)</button>
+                <button id="btnPublicChat" class="sub-tab active">Stream Chat (Public)</button>
+                <button id="btnPrivateChat" class="sub-tab">Room Chat (Private)</button>
             </div>
-
             <div id="chatLogPublic" class="chat-log"></div>
             <div id="chatLogPrivate" class="chat-log" style="display:none;"></div>
 
             <div class="emoji-strip" id="emojiStrip">
-              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span>
             </div>
             <div class="chat-input-row">
               <input id="chatInput" type="text" placeholder="Type a message..." />
@@ -121,33 +114,22 @@
           </div>
 
           <div id="tabContentFiles" class="tab-content">
-            <div class="file-upload-area">
-              <div class="upload-controls">
+             <div class="file-upload-area">
                 <label class="btn secondary">
-                  <input id="fileInput" type="file" hidden />
-                  📎 Select File
+                  <input id="fileInput" type="file" hidden /> 📎 Choose File
                 </label>
-                <span id="fileNameLabel" class="file-info">No file selected</span>
-              </div>
-              <button id="sendFileBtn" class="btn primary full-width" disabled>Send File</button>
-            </div>
-            <div class="files-list">
-              <div id="fileLog" class="file-log"></div>
-            </div>
-          </div>
-
-          <div id="tabContentUsers" class="tab-content">
-             <div class="files-list">
-                <h3>Active Users</h3>
-                <div id="userList" class="file-log"></div>
+                <button id="sendFileBtn" class="btn primary full-width" disabled>Send</button>
              </div>
           </div>
 
+          <div id="tabContentUsers" class="tab-content">
+             <h3>Active Users</h3>
+             <div id="userList"></div>
+          </div>
         </div>
       </section>
     </main>
   </div>
-
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="config/ice.js"></script>
   <script src="app.js"></script>
