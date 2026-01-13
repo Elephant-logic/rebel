@@ -1,6 +1,6 @@
 import { pushFileToPeer } from './side-loader.js';
 
-// REBEL MESSENGER - REPAIRED & COMPLETE
+// REBEL MESSENGER - SECURE VERSION
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -362,11 +362,25 @@ socket.on('role', ({ isHost }) => {
     renderUserList();
 });
 
-// --- CHAT LOGIC ---
+// --- CHAT LOGIC (SECURITY FIX APPLIED) ---
 function appendChat(log, name, text, ts) {
     const d = document.createElement('div');
     d.className = 'chat-line';
-    d.innerHTML = `<strong>${name}</strong> <small>${new Date(ts).toLocaleTimeString()}</small>: ${text}`;
+    
+    // SECURITY FIX: Create DOM elements, don't use innerHTML for user text
+    const nameSpan = document.createElement('strong');
+    nameSpan.textContent = name;
+    
+    const timeSpan = document.createElement('small');
+    timeSpan.textContent = new Date(ts).toLocaleTimeString();
+    
+    const textNode = document.createTextNode(`: ${text}`);
+    
+    d.appendChild(nameSpan);
+    d.appendChild(document.createTextNode(' '));
+    d.appendChild(timeSpan);
+    d.appendChild(textNode);
+    
     log.appendChild(d);
     log.scrollTop = log.scrollHeight;
 }
@@ -380,7 +394,8 @@ function sendPublic() {
     inp.value = '';
 }
 $('btnSendPublic').addEventListener('click', sendPublic);
-$('inputPublic').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPublic(); }); // Added Enter Support
+$('inputPublic').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPublic(); });
+
 socket.on('public-chat', d => {
     appendChat($('chatLogPublic'), d.name, d.text, d.ts);
     if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
@@ -395,7 +410,8 @@ function sendPrivate() {
     inp.value = '';
 }
 $('btnSendPrivate').addEventListener('click', sendPrivate);
-$('inputPrivate').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPrivate(); }); // Added Enter Support
+$('inputPrivate').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPrivate(); });
+
 socket.on('private-chat', d => {
     appendChat($('chatLogPrivate'), d.name, d.text, d.ts);
     if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
@@ -411,13 +427,13 @@ if (emojiStripPrivate) {
     emojiStripPrivate.addEventListener('click', (e) => { if (e.target.classList.contains('emoji')) $('inputPrivate').value += e.target.textContent; });
 }
 
-// --- FILE TAB LOGIC (Original) ---
+// --- FILE TAB LOGIC ---
 const fileInput = $('fileInput');
 const sendFileBtn = $('sendFileBtn');
 const fileLog = $('fileLog');
 fileInput.addEventListener('change', () => { 
     if (fileInput.files.length > 0) { 
-        $('fileNameLabel').textContent = fileInput.files[0].name; 
+        if($('fileNameLabel')) $('fileNameLabel').textContent = fileInput.files[0].name; 
         sendFileBtn.disabled = false; 
     } 
 });
@@ -428,7 +444,6 @@ sendFileBtn.addEventListener('click', () => {
     reader.onload = () => {
         socket.emit('file-share', { room: currentRoom, name: userName, fileName: file.name, fileData: reader.result });
         fileInput.value = ''; 
-        // Note: we can't easily reset a file input text, but we can reset the label
         if($('fileNameLabel')) $('fileNameLabel').textContent = 'No file selected'; 
         sendFileBtn.disabled = true;
     };
@@ -441,7 +456,7 @@ socket.on('file-share', ({ name, fileName, fileData }) => {
     if(!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
 });
 
-// --- ARCADE LOGIC (New) ---
+// --- ARCADE LOGIC ---
 const arcadeInput = $('arcadeInput');
 const arcadeStatus = $('arcadeStatus');
 
