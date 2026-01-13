@@ -24,9 +24,19 @@ const callPeers = {};
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 const $ = id => document.getElementById(id);
 
-// --- TABS LOGIC ---
-const tabs = { stream: $('tabStreamChat'), room: $('tabRoomChat'), files: $('tabFiles'), users: $('tabUsers') };
-const contents = { stream: $('contentStreamChat'), room: $('contentRoomChat'), files: $('contentFiles'), users: $('contentUsers') };
+// --- TABS LOGIC (4 Tabs) ---
+const tabs = {
+    stream: $('tabStreamChat'),
+    room: $('tabRoomChat'),
+    files: $('tabFiles'),
+    users: $('tabUsers')
+};
+const contents = {
+    stream: $('contentStreamChat'),
+    room: $('contentRoomChat'),
+    files: $('contentFiles'),
+    users: $('contentUsers')
+};
 
 function switchTab(name) {
     Object.values(tabs).forEach(t => t.classList.remove('active'));
@@ -35,10 +45,12 @@ function switchTab(name) {
     contents[name].classList.add('active');
     tabs[name].classList.remove('has-new');
 }
+
 if(tabs.stream) tabs.stream.onclick = () => switchTab('stream');
 if(tabs.room) tabs.room.onclick = () => switchTab('room');
 if(tabs.files) tabs.files.onclick = () => switchTab('files');
 if(tabs.users) tabs.users.onclick = () => switchTab('users');
+
 
 // --- SETTINGS ---
 const settingsPanel = $('settingsPanel');
@@ -79,9 +91,10 @@ videoSource.onchange = startLocalMedia;
 
 // --- MEDIA FUNCTIONS ---
 async function startLocalMedia() {
+    // If sharing screen, don't override with camera yet
     if (isScreenSharing) return;
+
     if (localStream) localStream.getTracks().forEach(t => t.stop());
-    
     const constraints = {
         audio: { deviceId: audioSource.value ? { exact: audioSource.value } : undefined },
         video: { deviceId: videoSource.value ? { exact: videoSource.value } : undefined }
@@ -89,9 +102,9 @@ async function startLocalMedia() {
     try {
         localStream = await navigator.mediaDevices.getUserMedia(constraints);
         $('localVideo').srcObject = localStream;
-        $('localVideo').muted = true; // Local preview muted
+        $('localVideo').muted = true;
         
-        // Update all active peers
+        // Refresh all connections with new track
         const tracks = localStream.getTracks();
         const updatePC = (pc) => {
              if(!pc) return;
@@ -113,6 +126,7 @@ function updateMediaButtons() {
     if (!localStream) return;
     const vTrack = localStream.getVideoTracks()[0];
     const aTrack = localStream.getAudioTracks()[0];
+    
     if($('toggleCamBtn')) {
         $('toggleCamBtn').textContent = (vTrack && vTrack.enabled) ? 'Camera On' : 'Camera Off';
         $('toggleCamBtn').classList.toggle('danger', !(vTrack && vTrack.enabled));
@@ -123,43 +137,56 @@ function updateMediaButtons() {
     }
 }
 
-// --- BUTTONS ---
-if ($('toggleMicBtn')) $('toggleMicBtn').onclick = () => {
-    if (localStream) {
-        const t = localStream.getAudioTracks()[0];
-        if (t) { t.enabled = !t.enabled; updateMediaButtons(); }
-    }
-};
-if ($('toggleCamBtn')) $('toggleCamBtn').onclick = () => {
-    if (localStream) {
-        const t = localStream.getVideoTracks()[0];
-        if (t) { t.enabled = !t.enabled; updateMediaButtons(); }
-    }
-};
-if ($('shareScreenBtn')) $('shareScreenBtn').onclick = async () => {
-    if (isScreenSharing) {
-        stopScreenShare();
-    } else {
-        try {
-            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-            isScreenSharing = true;
-            $('shareScreenBtn').textContent = 'Stop Screen';
-            $('shareScreenBtn').classList.add('danger');
-            $('localVideo').srcObject = screenStream;
-            
-            const screenTrack = screenStream.getVideoTracks()[0];
-            const updatePC = (pc) => {
-                 if(!pc) return;
-                 const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-                 if(sender) sender.replaceTrack(screenTrack);
-            };
-            Object.values(viewerPeers).forEach(updatePC);
-            Object.values(callPeers).forEach(p => updatePC(p.pc));
-            
-            screenTrack.onended = stopScreenShare;
-        } catch(e) { console.error(e); }
-    }
-};
+// --- BUTTON LISTENERS ---
+if ($('toggleMicBtn')) {
+    $('toggleMicBtn').addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        if (!track) return;
+        track.enabled = !track.enabled;
+        updateMediaButtons();
+    });
+}
+
+if ($('toggleCamBtn')) {
+    $('toggleCamBtn').addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getVideoTracks()[0];
+        if (!track) return;
+        track.enabled = !track.enabled;
+        updateMediaButtons();
+    });
+}
+
+if ($('shareScreenBtn')) {
+    $('shareScreenBtn').addEventListener('click', async () => {
+        if (isScreenSharing) {
+            stopScreenShare();
+        } else {
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                isScreenSharing = true;
+                $('shareScreenBtn').textContent = 'Stop Screen';
+                $('shareScreenBtn').classList.add('danger');
+                
+                // Show screen locally
+                $('localVideo').srcObject = screenStream;
+                
+                // Send screen track to peers
+                const screenTrack = screenStream.getVideoTracks()[0];
+                const updatePC = (pc) => {
+                     if(!pc) return;
+                     const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                     if(sender) sender.replaceTrack(screenTrack);
+                };
+                Object.values(viewerPeers).forEach(updatePC);
+                Object.values(callPeers).forEach(p => updatePC(p.pc));
+                
+                screenTrack.onended = stopScreenShare;
+            } catch(e) { console.error(e); }
+        }
+    });
+}
 
 function stopScreenShare() {
     if (!isScreenSharing) return;
@@ -168,29 +195,52 @@ function stopScreenShare() {
     isScreenSharing = false;
     $('shareScreenBtn').textContent = 'Share Screen';
     $('shareScreenBtn').classList.remove('danger');
+    
     $('localVideo').srcObject = localStream;
-    startLocalMedia(); // Reset camera
+    
+    // Revert to Camera
+    if (localStream) {
+        const camTrack = localStream.getVideoTracks()[0];
+        const updatePC = (pc) => {
+             if(!pc) return;
+             const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+             if(sender) sender.replaceTrack(camTrack);
+        };
+        Object.values(viewerPeers).forEach(updatePC);
+        Object.values(callPeers).forEach(p => updatePC(p.pc));
+    }
 }
 
-// --- STREAMING (HOST) ---
-if ($('startStreamBtn')) $('startStreamBtn').onclick = async () => {
-    if (!currentRoom || !iAmHost) return alert("Host only");
-    
-    if (isStreaming) {
-        isStreaming = false;
-        $('startStreamBtn').textContent = "Start Stream";
-        $('startStreamBtn').classList.remove('danger');
-        Object.values(viewerPeers).forEach(pc => pc.close());
-        for (const k in viewerPeers) delete viewerPeers[k];
-        return;
-    }
 
-    if (!localStream) await startLocalMedia();
-    isStreaming = true;
-    $('startStreamBtn').textContent = "Stop Stream"; 
-    $('startStreamBtn').classList.add('danger');
-    latestUserList.forEach(u => { if(u.id !== myId) connectViewer(u.id); });
-};
+// --- STREAMING (HOST) ---
+if ($('startStreamBtn')) {
+    $('startStreamBtn').addEventListener('click', async () => {
+        if (!currentRoom || !iAmHost) return alert("Host only");
+        
+        // TOGGLE LOGIC: STOP
+        if (isStreaming) {
+            isStreaming = false;
+            $('startStreamBtn').textContent = "Start Stream";
+            $('startStreamBtn').classList.remove('danger');
+            
+            // Close all viewer connections
+            Object.values(viewerPeers).forEach(pc => pc.close());
+            for (const k in viewerPeers) delete viewerPeers[k];
+            return;
+        }
+
+        // TOGGLE LOGIC: START
+        if (!localStream) await startLocalMedia();
+        isStreaming = true;
+        $('startStreamBtn').textContent = "Stop Stream"; 
+        $('startStreamBtn').classList.add('danger');
+        
+        // Connect to everyone currently in the room immediately
+        latestUserList.forEach(u => {
+            if(u.id !== myId) connectViewer(u.id);
+        });
+    });
+}
 
 socket.on('user-joined', ({ id, name }) => {
     appendChat($('chatLogPrivate'), 'System', `${name} joined room`, Date.now());
@@ -202,8 +252,10 @@ async function connectViewer(targetId) {
     const pc = new RTCPeerConnection(iceConfig);
     viewerPeers[targetId] = pc;
     pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId, candidate: e.candidate }); };
+    
     const stream = isScreenSharing ? screenStream : localStream;
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
+    
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('webrtc-offer', { targetId, sdp: offer });
@@ -220,8 +272,8 @@ socket.on('user-left', ({ id }) => {
     endPeerCall(id, true);
 });
 
-// --- CALLING (DIRECT METHOD) ---
-// 1. You Click Call
+// --- CALLING (DIRECT P2P) ---
+// 1. Start Call (Direct)
 window.startCall = async (targetId) => {
     if (!localStream) await startLocalMedia();
     const pc = new RTCPeerConnection(iceConfig);
@@ -236,11 +288,11 @@ window.startCall = async (targetId) => {
     await pc.setLocalDescription(offer);
     socket.emit('call-offer', { targetId, offer });
     
-    // Update button immediately to "End Call"
+    // Update Button State Immediately
     renderUserList();
 };
 
-// 2. They Receive Incoming Call
+// 2. Incoming Call
 socket.on('incoming-call', async ({ from, name, offer }) => {
     if (!confirm(`📞 Incoming call from ${name}. Accept?`)) {
         socket.emit('call-end', { targetId: from });
@@ -263,7 +315,7 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     renderUserList();
 });
 
-// 3. Connection Established
+// 3. Connect Call
 socket.on('call-answer', async ({ from, answer }) => {
     if (callPeers[from]) await callPeers[from].pc.setRemoteDescription(new RTCSessionDescription(answer));
 });
@@ -282,22 +334,27 @@ function endPeerCall(id, isIncomingSignal) {
   renderUserList();
 }
 
-// --- CORE ---
-socket.on('connect', () => { $('signalStatus').className='status-dot status-connected'; $('signalStatus').textContent='Connected'; myId=socket.id; });
-socket.on('disconnect', () => { $('signalStatus').className='status-dot status-disconnected'; $('signalStatus').textContent='Disconnected'; });
+// --- SOCKET CORE ---
+socket.on('connect', () => { $('signalStatus').className = 'status-dot status-connected'; $('signalStatus').textContent = 'Connected'; myId = socket.id; });
+socket.on('disconnect', () => { $('signalStatus').className = 'status-dot status-disconnected'; $('signalStatus').textContent = 'Disconnected'; });
 
-$('joinBtn').onclick = () => {
+$('joinBtn').addEventListener('click', () => {
     const room = $('roomInput').value.trim();
-    if(!room) return;
-    currentRoom=room; userName=$('nameInput').value.trim()||'Host';
+    if (!room) return;
+    currentRoom = room; userName = $('nameInput').value.trim() || 'Host';
     socket.connect();
     socket.emit('join-room', { room, name: userName });
-    $('joinBtn').disabled=true; $('leaveBtn').disabled=false;
+    $('joinBtn').disabled = true; $('leaveBtn').disabled = false;
     updateLink(room);
     startLocalMedia();
-};
+});
 
-if ($('leaveBtn')) $('leaveBtn').onclick = () => window.location.reload();
+// LEAVE BUTTON LOGIC
+if ($('leaveBtn')) {
+    $('leaveBtn').addEventListener('click', () => {
+        window.location.reload();
+    });
+}
 
 function updateLink(roomSlug) {
     const url = new URL(window.location.href);
@@ -305,15 +362,16 @@ function updateLink(roomSlug) {
     url.search = `?room=${encodeURIComponent(roomSlug)}`;
     $('streamLinkInput').value = url.toString();
 }
-if ($('updateSlugBtn')) $('updateSlugBtn').onclick = () => {
+// CUSTOM LINK NAME (SLUG) LOGIC
+if ($('updateSlugBtn')) $('updateSlugBtn').addEventListener('click', () => {
     const slug = $('slugInput').value.trim();
-    if(slug) updateLink(slug);
-};
+    if (slug) updateLink(slug);
+});
 
 socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     latestUserList = users;
     currentOwnerId = ownerId;
-    if($('lockRoomBtn')) {
+    if ($('lockRoomBtn')) {
         $('lockRoomBtn').textContent = locked ? '🔒 Unlock Room' : '🔓 Lock Room';
         $('lockRoomBtn').onclick = () => { if(iAmHost) socket.emit('lock-room', !locked); };
     }
@@ -322,13 +380,15 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
 
 socket.on('role', ({ isHost }) => {
     iAmHost = isHost;
-    const h2 = $('localContainer').querySelector('h2');
-    if(h2) h2.textContent = isHost ? 'You (Host) 👑' : 'You';
+    const localContainer = $('localContainer');
+    if (localContainer) {
+        localContainer.querySelector('h2').textContent = isHost ? 'You (Host) 👑' : 'You';
+    }
     $('hostControls').style.display = isHost ? 'block' : 'none';
     renderUserList();
 });
 
-// --- CHAT & FILES ---
+// --- CHAT LOGIC ---
 function appendChat(log, name, text, ts) {
     const d = document.createElement('div');
     d.className = 'chat-line';
@@ -336,78 +396,152 @@ function appendChat(log, name, text, ts) {
     log.appendChild(d);
     log.scrollTop = log.scrollHeight;
 }
-socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text, d.ts); if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new'); });
-socket.on('private-chat', d => { appendChat($('chatLogPrivate'), d.name, d.text, d.ts); if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new'); });
 
-$('btnSendPublic').onclick = () => {
-    const inp = $('inputPublic'); const text = inp.value.trim();
-    if(text) { socket.emit('public-chat', { room: currentRoom, name: userName, text }); inp.value=''; }
-};
-$('btnSendPrivate').onclick = () => {
-    const inp = $('inputPrivate'); const text = inp.value.trim();
-    if(text) { socket.emit('private-chat', { room: currentRoom, name: userName, text }); inp.value=''; }
-};
-
-// Emojis
-['emojiStripPublic', 'emojiStripPrivate'].forEach(id => {
-    const el = $(id);
-    if(el) el.onclick = (e) => {
-        if(e.target.classList.contains('emoji')) {
-            const inp = id.includes('Public') ? $('inputPublic') : $('inputPrivate');
-            inp.value += e.target.textContent; inp.focus();
-        }
-    }
+// PUBLIC
+socket.on('public-chat', d => {
+    appendChat($('chatLogPublic'), d.name, d.text, d.ts);
+    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new');
+});
+$('btnSendPublic').addEventListener('click', () => {
+    const inp = $('inputPublic');
+    const text = inp.value.trim();
+    if(!text) return;
+    socket.emit('public-chat', { room: currentRoom, name: userName, text });
+    inp.value = '';
 });
 
-// Files
-$('fileInput').onchange = () => { if($('fileInput').files.length > 0) $('sendFileBtn').disabled=false; };
-$('sendFileBtn').onclick = () => {
-    const file = $('fileInput').files[0];
-    if(!file) return;
+// PRIVATE
+socket.on('private-chat', d => {
+    appendChat($('chatLogPrivate'), d.name, d.text, d.ts);
+    if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
+});
+$('btnSendPrivate').addEventListener('click', () => {
+    const inp = $('inputPrivate');
+    const text = inp.value.trim();
+    if(!text) return;
+    socket.emit('private-chat', { room: currentRoom, name: userName, text });
+    inp.value = '';
+});
+
+// --- EMOJI LOGIC (FIXED) ---
+const emojiStripPublic = $('emojiStripPublic');
+const emojiStripPrivate = $('emojiStripPrivate');
+
+if (emojiStripPublic) {
+    emojiStripPublic.addEventListener('click', (e) => {
+        if (e.target.classList.contains('emoji')) {
+            const inp = $('inputPublic');
+            inp.value += e.target.textContent;
+            inp.focus();
+        }
+    });
+}
+if (emojiStripPrivate) {
+    emojiStripPrivate.addEventListener('click', (e) => {
+        if (e.target.classList.contains('emoji')) {
+            const inp = $('inputPrivate');
+            inp.value += e.target.textContent;
+            inp.focus();
+        }
+    });
+}
+
+// --- FILE LOGIC ---
+const fileInput = $('fileInput');
+const sendFileBtn = $('sendFileBtn');
+const fileLog = $('fileLog');
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+        $('fileNameLabel').textContent = fileInput.files[0].name;
+        sendFileBtn.disabled = false;
+    }
+});
+sendFileBtn.addEventListener('click', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-        socket.emit('file-share', { room: currentRoom, name: userName, fileName: file.name, fileData: reader.result });
-        $('fileInput').value=''; $('sendFileBtn').disabled=true;
+        socket.emit('file-share', {
+            room: currentRoom,
+            name: userName,
+            fileName: file.name,
+            fileData: reader.result 
+        });
+        fileInput.value = '';
+        $('fileNameLabel').textContent = 'No file selected';
+        sendFileBtn.disabled = true;
     };
     reader.readAsDataURL(file);
-};
-socket.on('file-share', d => {
-    const div = document.createElement('div');
-    div.className = 'file-item';
-    div.innerHTML = `<div><strong>${d.name}</strong>: ${d.fileName}</div><a href="${d.fileData}" download="${d.fileName}" class="btn small primary">Download</a>`;
-    $('fileLog').appendChild(div);
+});
+socket.on('file-share', ({ name, fileName, fileData }) => {
+    const d = document.createElement('div');
+    d.className = 'file-item';
+    d.innerHTML = `
+        <div><strong>${name}</strong> shared: ${fileName}</div>
+        <a href="${fileData}" download="${fileName}" class="btn small primary">Download</a>
+    `;
+    fileLog.appendChild(d);
     if(!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
 });
 
-// --- RENDER LIST ---
+
+// --- RENDER USER LIST ---
 function renderUserList() {
-    const list = $('userList'); list.innerHTML = '';
-    if(!latestUserList) return;
+    const list = $('userList'); 
+    if(!list) return;
+    list.innerHTML = '';
+    
+    if (!latestUserList) return;
+
     latestUserList.forEach(u => {
         if (u.id === myId) return;
+        
         const div = document.createElement('div');
         div.className = 'user-item';
+        
         const isCalling = !!callPeers[u.id];
-        const actionBtn = isCalling
-            ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger);color:var(--danger)">End Call</button>`
+        let actionBtn = isCalling 
+            ? `<button onclick="endPeerCall('${u.id}')" class="action-btn" style="border-color:var(--danger); color:var(--danger)">End Call</button>`
             : `<button onclick="startCall('${u.id}')" class="action-btn">📞 Call</button>`;
-        const kickBtn = iAmHost ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` : '';
-        div.innerHTML = `<span>${u.id === currentOwnerId ? '👑' : ''} ${u.name}</span><div class="user-actions">${actionBtn}${kickBtn}</div>`;
+        
+        const kickBtn = iAmHost 
+            ? `<button onclick="kickUser('${u.id}')" class="action-btn kick">Kick</button>` 
+            : '';
+
+        div.innerHTML = `
+            <span>${u.id === currentOwnerId ? '👑' : ''} ${u.name}</span> 
+            <div class="user-actions">
+                ${actionBtn}
+                ${kickBtn}
+            </div>
+        `;
         list.appendChild(div);
     });
 }
 
 function addRemoteVideo(id, stream) {
-    if(document.getElementById(`vid-${id}`)) return; // Prevent double videos
-    const d = document.createElement('div'); d.className='video-container'; d.id=`vid-${id}`;
+    let existing = document.getElementById(`vid-${id}`);
+    if (existing) {
+        const vid = existing.querySelector('video');
+        if (vid && vid.srcObject !== stream) vid.srcObject = stream;
+        return; 
+    }
+    const d = document.createElement('div');
+    d.className = 'video-container'; d.id = `vid-${id}`;
     d.innerHTML = `<video autoplay playsinline></video>`;
     d.querySelector('video').srcObject = stream;
     $('videoGrid').appendChild(d);
 }
+
 function removeRemoteVideo(id) {
     const el = document.getElementById(`vid-${id}`);
     if(el) el.remove();
 }
 
 window.kickUser = (id) => socket.emit('kick-user', id);
-if ($('openStreamBtn')) $('openStreamBtn').onclick = () => { const url = $('streamLinkInput').value; if(url) window.open(url, '_blank'); };
+
+if ($('openStreamBtn')) $('openStreamBtn').addEventListener('click', () => {
+   const url = $('streamLinkInput').value;
+   if(url) window.open(url, '_blank');
+});
