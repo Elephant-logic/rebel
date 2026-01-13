@@ -1,6 +1,8 @@
 import { pushFileToPeer } from './side-loader.js';
 
-// REBEL MESSENGER - SECURE VERSION
+// REBEL MESSENGER - FINAL FIXED
+console.log("App Module Loaded"); 
+
 const socket = io({ autoConnect: false });
 
 let currentRoom = null;
@@ -362,12 +364,12 @@ socket.on('role', ({ isHost }) => {
     renderUserList();
 });
 
-// --- CHAT LOGIC (SECURITY FIX APPLIED) ---
+// --- CHAT LOGIC ---
 function appendChat(log, name, text, ts) {
     const d = document.createElement('div');
     d.className = 'chat-line';
     
-    // SECURITY FIX: Create DOM elements, don't use innerHTML for user text
+    // SAFE APPEND (No innerHTML)
     const nameSpan = document.createElement('strong');
     nameSpan.textContent = name;
     
@@ -390,6 +392,9 @@ function sendPublic() {
     const inp = $('inputPublic');
     const text = inp.value.trim();
     if(!text) return;
+    if(!currentRoom) { alert("Please join a room first!"); return; } // Check room
+    
+    console.log("Sending Public Chat:", text); // Debug
     socket.emit('public-chat', { room: currentRoom, name: userName, text });
     inp.value = '';
 }
@@ -406,6 +411,9 @@ function sendPrivate() {
     const inp = $('inputPrivate');
     const text = inp.value.trim();
     if(!text) return;
+    if(!currentRoom) { alert("Please join a room first!"); return; } // Check room
+
+    console.log("Sending Private Chat:", text); // Debug
     socket.emit('private-chat', { room: currentRoom, name: userName, text });
     inp.value = '';
 }
