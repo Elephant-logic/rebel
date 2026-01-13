@@ -1,7 +1,8 @@
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const http = require('http');
-const { Server } = require("socket.io");
+const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 9100;
 
@@ -11,7 +12,49 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
+// Serve static client from /public
 app.use(express.static(path.join(__dirname, 'public')));
+
+// -----------------------------
+// UPLOADS (local, 15-minute TTL)
+// -----------------------------
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
+
+// id -> { path, createdAt, originalName, mime }
+const storedFiles = new Map();
+const FILE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+// Download route: /files/:id
+app.get('/files/:id', (req, res) => {
+  const id = req.params.id;
+  const meta = storedFiles.get(id);
+  if (!meta) {
+    return res.status(404).send('File not found or expired');
+  }
+
+  // Check expiry on access
+  if (Date.now() - meta.createdAt > FILE_TTL_MS) {
+    try { fs.unlinkSync(meta.path); } catch (e) {}
+    storedFiles.delete(id);
+    return res.status(410).send('File has expired');
+  }
+
+  res.sendFile(meta.path);
+});
+
+// Periodic cleanup just in case
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, meta] of storedFiles.entries()) {
+    if (now - meta.createdAt > FILE_TTL_MS) {
+      try { fs.unlinkSync(meta.path); } catch (e) {}
+      storedFiles.delete(id);
+    }
+  }
+}, 5 * 60 * 1000); // every 5 minutes
 
 // ----------------------------------------------------
 // In-memory room state
@@ -64,7 +107,7 @@ io.on('connection', (socket) => {
     const roomName = room.trim();
     const info = getRoomInfo(roomName);
 
-    // If locked and user is not the owner, reject
+    // If locked & not owner, reject
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       socket.emit('room-error', 'Room is locked by host');
       socket.disconnect();
@@ -77,19 +120,22 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
-    // Make first user host
+    // First user becomes Host
     if (!info.ownerId) {
       info.ownerId = socket.id;
     }
 
     info.users.set(socket.id, { name: displayName });
 
+    // Tell this socket its role
     socket.emit('role', {
       isHost: info.ownerId === socket.id,
       streamTitle: info.streamTitle
     });
 
+    // Tell others somebody joined
     socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
+
     broadcastRoomUpdate(roomName);
   });
 
@@ -189,9 +235,12 @@ io.on('connection', (socket) => {
   });
 
   // --- CHAT & FILES ---
+
+  // 1. Public chat (room + viewers)
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
+
     const info = rooms[roomName];
 
     io.to(roomName).emit('public-chat', {
@@ -203,6 +252,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // 2. Room chat
   socket.on('private-chat', ({ room, name, text }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
@@ -214,26 +264,52 @@ io.on('connection', (socket) => {
     });
   });
 
-  // FILE SHARING – supports targetId OR whole room
+  // 3. FILE SHARE: save to disk -> send link
   socket.on('file-share', ({ room, name, fileName, fileType, fileData, targetId }) => {
     const roomName = room || socket.data.room;
     if (!fileName || !fileData) return;
 
-    const payload = {
-      name: name || socket.data.name,
-      fileName,
-      fileType: fileType || 'application/octet-stream',
-      fileData
-    };
+    // Expect data: URL → split header + base64
+    const parts = String(fileData).split(',');
+    if (parts.length < 2) return;
+    const base64Data = parts[1];
 
-    if (targetId) {
-      io.to(targetId).emit('file-share', payload);
-    } else if (roomName) {
-      io.to(roomName).emit('file-share', payload);
-    }
+    const buffer = Buffer.from(base64Data, 'base64');
+    const safeName = fileName.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const filePath = path.join(uploadsDir, `${id}-${safeName}`);
+
+    fs.writeFile(filePath, buffer, (err) => {
+      if (err) {
+        console.error('File write error:', err);
+        return;
+      }
+
+      storedFiles.set(id, {
+        path: filePath,
+        createdAt: Date.now(),
+        originalName: fileName,
+        mime: fileType || 'application/octet-stream'
+      });
+
+      const fileUrl = `/files/${id}`;
+
+      const payload = {
+        name: name || socket.data.name,
+        fileName,
+        fileType: fileType || 'application/octet-stream',
+        fileUrl
+      };
+
+      if (targetId) {
+        io.to(targetId).emit('file-share', payload);
+      } else if (roomName) {
+        io.to(roomName).emit('file-share', payload);
+      }
+    });
   });
 
-  // --- DISCONNECT ---
+  // --- DISCONNECT HANDLING ---
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -243,14 +319,15 @@ io.on('connection', (socket) => {
 
     info.users.delete(socket.id);
 
-    // If host left, choose new host or clear
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       info.locked = false;
 
+      // Promote next user if exists
       if (info.users.size > 0) {
         const nextId = info.users.keys().next().value;
         info.ownerId = nextId;
+
         const nextSocket = io.sockets.sockets.get(nextId);
         if (nextSocket) {
           nextSocket.emit('role', {
@@ -263,6 +340,7 @@ io.on('connection', (socket) => {
 
     socket.to(roomName).emit('user-left', { id: socket.id });
 
+    // Cleanup empty room
     if (info.users.size === 0) {
       delete rooms[roomName];
     } else {
