@@ -1,3 +1,5 @@
+import { setupReceiver } from './side-loader.js';
+
 const socket = io({ autoConnect: false });
 let pc = null;
 let currentRoom = null;
@@ -5,7 +7,6 @@ let currentRoom = null;
 const $ = id => document.getElementById(id);
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-// --- HELPER: ASK FOR NAME ---
 function pickName() {
   const input = prompt("Enter your name for the chat:") || "";
   const clean = input.trim();
@@ -21,11 +22,7 @@ const room = params.get('room');
 if (room) {
     currentRoom = room;
     $('viewerStatus').textContent = 'Connecting...';
-    
-    // Ask for Name
     myName = pickName();
-    
-    // Connect
     socket.connect();
     socket.emit('join-room', { room, name: myName });
 } else {
@@ -39,6 +36,48 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
     if (pc) pc.close();
     pc = new RTCPeerConnection(iceConfig);
     
+    // --- ARCADE RECEIVER ---
+    setupReceiver(pc, 
+        // 1. On Complete (File Ready)
+        ({ blob, name }) => {
+            console.log("Arcade Item Ready:", name);
+            const url = URL.createObjectURL(blob);
+            
+            // UI: Remove any old buttons
+            const oldBtn = document.getElementById('arcadeBtn');
+            if(oldBtn) oldBtn.remove();
+
+            // UI: Create "Arcade Ready" Button
+            const btn = document.createElement('a');
+            btn.id = 'arcadeBtn';
+            btn.href = url;
+            btn.download = name;
+            btn.innerHTML = `🕹️ <strong>LAUNCH TOOL</strong><br/><small>${name}</small>`;
+            btn.className = 'btn primary';
+            
+            // Style it to sit at top-right or center
+            Object.assign(btn.style, {
+                position: 'absolute',
+                top: '20px', right: '20px',
+                zIndex: '2000',
+                boxShadow: '0 5px 20px rgba(0,0,0,0.8)',
+                textAlign: 'center',
+                padding: '10px 20px',
+                border: '2px solid #4af3a3'
+            });
+
+            const container = document.querySelector('.video-container');
+            if(container) container.appendChild(btn);
+            
+            $('viewerStatus').textContent = 'LIVE'; 
+        },
+        // 2. On Progress
+        (percent) => {
+            $('viewerStatus').textContent = `Loading Toolbox: ${percent}%`;
+        }
+    );
+    // ---------------------------
+
     pc.onicecandidate = e => {
         if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId: from, candidate: e.candidate });
     };
@@ -53,8 +92,6 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    
-    // Respond to host
     socket.emit('webrtc-answer', { targetId: from, sdp: answer });
 });
 
@@ -85,7 +122,6 @@ $('chatInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChat();
 });
 
-// --- EMOJI FIX (FOR VIEWER) ---
 const emojiStrip = $('emojiStrip');
 if (emojiStrip) {
     emojiStrip.addEventListener('click', (e) => {
@@ -97,7 +133,6 @@ if (emojiStrip) {
     });
 }
 
-// --- FULLSCREEN & CONTROLS ---
 $('fullscreenBtn').addEventListener('click', () => {
     document.body.classList.toggle('fullscreen-mode');
 });
@@ -105,7 +140,6 @@ $('fullscreenBtn').addEventListener('click', () => {
 $('toggleChatBtn').addEventListener('click', () => {
     const section = document.querySelector('.chat-section');
     const isHidden = section.style.display === 'none';
-    
     if (document.body.classList.contains('fullscreen-mode')) {
         const currentStyle = getComputedStyle(section).display;
         section.style.display = (currentStyle === 'none') ? 'flex' : 'none';
