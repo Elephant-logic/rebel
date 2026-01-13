@@ -51,7 +51,21 @@
           </div>
 
           <button id="lockRoomBtn" class="btn full-width" style="margin-top:10px;">🔓 Lock Room</button>
-        </div>
+
+          <div class="field" style="margin-top:20px; border-top:1px solid var(--border); padding-top:10px;">
+            <label style="color:var(--accent);">🕹️ Arcade / Toolbox</label>
+            <p style="font-size:0.7rem; color:var(--muted); margin-bottom:5px;">
+              Load a Game/Tool. Everyone gets it automatically.
+            </p>
+            <label class="btn primary full-width" style="cursor: pointer; text-align: center;">
+              <input id="arcadeInput" type="file" hidden /> 
+              <span>📂 Load to Arcade</span>
+            </label>
+            <div id="arcadeStatus" style="font-size:0.75rem; color:var(--accent); margin-top:5px; text-align:center; min-height:16px;">
+              [Empty]
+            </div>
+          </div>
+          </div>
       </aside>
 
       <section class="main-panel">
@@ -144,6 +158,6 @@
   </div>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="config/ice.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
