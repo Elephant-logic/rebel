@@ -1,5 +1,5 @@
 // ==========================================
-// ARCADE ENGINE
+// 1. ARCADE ENGINE (P2P Game Loader)
 // ==========================================
 const CHUNK_SIZE = 16 * 1024; 
 const MAX_BUFFER = 256 * 1024; 
@@ -27,7 +27,7 @@ async function pushFileToPeer(pc, file, onProgress) {
 }
 
 // ==========================================
-// MAIN APP LOGIC
+// 2. MAIN APP LOGIC (Host & Room)
 // ==========================================
 console.log("Rebel Stream App Loaded"); 
 
