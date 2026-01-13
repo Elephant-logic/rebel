@@ -14,38 +14,35 @@ function pickName() {
 
 let myName = pickName();
 
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? {
-  iceServers: ICE_SERVERS
-} : {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ]
-};
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
+  ? { iceServers: ICE_SERVERS }
+  : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-// DOM
-const $ = id => document.getElementById(id);
+// --- DOM ---
+const viewerVideo   = document.getElementById('viewerVideo');
+const viewerStatus  = document.getElementById('viewerStatus');
+const headerTitle   = document.getElementById('headerTitle');
 
-const viewerVideo       = $('viewerVideo');
-const viewerStatus      = $('viewerStatus');
-const viewerStatusMirror= $('viewerStatusMirror');
-const toggleChatBtn     = $('toggleChatBtn');
-const unmuteBtn         = $('unmuteBtn');
-const fullscreenBtn     = $('fullscreenBtn');
-const chatLog           = $('chatLog');
-const chatInput         = $('chatInput');
-const sendBtn           = $('sendBtn');
-const emojiStrip        = $('emojiStrip');
-const headerTitle       = document.querySelector('.viewer-header strong'); // To update title
+const chatPanel     = document.getElementById('chatPanel');
+const toggleChatBtn = document.getElementById('toggleChatBtn');
+const unmuteBtn     = document.getElementById('unmuteBtn');
+const fullBtn       = document.getElementById('fullBtn');
 
-// Status helper
-function setStatus(text) {
-  if (viewerStatus) viewerStatus.textContent = text;
-  if (viewerStatusMirror) viewerStatusMirror.textContent = text;
+const chatLog       = document.getElementById('chatLog');
+const chatInput     = document.getElementById('chatInput');
+const sendBtn       = document.getElementById('sendBtn');
+const emojiStrip    = document.getElementById('emojiStrip');
+
+// --- STATUS ---
+function setStatus(text, isLive = false) {
+  if (!viewerStatus) return;
+  viewerStatus.textContent = text;
+  viewerStatus.classList.toggle('live', isLive);
+  viewerStatus.classList.toggle('error', text.toLowerCase().includes('error'));
 }
 
-// Append chat
-function appendChat(name, text, ts = Date.now()) {
+// --- CHAT UI ---
+function appendChat(name, text, ts) {
   if (!chatLog) return;
   const line = document.createElement('div');
   line.className = 'chat-line';
@@ -65,9 +62,16 @@ socket.on('connect', () => {
 
 socket.on('disconnect', () => {
   setStatus('Disconnected');
+  if (pc) {
+    try { pc.close(); } catch (e) {}
+    pc = null;
+  }
 });
 
-// LISTEN FOR TITLE UPDATES
+socket.on('role', () => {
+  // viewer is never host; ignore
+});
+
 socket.on('room-update', ({ streamTitle }) => {
   if (headerTitle) headerTitle.textContent = streamTitle || 'Rebel Stream';
   document.title = streamTitle || 'Rebel Stream';
@@ -87,22 +91,29 @@ socket.on('webrtc-offer', async ({ sdp }) => {
       }
     };
 
+    // 🔥 MAIN FIX: make mobile actually start playing the video
     pc.ontrack = (event) => {
       const stream = event.streams[0];
       if (viewerVideo && viewerVideo.srcObject !== stream) {
         viewerVideo.srcObject = stream;
-        setStatus('LIVE');
+        viewerVideo.muted = true;
+        const playPromise = viewerVideo.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch((err) => {
+            console.warn('Autoplay blocked, tap the video to start:', err);
+          });
+        }
+        setStatus('LIVE', true);
       }
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
-    socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
+    socket.emit('webrtc-answer', { sdp: answer });
   } catch (e) {
     console.error('Viewer offer error:', e);
-    setStatus('Error');
+    setStatus('Error connecting to stream');
   }
 });
 
@@ -123,10 +134,8 @@ socket.on('chat-message', ({ name, text, ts }) => {
 
 // VIEWER CHAT SEND
 function sendChat() {
-  if (!chatInput || !currentRoom) return;
   const text = chatInput.value.trim();
-  if (!text) return;
-
+  if (!text || !currentRoom) return;
   socket.emit('chat-message', {
     room: currentRoom,
     name: myName,
@@ -140,7 +149,7 @@ function sendChat() {
 
 if (sendBtn) sendBtn.addEventListener('click', sendChat);
 if (chatInput) chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendChat();
+  if (e.key === 'Enter') sendChat();
 });
 if (emojiStrip) {
   emojiStrip.addEventListener('click', (e) => {
@@ -159,20 +168,24 @@ if (unmuteBtn && viewerVideo) {
   });
 }
 
-if (fullscreenBtn) {
-  fullscreenBtn.addEventListener('click', () => {
-    const isFs = document.body.classList.toggle('fullscreen-mode');
-    fullscreenBtn.textContent = isFs ? '✕ Exit' : '⛶ Fullscreen';
+if (fullBtn && viewerVideo) {
+  fullBtn.addEventListener('click', () => {
+    if (viewerVideo.requestFullscreen) {
+      viewerVideo.requestFullscreen();
+    } else if (viewerVideo.webkitRequestFullscreen) {
+      viewerVideo.webkitRequestFullscreen();
+    } else if (viewerVideo.msRequestFullscreen) {
+      viewerVideo.msRequestFullscreen();
+    }
   });
 }
 
-if (toggleChatBtn) {
-  const chatSection = document.querySelector('.chat-section');
+if (toggleChatBtn && chatPanel) {
+  let chatVisible = true;
   toggleChatBtn.addEventListener('click', () => {
-    if (!chatSection) return;
-    const hidden = chatSection.style.display === 'none';
-    chatSection.style.display = hidden ? 'flex' : 'none';
-    toggleChatBtn.textContent = hidden ? 'Hide Chat' : 'Show Chat';
+    chatVisible = !chatVisible;
+    chatPanel.style.display = chatVisible ? 'flex' : 'none';
+    toggleChatBtn.textContent = chatVisible ? 'Hide Chat' : 'Show Chat';
   });
 }
 
