@@ -12,6 +12,8 @@ function pickName() {
   return clean ? clean : `Viewer-${Math.floor(Math.random() * 1000)}`;
 }
 
+let myName = "";
+
 // --- CONNECTION ---
 const params = new URLSearchParams(window.location.search);
 const room = params.get('room');
@@ -20,10 +22,10 @@ if (room) {
     currentRoom = room;
     $('viewerStatus').textContent = 'Connecting...';
     
-    // 1. Ask for Name
-    const myName = pickName();
+    // Ask for Name
+    myName = pickName();
     
-    // 2. Connect
+    // Connect
     socket.connect();
     socket.emit('join-room', { room, name: myName });
 } else {
@@ -38,7 +40,7 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
     pc = new RTCPeerConnection(iceConfig);
     
     pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('webrtc-ice-candidate', { room: currentRoom, candidate: e.candidate });
+        if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId: from, candidate: e.candidate });
     };
     pc.ontrack = e => {
         const vid = $('viewerVideo');
@@ -53,7 +55,7 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
     await pc.setLocalDescription(answer);
     
     // Respond to host
-    socket.emit('webrtc-answer', { room: currentRoom, sdp: answer });
+    socket.emit('webrtc-answer', { targetId: from, sdp: answer });
 });
 
 socket.on('webrtc-ice-candidate', async ({ candidate }) => {
@@ -70,13 +72,30 @@ socket.on('public-chat', ({ name, text, ts }) => {
     log.scrollTop = log.scrollHeight;
 });
 
-$('sendBtn').addEventListener('click', () => {
-    const text = $('chatInput').value.trim();
+function sendChat() {
+    const inp = $('chatInput');
+    const text = inp.value.trim();
     if (!text) return;
-    // Emit only, do NOT append locally
-    socket.emit('public-chat', { room: currentRoom, text, fromViewer: true });
-    $('chatInput').value = '';
+    socket.emit('public-chat', { room: currentRoom, text, fromViewer: true, name: myName });
+    inp.value = '';
+}
+
+$('sendBtn').addEventListener('click', sendChat);
+$('chatInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChat();
 });
+
+// --- EMOJI FIX (FOR VIEWER) ---
+const emojiStrip = $('emojiStrip');
+if (emojiStrip) {
+    emojiStrip.addEventListener('click', (e) => {
+        if (e.target.classList.contains('emoji')) {
+            const inp = $('chatInput');
+            inp.value += e.target.textContent;
+            inp.focus();
+        }
+    });
+}
 
 // --- FULLSCREEN & CONTROLS ---
 $('fullscreenBtn').addEventListener('click', () => {
@@ -86,8 +105,10 @@ $('fullscreenBtn').addEventListener('click', () => {
 $('toggleChatBtn').addEventListener('click', () => {
     const section = document.querySelector('.chat-section');
     const isHidden = section.style.display === 'none';
+    
     if (document.body.classList.contains('fullscreen-mode')) {
-        section.style.display = (getComputedStyle(section).display === 'none') ? 'flex' : 'none';
+        const currentStyle = getComputedStyle(section).display;
+        section.style.display = (currentStyle === 'none') ? 'flex' : 'none';
     } else {
         section.style.display = isHidden ? 'flex' : 'none';
     }
