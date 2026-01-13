@@ -1,5 +1,5 @@
 // ======================================================
-// 1. ARCADE / SIDE-LOADER ENGINE
+// 1. ARCADE ENGINE (P2P File Transfer)
 // ======================================================
 // This handles splitting games/tools into chunks 
 // and sending them securely over WebRTC.
@@ -490,6 +490,16 @@ if ($('updateTitleBtn')) {
     $('updateTitleBtn').addEventListener('click', () => {
         const title = $('streamTitleInput').value.trim();
         if (title) socket.emit('update-title', title);
+    });
+}
+
+// RESTORED: ALLOW PRESSING "ENTER" ON TITLE INPUT
+if ($('streamTitleInput')) {
+    $('streamTitleInput').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') {
+            const title = $('streamTitleInput').value.trim();
+            if (title) socket.emit('update-title', title);
+        }
     });
 }
 
