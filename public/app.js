@@ -710,20 +710,15 @@ socket.on('role', ({ isHost }) => {
 if ($('updateTitleBtn')) {
     $('updateTitleBtn').addEventListener('click', () => {
         const title = $('streamTitleInput').value.trim();
-        if (title) {
-            socket.emit('update-title', title);
-        }
+        if (title) socket.emit('update-title', title);
     });
 }
 
-// RESTORED: ALLOW PRESSING "ENTER" ON TITLE INPUT
 if ($('streamTitleInput')) {
     $('streamTitleInput').addEventListener('keydown', (e) => {
         if(e.key === 'Enter') {
             const title = $('streamTitleInput').value.trim();
-            if (title) {
-                socket.emit('update-title', title);
-            }
+            if (title) socket.emit('update-title', title);
         }
     });
 }
@@ -732,8 +727,15 @@ if ($('streamTitleInput')) {
 if ($('updateSlugBtn')) {
     $('updateSlugBtn').addEventListener('click', () => {
         const slug = $('slugInput').value.trim();
-        if (slug) {
-            updateLink(slug);
+        if (slug) updateLink(slug);
+    });
+}
+
+if ($('slugInput')) {
+    $('slugInput').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') {
+            const slug = $('slugInput').value.trim();
+            if (slug) updateLink(slug);
         }
     });
 }
@@ -826,15 +828,8 @@ $('btnSendPrivate').addEventListener('click', sendPrivate);
 $('inputPrivate').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPrivate(); });
 
 // Receive Socket Messages
-socket.on('public-chat', d => { 
-    appendChat($('chatLogPublic'), d.name, d.text, d.ts); 
-    if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new'); 
-});
-
-socket.on('private-chat', d => { 
-    appendChat($('chatLogPrivate'), d.name, d.text, d.ts); 
-    if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new'); 
-});
+socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text, d.ts); if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new'); });
+socket.on('private-chat', d => { appendChat($('chatLogPrivate'), d.name, d.text, d.ts); if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new'); });
 
 // Emoji Listeners
 if ($('emojiStripPublic')) {
