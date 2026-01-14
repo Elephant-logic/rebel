@@ -15,21 +15,32 @@ async function pushFileToPeer(pc, file, onProgress) {
     const channel = pc.createDataChannel("side-load-pipe");
 
     channel.onopen = async () => {
-        console.log(`[Arcade] Sending: ${file.name}`);
+        console.log(`[Arcade] Starting transfer of: ${file.name}`);
+
+        // 1. Send Metadata (So the receiver knows what's coming)
         const metadata = JSON.stringify({
-            type: 'meta', name: file.name, size: file.size, mime: file.type
+            type: 'meta', 
+            name: file.name, 
+            size: file.size, 
+            mime: file.type 
         });
         channel.send(metadata);
 
+        // 2. File Buffer
         const buffer = await file.arrayBuffer();
         let offset = 0;
 
         const sendLoop = () => {
+            // Prevent large bufferedAmount from crashing the browser
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
             }
-            if (channel.readyState !== 'open') return;
+
+            if (channel.readyState !== 'open') {
+                console.warn('[Arcade] DataChannel closed during transfer.');
+                return;
+            }
 
             const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
             channel.send(chunk);
@@ -43,7 +54,7 @@ async function pushFileToPeer(pc, file, onProgress) {
             if (offset < file.size) {
                 setTimeout(sendLoop, 0);
             } else {
-                console.log('[Arcade] Done Sending:', file.name);
+                console.log('[Arcade] Completed transfer of:', file.name);
                 channel.close();
             }
         };
@@ -54,72 +65,68 @@ async function pushFileToPeer(pc, file, onProgress) {
     channel.onerror = (err) => console.error('[Arcade] DataChannel error:', err);
 }
 
+
 // ======================================================
-// 2. SOCKET & STATE SETUP
+// 2. CORE SOCKET & STATE
 // ======================================================
 
 const socket = io({
     autoConnect: false,
-    transports: ["websocket"],
+    transports: ['websocket'],
     withCredentials: true
 });
 
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 let userName = '';
 let currentRoom = null;
 let isHost = false;
 let myId = null;
 
-// --- STREAMING STATE ---
-let pc = null;              
-let broadcastStream = null; 
-let localStream = null;     
-let screenStream = null;    
+// STREAM PC (Host → viewers)
+let pc = null;
 let isStreaming = false;
+let broadcastStream = null;
+
+// LOCAL MEDIA
+let localStream = null;
+let screenStream = null;
 let isScreenSharing = false;
-let activeInput = 'camera'; // 'camera', 'screen', 'mixed', 'none'
 
-// --- CANVAS MIXER ---
-let canvas = document.createElement('canvas'); 
-canvas.width = 1920; 
-canvas.height = 1080;
-let ctx = canvas.getContext('2d');
-let canvasStream = null; 
-let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
-let activeGuestId = null; // The ID of the guest currently selected for the mixer
+// CALLERS (for 1:1 or group calls separate from broadcast)
+const callPeers = {};      // { socketId: { pc, stream, name } }
 
-// --- CONNECTION STORAGE ---
-const viewerPeers = {}; // One-way connections (Broadcast)
-const callPeers = {};   // Two-way connections (1:1 Calls)
+// VIEWER WEBRTC PEERS (broadcast connections)
+const viewerPeers = {};    // { socketId: RTCPeerConnection }
 
-// --- ICE CONFIGURATION (Servers) ---
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
-    ? { iceServers: ICE_SERVERS }
-    : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+// ICE configuration (STUN/TURN)
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
+  ? { iceServers: ICE_SERVERS }
+  : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
 
 // ======================================================
-// 3. HELPER FUNCTIONS
+// 3. UI HELPERS
 // ======================================================
 
 function logStatus(msg) {
-    console.log('[STATUS]', msg);
     const el = $('statusBar');
     if (el) el.textContent = msg;
+    console.log('[STATUS]', msg);
 }
 
 function safeName(name) {
     return (name || '').toString().slice(0, 30) || 'Anon';
 }
 
-// Format timestamps for chat
 function formatTime(ts) {
     const d = new Date(ts || Date.now());
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+
 // ======================================================
-// 4. INITIAL UI SETUP
+// 4. LOGIN / PANELS / TABS
 // ======================================================
 
 function showPanel(id) {
@@ -146,10 +153,14 @@ function initTabs() {
 }
 
 function initLogin() {
-    $('loginBtn').addEventListener('click', () => {
+    const loginBtn = $('loginBtn');
+    if (!loginBtn) return;
+
+    loginBtn.addEventListener('click', () => {
         const name = $('nameInput').value.trim();
         const room = $('roomInput').value.trim();
-        if(!name || !room) {
+
+        if (!name || !room) {
             alert('Please enter a name and stream ID.');
             return;
         }
@@ -172,20 +183,26 @@ function initLogin() {
 }
 
 function initViewerLink() {
-    if (!$('viewerLink')) return;
-    $('viewerLink').value = '';
-    $('copyViewerLink').addEventListener('click', () => {
+    const copyBtn = $('copyViewerLink');
+    if (!copyBtn) return;
+
+    copyBtn.addEventListener('click', () => {
         const base = window.location.origin;
         const roomSlug = encodeURIComponent(currentRoom || '');
         const url = `${base}/view?room=${roomSlug}`;
-        $('viewerLink').value = url;
-        navigator.clipboard.writeText(url).then(() => {
-            logStatus('Viewer link copied to clipboard.');
-        }).catch(() => {
-            logStatus('Unable to copy link.');
-        });
+
+        const input = $('viewerLink');
+        if (input) {
+            input.value = url;
+            input.select();
+        }
+
+        navigator.clipboard.writeText(url)
+          .then(() => logStatus('Viewer link copied to clipboard.'))
+          .catch(() => logStatus('Unable to copy link automatically (copied in input).'));
     });
 }
+
 
 // ======================================================
 // 5. STREAM SETUP (HOST → VIEWERS)
@@ -199,27 +216,20 @@ async function startStream() {
     }
 
     try {
+        // 1. Local cam/mic
         if (!localStream) {
-            localStream = await navigator.mediaDevices.getUserMedia({ 
-                video: true, 
-                audio: true 
+            localStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
             });
         }
 
-        if (!canvasStream) {
-            canvasStream = canvas.captureStream(30);
-        }
+        // 2. Build broadcast stream (for now just using localStream directly)
+        broadcastStream = new MediaStream();
+        localStream.getTracks().forEach(t => broadcastStream.addTrack(t));
 
-        const mergedStream = new MediaStream();
-        canvasStream.getVideoTracks().forEach(t => mergedStream.addTrack(t));
-
-        if (localStream.getAudioTracks().length > 0) {
-            mergedStream.addTrack(localStream.getAudioTracks()[0]);
-        }
-
+        // 3. Create PC used as "master" for broadcast
         pc = new RTCPeerConnection(iceConfig);
-        broadcastStream = mergedStream;
-
         broadcastStream.getTracks().forEach(track => pc.addTrack(track, broadcastStream));
 
         pc.onicecandidate = (event) => {
@@ -232,16 +242,17 @@ async function startStream() {
             }
         };
 
+        // 4. Ask server to create a broadcast offer (signals to all viewers)
         socket.emit('create-offer', {
             room: currentRoom,
             role: 'host'
         });
 
         isStreaming = true;
-        logStatus('Streaming started.');
         $('streamState').textContent = 'LIVE';
         $('startStreamBtn').disabled = true;
         $('stopStreamBtn').disabled = false;
+        logStatus('Streaming started.');
     } catch (err) {
         console.error('Failed to start stream:', err);
         logStatus('Failed to start stream (check camera/mic permissions).');
@@ -252,11 +263,20 @@ function stopStream() {
     if (!isStreaming) return;
 
     if (pc) {
-        pc.getSenders().forEach(sender => {
-            try { pc.removeTrack(sender); } catch(e) {}
+        pc.getSenders().forEach(s => {
+            try { pc.removeTrack(s); } catch (e) {}
         });
         pc.close();
         pc = null;
+    }
+    Object.values(viewerPeers).forEach(vpc => {
+        try { vpc.close(); } catch (e) {}
+    });
+    Object.keys(viewerPeers).forEach(k => delete viewerPeers[k]);
+
+    if (broadcastStream) {
+        broadcastStream.getTracks().forEach(t => t.stop());
+        broadcastStream = null;
     }
 
     isStreaming = false;
@@ -266,54 +286,20 @@ function stopStream() {
     logStatus('Stream stopped.');
 }
 
-// ======================================================
-// 6. MIXER RENDER LOOP
-// ======================================================
-
-function drawMixerFrame() {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    if (localStream && localStream.getVideoTracks().length) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        const settings = videoTrack.getSettings();
-        const w = settings.width || 1280;
-        const h = settings.height || 720;
-        const aspect = w / h;
-
-        let renderW = canvas.width;
-        let renderH = Math.round(renderW / aspect);
-        if (renderH > canvas.height) {
-            renderH = canvas.height;
-            renderW = Math.round(renderH * aspect);
-        }
-
-        const x = (canvas.width - renderW) / 2;
-        const y = (canvas.height - renderH) / 2;
-
-        // Placeholder: we’re not drawing the track frame here,
-        // this would require a <video> element rendering, etc.
-        ctx.fillStyle = '#222';
-        ctx.fillRect(x, y, renderW, renderH);
-    }
-
-    requestAnimationFrame(drawMixerFrame);
-}
-drawMixerFrame();
 
 // ======================================================
-// 7. VIEWER PEER CONNECT (HOST SIDE)
+// 6. VIEWER PEER CONNECT (BROADCAST)
 // ======================================================
 
 socket.on('viewer-joined', async ({ viewerId }) => {
+    // A viewer joined after stream already started → we open a dedicated RTCPeerConnection
     if (!isStreaming || !broadcastStream) return;
-
     if (viewerPeers[viewerId]) return;
 
     const viewerPc = new RTCPeerConnection(iceConfig);
     viewerPeers[viewerId] = viewerPc;
 
-    broadcastStream.getTracks().forEach(track => viewerPc.addTrack(track, broadcastStream));
+    broadcastStream.getTracks().forEach(t => viewerPc.addTrack(t, broadcastStream));
 
     viewerPc.onicecandidate = (event) => {
         if (event.candidate) {
@@ -337,40 +323,44 @@ socket.on('viewer-joined', async ({ viewerId }) => {
     });
 });
 
-socket.on('webrtc-answer', async ({ sdp, from }) => {
+socket.on('webrtc-answer', async ({ sdp, from, role }) => {
+    if (role !== 'viewer') return;
     const viewerPc = viewerPeers[from];
     if (!viewerPc) return;
-
     await viewerPc.setRemoteDescription(new RTCSessionDescription(sdp));
 });
 
-socket.on('webrtc-ice-candidate', async ({ candidate, role, from }) => {
+socket.on('webrtc-ice-candidate', async ({ candidate, role, from, targetId }) => {
+    // For broadcast connections coming back from viewers
     if (role === 'viewer') {
-        const viewerPc = viewerPeers[from];
-        if (viewerPc) {
-            await viewerPc.addIceCandidate(new RTCIceCandidate(candidate));
+        const vpc = viewerPeers[from];
+        if (vpc && candidate) {
+            await vpc.addIceCandidate(new RTCIceCandidate(candidate));
         }
     }
 });
 
+
 // ======================================================
-// 8. 1:1 CALL SYSTEM
+// 7. 1:1 CALL SYSTEM (SEPARATE FROM BROADCAST)
 // ======================================================
+
+async function ensureLocalStreamForCall() {
+    if (!localStream) {
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+        });
+    }
+}
 
 async function startCall(targetId) {
-    if (!localStream) {
-        try {
-            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        } catch (err) {
-            console.error('Camera/mic permission denied:', err);
-            return;
-        }
-    }
+    await ensureLocalStreamForCall();
 
     const pcCall = new RTCPeerConnection(iceConfig);
-    callPeers[targetId] = { pc: pcCall, stream: null };
+    callPeers[targetId] = { pc: pcCall, stream: null, name: `Guest ${targetId}` };
 
-    localStream.getTracks().forEach(track => pcCall.addTrack(track, localStream));
+    localStream.getTracks().forEach(t => pcCall.addTrack(t, localStream));
 
     pcCall.onicecandidate = (event) => {
         if (event.candidate) {
@@ -382,7 +372,7 @@ async function startCall(targetId) {
     };
 
     pcCall.ontrack = (event) => {
-        let stream = event.streams[0];
+        const stream = event.streams[0];
         callPeers[targetId].stream = stream;
         attachRemoteVideo(targetId, stream);
     };
@@ -396,27 +386,13 @@ async function startCall(targetId) {
     });
 }
 
-function attachRemoteVideo(id, stream) {
-    const container = $('remoteVideos');
-    let video = document.getElementById(`vid-${id}`);
-    if (!video) {
-        video = document.createElement('video');
-        video.id = `vid-${id}`;
-        video.autoplay = true;
-        video.playsInline = true;
-        video.muted = false;
-        video.style.width = '100%';
-        video.style.maxWidth = '320px';
-        video.style.borderRadius = '8px';
-        video.style.border = '1px solid rgba(255,255,255,0.2)';
-        container.appendChild(video);
-    }
-    video.srcObject = stream;
-}
+socket.on('call-offer', async ({ from, sdp, name }) => {
+    await ensureLocalStreamForCall();
 
-socket.on('call-offer', async ({ from, sdp }) => {
     const pcCall = new RTCPeerConnection(iceConfig);
-    callPeers[from] = { pc: pcCall, stream: null };
+    callPeers[from] = { pc: pcCall, stream: null, name: name || `Guest ${from}` };
+
+    localStream.getTracks().forEach(t => pcCall.addTrack(t, localStream));
 
     pcCall.onicecandidate = (event) => {
         if (event.candidate) {
@@ -428,7 +404,7 @@ socket.on('call-offer', async ({ from, sdp }) => {
     };
 
     pcCall.ontrack = (event) => {
-        let stream = event.streams[0];
+        const stream = event.streams[0];
         callPeers[from].stream = stream;
         attachRemoteVideo(from, stream);
     };
@@ -451,22 +427,23 @@ socket.on('call-answer', async ({ from, sdp }) => {
 
 socket.on('call-ice-candidate', async ({ from, candidate }) => {
     const peer = callPeers[from];
-    if (!peer) return;
+    if (!peer || !candidate) return;
     await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
 });
 
 function endPeerCall(targetId) {
     const peer = callPeers[targetId];
     if (!peer) return;
-    if (peer.pc) peer.pc.close();
+    if (peer.pc) {
+        peer.pc.close();
+    }
     delete callPeers[targetId];
-
-    const el = document.getElementById(`vid-${targetId}`);
-    if (el) el.remove();
+    removeRemoteVideo(targetId);
 }
 
+
 // ======================================================
-// 9. ROOM & USER MANAGEMENT
+// 8. ROOM & USER MANAGEMENT
 // ======================================================
 
 socket.on('connect', () => {
@@ -480,96 +457,142 @@ socket.on('disconnect', () => {
 
 socket.on('room-users', ({ users }) => {
     const list = $('userList');
+    if (!list) return;
     list.innerHTML = '';
 
     users.forEach(u => {
-        const li = document.createElement('div');
-        li.className = 'user-row';
+        const row = document.createElement('div');
+        row.className = 'user-row';
 
-        const crown = u.isHost ? '👑 ' : '';
-        li.innerHTML = `
-            <span>${crown}${safeName(u.name)}</span>
-            <div class="user-actions">
-                ${(!u.isHost && isHost) ? `<button onclick="ringUser('${u.id}')">Call</button>` : ''}
-                ${(isHost && !u.isHost) ? `<button onclick="kickUser('${u.id}')">Kick</button>` : ''}
-            </div>
-        `;
-        list.appendChild(li);
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `${u.isHost ? '👑 ' : ''}${safeName(u.name)}`;
+
+        const actions = document.createElement('div');
+        actions.className = 'user-actions';
+
+        if (isHost && !u.isHost) {
+            const callBtn = document.createElement('button');
+            callBtn.textContent = 'Call';
+            callBtn.onclick = () => startCall(u.id);
+            actions.appendChild(callBtn);
+
+            const kickBtn = document.createElement('button');
+            kickBtn.textContent = 'Kick';
+            kickBtn.onclick = () => socket.emit('kick-user', u.id);
+            actions.appendChild(kickBtn);
+        }
+
+        row.appendChild(nameSpan);
+        row.appendChild(actions);
+        list.appendChild(row);
     });
 });
 
 socket.on('kicked', () => {
     alert('You were removed from the room by the host.');
-    location.reload();
+    window.location.reload();
 });
 
+
 // ======================================================
-// 10. CHAT
+// 9. CHAT
 // ======================================================
 
 function appendChat({ from, text, ts }) {
     const log = $('chatLog');
-    const div = document.createElement('div');
-    const time = formatTime(ts);
+    if (!log) return;
 
+    const div = document.createElement('div');
     div.className = 'chat-line';
-    div.innerHTML = `
-        <span class="chat-time">[${time}]</span>
-        <span class="chat-user">${safeName(from)}:</span>
-        <span class="chat-text">${text}</span>
-    `;
+
+    const time = document.createElement('span');
+    time.className = 'chat-time';
+    time.textContent = `[${formatTime(ts)}]`;
+
+    const user = document.createElement('span');
+    user.className = 'chat-user';
+    user.textContent = `${safeName(from)}:`;
+
+    const msg = document.createElement('span');
+    msg.className = 'chat-text';
+    msg.textContent = text;
+
+    div.appendChild(time);
+    div.appendChild(user);
+    div.appendChild(msg);
+
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
 }
 
-$('chatSendBtn').addEventListener('click', () => {
-    const input = $('chatInput');
-    const text = input.value.trim();
-    if (!text || !currentRoom) return;
+const chatSendBtn = $('chatSendBtn');
+const chatInput = $('chatInput');
 
-    socket.emit('public-chat', {
-        room: currentRoom,
-        text,
-        name: userName
+if (chatSendBtn && chatInput) {
+    chatSendBtn.addEventListener('click', () => {
+        const text = chatInput.value.trim();
+        if (!text || !currentRoom) return;
+
+        socket.emit('public-chat', {
+            room: currentRoom,
+            text,
+            name: userName
+        });
+        chatInput.value = '';
     });
-    input.value = '';
-});
 
-$('chatInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-        $('chatSendBtn').click();
-    }
-});
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            chatSendBtn.click();
+        }
+    });
+}
 
 socket.on('public-chat', ({ name, text, ts }) => {
     appendChat({ from: name, text, ts });
 });
 
+
 // ======================================================
-// 11. ARCADE UI (Host Side)
+// 10. EMOJI STRIP
+// ======================================================
+
+if ($('emojiStrip')) {
+    $('emojiStrip').addEventListener('click', (e) => {
+        if (e.target.classList.contains('emoji')) {
+            chatInput.value += e.target.textContent;
+            chatInput.focus();
+        }
+    });
+}
+
+
+// ======================================================
+// 11. ARCADE UI (HOST SIDE)
 // ======================================================
 
 const arcadeInput = $('arcadeInput');
+const arcadeSendBtn = $('arcadeSendBtn');
+const arcadeStatus = $('arcadeStatus');
+
 let activeToolboxFile = null;
 
 if (arcadeInput) {
     arcadeInput.addEventListener('change', () => {
         const file = arcadeInput.files[0];
-        if(!file) return;
-        
-        activeToolboxFile = file;
-        $('arcadeStatus').textContent = `Active Tool: ${file.name}`;
-        
-        // --- ADD FORCE RESEND BUTTON DYNAMICALLY ---
-        // This is crucial if a user joins later or the host wants to resend the same file.
-        const resendBtn = $('arcadeResendBtn');
-        if (resendBtn) {
-            resendBtn.disabled = false;
+        if (!file) {
+            activeToolboxFile = null;
+            if (arcadeStatus) arcadeStatus.textContent = 'No file selected';
+            if (arcadeSendBtn) arcadeSendBtn.disabled = true;
+            return;
         }
+
+        activeToolboxFile = file;
+        if (arcadeStatus) arcadeStatus.textContent = `Active Tool: ${file.name}`;
+        if (arcadeSendBtn) arcadeSendBtn.disabled = false;
     });
 }
 
-const arcadeSendBtn = $('arcadeSendBtn');
 if (arcadeSendBtn) {
     arcadeSendBtn.addEventListener('click', async () => {
         if (!activeToolboxFile) {
@@ -582,99 +605,77 @@ if (arcadeSendBtn) {
         }
 
         logStatus(`Sending ${activeToolboxFile.name} via Arcade...`);
-        
+
         await pushFileToPeer(pc, activeToolboxFile, (percent) => {
-            $('arcadeStatus').textContent = `Sending: ${percent}%`;
+            if (arcadeStatus) arcadeStatus.textContent = `Sending: ${percent}%`;
         });
 
-        $('arcadeStatus').textContent = `Sent: ${activeToolboxFile.name}`;
+        if (arcadeStatus) arcadeStatus.textContent = `Sent: ${activeToolboxFile.name}`;
     });
 }
 
-const arcadeResendBtn = $('arcadeResendBtn');
-if (arcadeResendBtn) {
-    arcadeResendBtn.addEventListener('click', async () => {
-        if (!activeToolboxFile) {
-            alert('No active tool to resend.');
-            return;
-        }
-        if (!isStreaming || !pc) {
-            alert('You must be streaming to resend via Arcade.');
-            return;
-        }
-
-        logStatus(`Re-sending ${activeToolboxFile.name} via Arcade...`);
-        
-        await pushFileToPeer(pc, activeToolboxFile, (percent) => {
-            $('arcadeStatus').textContent = `Re-sending: ${percent}%`;
-        });
-
-        $('arcadeStatus').textContent = `Re-sent: ${activeToolboxFile.name}`;
-    });
-}
 
 // ======================================================
 // 12. STREAM CONTROLS
 // ======================================================
 
-$('startStreamBtn').addEventListener('click', startStream);
-$('stopStreamBtn').addEventListener('click', stopStream);
+const startStreamBtn = $('startStreamBtn');
+const stopStreamBtn = $('stopStreamBtn');
 
-// ======================================================
-// 13. EMOJI STRIP
-// ======================================================
-
-if ($('emojiStrip')) {
-    $('emojiStrip').addEventListener('click', (e) => { 
-        if(e.target.classList.contains('emoji')) { 
-            $('chatInput').value += e.target.textContent; 
-        }
-    });
-}
+if (startStreamBtn) startStreamBtn.addEventListener('click', startStream);
+if (stopStreamBtn) stopStreamBtn.addEventListener('click', stopStream);
 
 
 // ======================================================
-// 14. FILE SHARING TAB (Document sharing)
+// 13. FILE SHARING TAB (Document sharing)
 // ======================================================
 
 const fileInput = $('fileInput');
-fileInput.addEventListener('change', () => { 
-    if (fileInput.files.length) { 
-        $('fileNameLabel').textContent = fileInput.files[0].name; 
-        $('sendFileBtn').disabled = false; 
-    } 
-});
+if (fileInput) {
+    fileInput.addEventListener('change', () => { 
+        if (fileInput.files.length) { 
+            $('fileNameLabel').textContent = fileInput.files[0].name; 
+            $('sendFileBtn').disabled = false; 
+        } 
+    });
+}
 
-$('sendFileBtn').addEventListener('click', () => {
-    const file = fileInput.files[0];
+const sendFileBtn = $('sendFileBtn');
+if (sendFileBtn && fileInput) {
+    sendFileBtn.addEventListener('click', () => {
+        const file = fileInput.files[0];
 
-    // Raised limit – allow larger files through Socket chat (~20MB)
-    const MAX_CHAT_FILE = 20 * 1024 * 1024;
-    if (file && file.size > MAX_CHAT_FILE) {
-        alert("File too large for chat share (limit ~20MB). Use 'Arcade' for massive P2P transfers.");
-        return;
-    }
+        // Raised limit – allow larger files through Socket chat (~20MB)
+        const MAX_CHAT_FILE = 20 * 1024 * 1024;
+        if (file && file.size > MAX_CHAT_FILE) {
+            alert("File too large for chat share (limit ~20MB). Use 'Arcade' for massive P2P transfers.");
+            return;
+        }
 
-    if (!file || !currentRoom) return;
+        if (!file || !currentRoom) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-        socket.emit('file-share', { 
-            room: currentRoom, 
-            name: userName, 
-            fileName: file.name, 
-            fileData: reader.result 
-        });
-        
-        fileInput.value = ''; 
-        $('fileNameLabel').textContent = 'No file selected'; 
-        $('sendFileBtn').disabled = true;
-    };
-    reader.readAsDataURL(file);
-});
+        const reader = new FileReader();
+        reader.onload = () => {
+            socket.emit('file-share', { 
+                room: currentRoom, 
+                name: userName, 
+                fileName: file.name, 
+                fileData: reader.result 
+            });
+            
+            fileInput.value = ''; 
+            $('fileNameLabel').textContent = 'No file selected'; 
+            $('sendFileBtn').disabled = true;
+        };
+        reader.readAsDataURL(file);
+    });
+}
 
-// FIX: SECURE RENDERING (No InnerHTML)
+// FIX: SECURE RENDERING (No InnerHTML) – host-side FILES tab log
 socket.on('file-share', d => {
+    const container = $('fileLog');
+    if (!container) return;
+
     const div = document.createElement('div'); 
     div.className = 'file-item';
     
@@ -693,77 +694,13 @@ socket.on('file-share', d => {
     div.appendChild(info);
     div.appendChild(link);
     
-    $('fileLog').appendChild(div);
+    container.appendChild(div);
     if (!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
 });
 
 
 // ======================================================
-// 15. ARCADE INPUT LOGIC
-// ======================================================
-
-const arcadeInput2 = $('arcadeInput2');
-if (arcadeInput2) {
-    arcadeInput2.addEventListener('change', () => {
-        const file = arcadeInput2.files[0];
-        if(!file) return;
-        
-        activeToolboxFile = file;
-        $('arcadeStatus2').textContent = `Active Tool: ${file.name}`;
-        
-        const resendBtn = $('arcadeResendBtn2');
-        if (resendBtn) {
-            resendBtn.disabled = false;
-        }
-    });
-}
-
-const arcadeSendBtn2 = $('arcadeSendBtn2');
-if (arcadeSendBtn2) {
-    arcadeSendBtn2.addEventListener('click', async () => {
-        if (!activeToolboxFile) {
-            alert('Pick a tool file first.');
-            return;
-        }
-        if (!isStreaming || !pc) {
-            alert('You must be streaming to send tools via Arcade.');
-            return;
-        }
-
-        logStatus(`Sending ${activeToolboxFile.name} via Arcade (Slot 2)...`);
-        
-        await pushFileToPeer(pc, activeToolboxFile, (percent) => {
-            $('arcadeStatus2').textContent = `Sending: ${percent}%`;
-        });
-
-        $('arcadeStatus2').textContent = `Sent: ${activeToolboxFile.name}`;
-    });
-}
-
-const arcadeResendBtn2 = $('arcadeResendBtn2');
-if (arcadeResendBtn2) {
-    arcadeResendBtn2.addEventListener('click', async () => {
-        if (!activeToolboxFile) {
-            alert('No active tool to resend.');
-            return;
-        }
-        if (!isStreaming || !pc) {
-            alert('You must be streaming to resend via Arcade.');
-            return;
-        }
-
-        logStatus(`Re-sending ${activeToolboxFile.name} via Arcade (Slot 2)...`);
-        
-        await pushFileToPeer(pc, activeToolboxFile, (percent) => {
-            $('arcadeStatus2').textContent = `Re-sending: ${percent}%`;
-        });
-
-        $('arcadeStatus2').textContent = `Re-sent: ${activeToolboxFile.name}`;
-    });
-}
-
-// ======================================================
-// 16. TOOLBOX OVERLAY
+// 14. TOOLBOX OVERLAY
 // ======================================================
 
 const toolboxBtn = $('toolboxBtn');
@@ -775,14 +712,52 @@ if (toolboxBtn && toolboxPanel) {
         toolboxPanel.classList.toggle('open');
     });
 }
-if (closeToolbox) {
+if (closeToolbox && toolboxPanel) {
     closeToolbox.addEventListener('click', () => {
         toolboxPanel.classList.remove('open');
     });
 }
 
+
 // ======================================================
-// 17. INITIALIZE
+// 15. REMOTE VIDEO GRID (CALLS)
+// ======================================================
+
+function attachRemoteVideo(id, stream) {
+    const grid = $('videoGrid');
+    if (!grid) return;
+
+    let d = document.getElementById(`remote-${id}`);
+    if (!d) {
+        d = document.createElement('div');
+        d.id = `remote-${id}`;
+        d.className = 'video-tile';
+
+        const v = document.createElement('video');
+        v.autoplay = true;
+        v.playsInline = true;
+        v.muted = false;
+
+        d.appendChild(v);
+
+        const h2 = document.createElement('h2');
+        h2.textContent = callPeers[id] ? callPeers[id].name : 'Guest';
+        d.appendChild(h2);
+
+        grid.appendChild(d);
+    }
+    const v = d.querySelector('video');
+    if (v.srcObject !== stream) v.srcObject = stream;
+}
+
+function removeRemoteVideo(id) { 
+    const el = document.getElementById(`remote-${id}`); 
+    if (el) el.remove(); 
+}
+
+
+// ======================================================
+// 16. INITIALIZE
 // ======================================================
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -791,19 +766,15 @@ window.addEventListener('DOMContentLoaded', () => {
     initViewerLink();
 });
 
-function removeRemoteVideo(id) { 
-    const el = document.getElementById(`vid-${id}`); 
-    if(el) el.remove(); 
-}
-
 // Make functions available globally for HTML onclick events
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
 
-if ($('openStreamBtn')) {
-    $('openStreamBtn').addEventListener('click', () => { 
+const openStreamBtn = $('openStreamBtn');
+if (openStreamBtn) {
+    openStreamBtn.addEventListener('click', () => { 
         const url = $('streamLinkInput').value; 
-        if(url) window.open(url, '_blank'); 
+        if (url) window.open(url, '_blank'); 
     });
 }
