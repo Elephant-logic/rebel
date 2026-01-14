@@ -34,7 +34,11 @@
       .chat-line { margin-bottom: 5px; word-wrap: break-word; }
       .chat-line strong { color: #4af3a3; }
       
-      .chat-input-area { padding: 8px; display: flex; gap: 5px; }
+      .chat-input-area { padding: 8px; display: flex; flex-direction: column; gap: 5px; background: rgba(0,0,0,0.3); border-radius: 0 0 12px 12px; }
+      .emoji-bar { display: flex; gap: 8px; font-size: 1.2rem; cursor: pointer; user-select: none; margin-bottom: 2px; }
+      .emoji-bar span:hover { transform: scale(1.2); }
+      
+      .input-row { display: flex; gap: 5px; }
       .chat-input { flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 8px; border-radius: 6px; outline: none; }
       .btn-send { background: #4af3a3; color: #000; border: none; padding: 0 15px; font-weight: bold; border-radius: 6px; cursor: pointer; }
 
@@ -62,8 +66,13 @@
             <div class="chat-header">LIVE CHAT</div>
             <div id="chatLog"></div>
             <div class="chat-input-area">
-                <input id="chatInput" class="chat-input" placeholder="Chat..." />
-                <button id="sendBtn" class="btn-send">Send</button>
+                <div id="emojiStrip" class="emoji-bar">
+                    <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">🤘</span>
+                </div>
+                <div class="input-row">
+                    <input id="chatInput" class="chat-input" placeholder="Chat..." />
+                    <button id="sendBtn" class="btn-send">Send</button>
+                </div>
             </div>
         </div>
         <div class="controls-bar">
