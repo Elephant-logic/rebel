@@ -26,7 +26,7 @@ async function pushFileToPeer(pc, file, onProgress) {
         channel.send(metadata);
 
         // 2. Memory-Safe Send Loop (Slice on demand)
-        // PATCH: We now slice the file object directly instead of loading arrayBuffer once
+        // PATCH: Slice directly from the File object to handle GBs safely
         let offset = 0;
 
         const sendLoop = async () => {
@@ -195,7 +195,9 @@ window.setMixerLayout = (mode) => {
     mixerLayout = mode;
     document.querySelectorAll('.mixer-btn').forEach(b => {
         b.classList.remove('active');
-        if (b.onclick.toString().includes(mode)) b.classList.add('active');
+        if (b.textContent.toUpperCase().includes(mode) || (mode==='PIP' && b.textContent.includes('Overlay'))) {
+            b.classList.add('active');
+        }
     });
 };
 
@@ -470,7 +472,7 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
 
 
 // ======================================================
-// 10. ROOM & ROLE (Auto-Takeover)
+// 10. ROOM & ROLE LOGIC (QR + Corrected Auto-Takeover)
 // ======================================================
 
 socket.on('connect', () => { $('signalStatus').textContent = 'Connected'; myId = socket.id; });
@@ -500,6 +502,7 @@ socket.on('role', async ({ isHost }) => {
         if (!isStreaming) { iAmHost = true; $('startStreamBtn').click(); }
     }
     iAmHost = isHost; wasHost = isHost;
+    if ($('localContainer')) $('localContainer').querySelector('h2').textContent = isHost ? 'You (Host)' : 'You';
     $('hostControls').style.display = isHost ? 'block' : 'none';
     renderUserList();
 });
@@ -514,6 +517,8 @@ $('joinBtn').onclick = () => {
     startLocalMedia();
     $('joinBtn').disabled = true; $('leaveBtn').disabled = false;
 };
+
+$('leaveBtn').onclick = () => window.location.reload();
 
 socket.on('room-update', d => { latestUserList = d.users; currentOwnerId = d.ownerId; renderUserList(); });
 socket.on('user-joined', d => {
@@ -544,7 +549,8 @@ socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text); 
 
 $('sendFileBtn').onclick = () => {
     const file = $('fileInput').files[0];
-    // PATCH: 50MB Limit
+    if (!file) return;
+    // PATCH: 50MB Limit for server-sharing
     if (file.size > 50 * 1024 * 1024) return alert("File too large (Max 50MB)");
     const reader = new FileReader();
     reader.onload = () => {
@@ -555,13 +561,13 @@ $('sendFileBtn').onclick = () => {
 };
 socket.on('file-share', d => {
     const div = document.createElement('div'); div.className = 'file-item';
-    div.innerHTML = `<span><strong>${d.name}</strong> shared ${d.fileName}</span> <a href="${d.fileData}" download="${d.fileName}" class=\"btn small primary\">Download</a>`;
+    div.innerHTML = `<span><strong>${d.name}</strong> shared ${d.fileName}</span> <a href="${d.fileData}" download="${d.fileName}" class="btn small primary">Download</a>`;
     $('fileLog').appendChild(div);
 });
 
 
 // ======================================================
-// 12. USER LIST (Director Features)
+// 12. USER LIST (Director Features & Mute)
 // ======================================================
 
 function renderUserList() {
@@ -576,7 +582,7 @@ function renderUserList() {
         const actions = document.createElement('div'); actions.className = 'user-actions';
 
         if (callPeers[u.id]) {
-            // PATCH: GUEST MUTE BUTTON
+            // PATCH: Guest Mute Button
             const vid = document.getElementById(`vid-${u.id}`)?.querySelector('video');
             if (vid) {
                 const mBtn = document.createElement('button'); mBtn.className = 'action-btn';
@@ -598,12 +604,13 @@ function renderUserList() {
         }
 
         if (iAmHost) {
-            // PATCH: PROMOTE HOST BUTTON
+            // Manual Host Promotion
             const pBtn = document.createElement('button'); pBtn.className = 'action-btn'; pBtn.textContent = '👑';
             pBtn.onclick = () => { if(confirm("Pass Host?")) socket.emit('promote-host', u.id); };
             actions.appendChild(pBtn);
             const kBtn = document.createElement('button'); kBtn.className = 'action-btn kick'; kBtn.textContent = 'Kick';
-            kBtn.onclick = () => socket.emit('kick-user', u.id); actions.appendChild(kBtn);
+            kBtn.onclick = () => { if(confirm("Kick user?")) socket.emit('kick-user', u.id); };
+            actions.appendChild(kBtn);
         }
         div.appendChild(actions); list.appendChild(div);
     });
@@ -630,7 +637,7 @@ $('arcadeInput').onchange = () => {
     Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file));
 };
 
-// Global handlers
+// Global exports
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.kickUser = (id) => socket.emit('kick-user', id);
 window.makeHost = (id) => socket.emit('promote-host', id);
