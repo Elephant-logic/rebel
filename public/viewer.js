@@ -6,7 +6,9 @@ let pc = null;
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random()*1000);
 
-// --- ARCADE RECEIVER ---
+// ==========================================
+// ARCADE RECEIVER (Game -> Chat Logic)
+// ==========================================
 function setupReceiver(pc) {
     pc.ondatachannel = (e) => {
         const chan = e.channel;
@@ -18,15 +20,24 @@ function setupReceiver(pc) {
         chan.onmessage = (evt) => {
             const d = evt.data;
             if(typeof d === 'string') {
-                try { meta = JSON.parse(d); total = meta.size; $('viewerStatus').textContent = "INCOMING: " + meta.name; } catch(e){}
+                try { 
+                    meta = JSON.parse(d); 
+                    total = meta.size; 
+                    $('viewerStatus').textContent = "INCOMING: " + meta.name; 
+                } catch(e){}
             } else {
                 chunks.push(d); curr += d.byteLength;
+                
+                // Show percentage in status bar
                 if(total > 0) $('viewerStatus').textContent = `DL: ${Math.round((curr/total)*100)}%`;
                 
                 if(curr >= total) {
                     const blob = new Blob(chunks, {type: meta?meta.mime:'application/octet-stream'});
                     const url = URL.createObjectURL(blob);
-                    showLaunchButton(url, meta?meta.name:'Game');
+                    
+                    // *** CHANGED: SEND TO CHAT INSTEAD OF SCREEN ***
+                    addGameToChat(url, meta?meta.name:'Game');
+                    
                     chan.close();
                     $('viewerStatus').textContent = "LIVE";
                 }
@@ -35,34 +46,31 @@ function setupReceiver(pc) {
     };
 }
 
-function showLaunchButton(url, name) {
-    const old = $('arcadeBtn'); if(old) old.remove();
+function addGameToChat(url, name) {
+    const log = $('chatLog');
     
-    const btn = document.createElement('a');
-    btn.id = 'arcadeBtn';
-    btn.href = url;
-    btn.download = name;
-    btn.innerHTML = `🕹️ LAUNCH: ${name}`;
+    // Force open chat so they see it
+    const chatBox = $('chatBox');
+    if(chatBox.classList.contains('hidden')) {
+        chatBox.classList.remove('hidden');
+    }
+
+    const div = document.createElement('div');
+    div.className = 'chat-line system-msg';
     
-    // Aggressive Styling
-    Object.assign(btn.style, {
-        display: 'block', padding: '15px 30px', background: '#4af3a3', 
-        color: '#000', fontWeight: '900', textDecoration: 'none',
-        borderRadius: '8px', border: '3px solid #fff',
-        boxShadow: '0 0 30px #4af3a3', fontSize: '1.2rem',
-        cursor: 'pointer', transform: 'scale(0)', transition: 'transform 0.3s',
-        pointerEvents: 'auto' // Ensure clickable
-    });
+    // Create a nice looking card inside the chat
+    div.innerHTML = `
+        <div style="background: rgba(74, 243, 163, 0.1); border: 1px solid #4af3a3; padding: 10px; border-radius: 8px; margin: 10px 0; text-align: center;">
+            <div style="color: #4af3a3; font-weight: 900; font-size: 0.9rem; margin-bottom: 5px;">🚀 NEW TOOL RECEIVED</div>
+            <div style="font-size: 0.8rem; margin-bottom: 8px; color: #fff;">${name}</div>
+            <a href="${url}" download="${name}" style="background: #4af3a3; color: #000; padding: 6px 12px; text-decoration: none; font-weight: bold; border-radius: 4px; display: inline-block; cursor: pointer;">
+                ▶️ LAUNCH NOW
+            </a>
+        </div>
+    `;
     
-    // *** FIX: REMOVE BUTTON WHEN CLICKED ***
-    btn.onclick = () => {
-        btn.style.transform = 'scale(0)';
-        setTimeout(() => btn.remove(), 300); // Remove after animation
-    };
-    
-    const container = $('toolboxContainer') || document.body;
-    container.appendChild(btn);
-    setTimeout(() => btn.style.transform = 'scale(1)', 50);
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
 }
 
 // --- INIT ---
@@ -103,23 +111,25 @@ socket.on('webrtc-ice-candidate', async ({candidate}) => { if(pc) await pc.addIc
 
 // --- CHAT & UI ---
 const log = $('chatLog');
-function addChat(n,t) { const d=document.createElement('div'); d.className='chat-line'; d.innerHTML=`<strong>${n}</strong>: ${t}`; log.appendChild(d); log.scrollTop=log.scrollHeight; }
+function addChat(n,t) { 
+    const d=document.createElement('div'); 
+    d.className='chat-line'; 
+    d.innerHTML=`<strong style="color:#4af3a3">${n}</strong>: <span style="color:#ddd">${t}</span>`; 
+    log.appendChild(d); 
+    log.scrollTop=log.scrollHeight; 
+}
 socket.on('public-chat', d => addChat(d.name, d.text));
 
 const send = () => { const i=$('chatInput'); if(!i.value.trim()) return; socket.emit('public-chat', {room:currentRoom, text:i.value, name:myName, fromViewer:true}); i.value=''; };
 $('sendBtn').onclick = send; $('chatInput').onkeydown = e => { if(e.key==='Enter') send(); };
 
-// --- EMOJI LISTENER ---
-const emojiStrip = $('emojiStrip');
-if(emojiStrip) {
-    emojiStrip.onclick = (e) => {
-        if(e.target.classList.contains('emoji')) {
-            const input = $('chatInput');
-            input.value += e.target.textContent;
-            input.focus();
-        }
-    };
-}
+// Emojis
+if ($('emojiStrip')) $('emojiStrip').onclick = (e) => { 
+    if (e.target.classList.contains('emoji')) {
+        $('chatInput').value += e.target.textContent;
+        $('chatInput').focus();
+    }
+};
 
 $('toggleChatBtn').onclick = () => $('chatBox').classList.toggle('hidden');
 $('fullscreenBtn').onclick = () => document.documentElement.requestFullscreen().catch(()=>{});
