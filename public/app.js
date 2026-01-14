@@ -5,7 +5,7 @@
 // and sending them securely over WebRTC to all viewers.
 
 const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
-const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit
+const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit to prevent crashes
 
 async function pushFileToPeer(pc, file, onProgress) {
     if (!pc) return;
@@ -16,7 +16,7 @@ async function pushFileToPeer(pc, file, onProgress) {
     channel.onopen = async () => {
         console.log(`[Arcade] Starting transfer of: ${file.name}`);
 
-        // 1. Send Metadata
+        // 1. Send Metadata (So the receiver knows what's coming)
         const metadata = JSON.stringify({
             type: 'meta',
             name: file.name,
@@ -25,34 +25,47 @@ async function pushFileToPeer(pc, file, onProgress) {
         });
         channel.send(metadata);
 
-        // 2. Read file
+        // 2. Read the file into memory
         const buffer = await file.arrayBuffer();
         let offset = 0;
 
-        // 3. Send Loop
+        // 3. Send Loop (Chunks)
         const sendLoop = () => {
+            // Check if the network buffer is full. If so, wait.
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
             }
-            if (channel.readyState !== 'open') return;
 
+            // If the channel closed unexpectedly, stop.
+            if (channel.readyState !== 'open') {
+                return;
+            }
+
+            // Slice the next chunk of data
             const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
             channel.send(chunk);
             offset += CHUNK_SIZE;
 
+            // Calculate percentage for the UI status
             if (onProgress) {
                 const percent = Math.min(100, Math.round((offset / file.size) * 100));
                 onProgress(percent);
             }
 
+            // Continue or Finish
             if (offset < buffer.byteLength) {
                 setTimeout(sendLoop, 0); 
             } else {
                 console.log(`[Arcade] Transfer Complete.`);
-                setTimeout(() => channel.close(), 1000);
+                // Close the channel after a short delay to ensure delivery
+                setTimeout(() => {
+                    channel.close();
+                }, 1000);
             }
         };
+
+        // Kick off the loop
         sendLoop();
     };
 }
@@ -61,9 +74,13 @@ async function pushFileToPeer(pc, file, onProgress) {
 // ======================================================
 // 2. MAIN APP SETUP & VARIABLES
 // ======================================================
+
 console.log("Rebel Stream Host App Loaded"); 
 
+// Initialize Socket.io (Manual connect)
 const socket = io({ autoConnect: false });
+
+// Helper function to select DOM elements
 const $ = id => document.getElementById(id);
 
 // --- GLOBAL VARIABLES ---
@@ -82,12 +99,13 @@ let allowedGuests = [];
 let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
-let isStreaming = false; 
+let isStreaming = false; // "On Air" status
 
 // --- ARCADE STATE ---
 let activeToolboxFile = null;
 
-// --- MIXER STATE (CANVAS ENGINE) ---
+// --- MIXER STATE (PATCHED) ---
+// This engine mixes your cam + guest cam into a single video feed
 let audioContext = null;
 let audioDestination = null;
 let canvas = document.createElement('canvas'); 
@@ -96,28 +114,30 @@ canvas.height = 1080;
 let ctx = canvas.getContext('2d');
 let canvasStream = null; 
 let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
-let activeGuestId = null; 
+let activeGuestId = null; // The ID of the guest currently selected for the mixer
 
 // --- CONNECTION STORAGE ---
-const viewerPeers = {}; 
-const callPeers = {};   
+const viewerPeers = {}; // One-way connections (Broadcast)
+const callPeers = {};   // Two-way connections (1:1 Calls)
 
+// --- ICE CONFIGURATION (Servers) ---
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
     ? { iceServers: ICE_SERVERS } 
     : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 
 // ======================================================
-// 3. CANVAS MIXER ENGINE
+// 3. CANVAS MIXER ENGINE (THE PATCH)
 // ======================================================
+
 function drawMixer() {
     if (!ctx) return;
     
-    // Background
+    // 1. Paint Background (Black)
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Sources
+    // 2. Get Source Elements
     const myVideo = $('localVideo');
     let guestVideo = null;
     if (activeGuestId) {
@@ -125,62 +145,89 @@ function drawMixer() {
         if(el) guestVideo = el.querySelector('video');
     }
 
-    // Layout Logic
+    // 3. Draw based on Layout Mode
     if (mixerLayout === 'SOLO') {
+        // Full Screen: Host
         if (myVideo && myVideo.readyState === 4) {
             ctx.drawImage(myVideo, 0, 0, canvas.width, canvas.height);
         }
     } 
     else if (mixerLayout === 'GUEST') {
+        // Full Screen: Guest
         if (guestVideo && guestVideo.readyState === 4) {
             ctx.drawImage(guestVideo, 0, 0, canvas.width, canvas.height);
         } else {
+            // Placeholder text if guest isn't ready
             ctx.fillStyle = '#333'; ctx.fillRect(0,0,canvas.width, canvas.height);
             ctx.fillStyle = '#fff'; ctx.font = "60px Arial"; ctx.textAlign = "center";
-            ctx.fillText("Waiting for Guest...", canvas.width/2, canvas.height/2);
+            ctx.fillText("Waiting for Guest Signal...", canvas.width/2, canvas.height/2);
         }
     }
     else if (mixerLayout === 'SPLIT') {
-        // Correct Aspect Ratio Split (16:9 Letterboxed)
-        const slotW = 960;
-        const vidH = 540; 
-        const yOffset = (1080 - vidH) / 2;
+        // --- IMPROVED SPLIT LOGIC (LETTERBOXING) ---
+        // Instead of stretching/cropping, we fit the 16:9 video into the half-width slots.
+        
+        const slotW = 960; // Half of 1920
+        const vidH = 540;  // 960 / (16/9 aspect ratio)
+        const yOffset = (1080 - vidH) / 2; // Vertically center the video
 
+        // Draw Host (Left)
         if (myVideo && myVideo.readyState === 4) {
             ctx.drawImage(myVideo, 0, yOffset, slotW, vidH);
         }
+        
+        // Draw Guest (Right)
         if (guestVideo && guestVideo.readyState === 4) {
             ctx.drawImage(guestVideo, 960, yOffset, slotW, vidH);
         }
         
-        ctx.strokeStyle = '#222'; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(960, 0); ctx.lineTo(960, 1080); ctx.stroke();
+        // Draw Divider Line
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(960, 0);
+        ctx.lineTo(960, 1080);
+        ctx.stroke();
     }
     else if (mixerLayout === 'PIP') {
+        // Picture-in-Picture (Host Full + Guest Small)
+        
+        // Host Base
         if (myVideo && myVideo.readyState === 4) {
             ctx.drawImage(myVideo, 0, 0, canvas.width, canvas.height);
         }
+        
+        // Guest Overlay (Bottom Right)
         if (guestVideo && guestVideo.readyState === 4) {
-            const pipW = 480; const pipH = 270; const padding = 30;
+            const pipW = 480;
+            const pipH = 270;
+            const padding = 30;
             const x = canvas.width - pipW - padding;
             const y = canvas.height - pipH - padding;
             
-            ctx.strokeStyle = "#4af3a3"; ctx.lineWidth = 5;
+            // Draw Border
+            ctx.strokeStyle = "#4af3a3";
+            ctx.lineWidth = 5;
             ctx.strokeRect(x, y, pipW, pipH);
+            
+            // Draw Video
             ctx.drawImage(guestVideo, x, y, pipW, pipH);
         }
     }
 
+    // Loop
     requestAnimationFrame(drawMixer);
 }
 
-// Start Mixer
-canvasStream = canvas.captureStream(30);
+// Start the Mixer Engine
+canvasStream = canvas.captureStream(30); // 30 FPS Broadcast Stream
 drawMixer();
 
-// Mixer Controls
+// --- MIXER CONTROLS EXPOSED TO WINDOW ---
 window.setMixerLayout = (mode) => {
     mixerLayout = mode;
+    
+    // Update UI Buttons
     document.querySelectorAll('.mixer-btn').forEach(b => {
         b.classList.remove('active');
         if (b.textContent.toUpperCase().includes(mode) || (mode==='PIP' && b.textContent.includes('Overlay'))) {
@@ -191,63 +238,125 @@ window.setMixerLayout = (mode) => {
 
 window.setActiveGuest = (id) => {
     activeGuestId = id;
-    alert(`Guest Selected! Switch to 'Overlay' or 'Split' to view.`);
+    alert(`Guest Selected! Click 'Overlay' or 'Split' to see them on stream.`);
 };
 
 
 // ======================================================
-// 4. TAB NAVIGATION
+// 4. TAB NAVIGATION INTERFACE
 // ======================================================
-const tabs = { stream: $('tabStreamChat'), room: $('tabRoomChat'), files: $('tabFiles'), users: $('tabUsers') };
-const contents = { stream: $('contentStreamChat'), room: $('contentRoomChat'), files: $('contentFiles'), users: $('contentUsers') };
+
+const tabs = { 
+    stream: $('tabStreamChat'), 
+    room: $('tabRoomChat'), 
+    files: $('tabFiles'), 
+    users: $('tabUsers') 
+};
+
+const contents = { 
+    stream: $('contentStreamChat'), 
+    room: $('contentRoomChat'), 
+    files: $('contentFiles'), 
+    users: $('contentUsers') 
+};
 
 function switchTab(name) {
     if (!tabs[name]) return;
+
+    // Reset all tabs
     Object.values(tabs).forEach(t => t.classList.remove('active'));
     Object.values(contents).forEach(c => c.classList.remove('active'));
+
+    // Activate the selected one
     tabs[name].classList.add('active');
     contents[name].classList.add('active');
+
+    // Remove notification badge
     tabs[name].classList.remove('has-new');
 }
-Object.keys(tabs).forEach(k => { if(tabs[k]) tabs[k].onclick = () => switchTab(k); });
+
+// Click Listeners for Tabs
+if(tabs.stream) {
+    tabs.stream.onclick = () => switchTab('stream');
+}
+if(tabs.room) {
+    tabs.room.onclick = () => switchTab('room');
+}
+if(tabs.files) {
+    tabs.files.onclick = () => switchTab('files');
+}
+if(tabs.users) {
+    tabs.users.onclick = () => switchTab('users');
+}
 
 
 // ======================================================
-// 5. DEVICE SETTINGS
+// 5. DEVICE SETTINGS (Audio/Video/Mixer)
 // ======================================================
+
 const settingsPanel = $('settingsPanel');
 const audioSource = $('audioSource');
-const audioSource2 = $('audioSource2'); 
+const audioSource2 = $('audioSource2'); // Secondary Audio (Mixer)
 const videoSource = $('videoSource');
-const videoQuality = $('videoQuality');
+const videoQuality = $('videoQuality'); // Resolution
 
-if ($('settingsBtn')) $('settingsBtn').onclick = () => {
-    const isHidden = settingsPanel.style.display === 'none' || settingsPanel.style.display === '';
-    settingsPanel.style.display = isHidden ? 'block' : 'none';
-    if (isHidden) getDevices();
-};
-if ($('closeSettingsBtn')) $('closeSettingsBtn').onclick = () => settingsPanel.style.display = 'none';
+if ($('settingsBtn')) {
+    $('settingsBtn').addEventListener('click', () => {
+        const isHidden = settingsPanel.style.display === 'none' || settingsPanel.style.display === '';
+        settingsPanel.style.display = isHidden ? 'block' : 'none';
+        
+        if (isHidden) {
+            getDevices();
+        }
+    });
+}
+
+if ($('closeSettingsBtn')) {
+    $('closeSettingsBtn').addEventListener('click', () => {
+        settingsPanel.style.display = 'none';
+    });
+}
 
 async function getDevices() {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return;
+    }
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        audioSource.innerHTML = ''; videoSource.innerHTML = '';
+        
+        // Clear lists
+        audioSource.innerHTML = ''; 
+        videoSource.innerHTML = '';
         if(audioSource2) audioSource2.innerHTML = '<option value="">-- None --</option>';
 
         devices.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.deviceId;
             opt.text = d.label || `${d.kind} - ${d.deviceId.slice(0, 5)}`;
+            
             if (d.kind === 'audioinput') {
                 audioSource.appendChild(opt);
+                // Add to mixer
                 if(audioSource2) audioSource2.appendChild(opt.cloneNode(true));
             }
-            if (d.kind === 'videoinput') videoSource.appendChild(opt);
+            if (d.kind === 'videoinput') {
+                videoSource.appendChild(opt);
+            }
         });
-    } catch (e) { console.error(e); }
+
+        // Try to select the currently active device
+        if (localStream) {
+            const at = localStream.getAudioTracks()[0];
+            const vt = localStream.getVideoTracks()[0];
+            if (at) audioSource.value = at.getSettings().deviceId;
+            if (vt) videoSource.value = vt.getSettings().deviceId;
+        }
+    } catch (e) { 
+        console.error(e); 
+    }
 }
 
+// Update media when dropdown changes
 audioSource.onchange = startLocalMedia;
 if(audioSource2) audioSource2.onchange = startLocalMedia;
 videoSource.onchange = startLocalMedia;
@@ -255,92 +364,169 @@ if(videoQuality) videoQuality.onchange = startLocalMedia;
 
 
 // ======================================================
-// 6. MEDIA CONTROLS
+// 6. MEDIA CONTROLS (CAMERA, MIC & MIXER ENGINE)
 // ======================================================
+
 async function startLocalMedia() {
-    if (isScreenSharing) return;
-    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    // If sharing screen, we don't want to kill the screen stream logic.
+    // Screen sharing now feeds into "localStream" so the mixer picks it up automatically.
+    if (isScreenSharing) {
+        return; 
+    }
+
+    // Stop previous tracks
+    if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+    }
 
     try {
+        // --- RESOLUTION LOGIC ---
         const quality = videoQuality ? videoQuality.value : 'ideal';
         let widthConstraint, heightConstraint;
 
-        if (quality === 'max') { widthConstraint = { ideal: 1920 }; heightConstraint = { ideal: 1080 }; } 
-        else if (quality === 'low') { widthConstraint = { ideal: 640 }; heightConstraint = { ideal: 360 }; } 
-        else { widthConstraint = { ideal: 1280 }; heightConstraint = { ideal: 720 }; }
+        if (quality === 'max') {
+             widthConstraint = { ideal: 1920 }; heightConstraint = { ideal: 1080 };
+        } else if (quality === 'low') {
+             widthConstraint = { ideal: 640 }; heightConstraint = { ideal: 360 };
+        } else {
+             widthConstraint = { ideal: 1280 }; heightConstraint = { ideal: 720 };
+        }
 
-        const mainStream = await navigator.mediaDevices.getUserMedia({
+        const constraints = {
             audio: { deviceId: audioSource.value ? { exact: audioSource.value } : undefined },
-            video: { deviceId: videoSource.value ? { exact: videoSource.value } : undefined, width: widthConstraint, height: heightConstraint }
-        });
+            video: { 
+                deviceId: videoSource.value ? { exact: videoSource.value } : undefined,
+                width: widthConstraint,
+                height: heightConstraint
+            }
+        };
 
-        // Audio Mixer
+        const mainStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // --- AUDIO MIXER LOGIC ---
         let finalAudioTrack = mainStream.getAudioTracks()[0];
         const secondaryId = audioSource2 ? audioSource2.value : null;
 
         if (secondaryId) {
-            const secStream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: secondaryId } } });
+            const secStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: { deviceId: { exact: secondaryId } } 
+            });
+            
             if(!audioContext) audioContext = new AudioContext();
             audioDestination = audioContext.createMediaStreamDestination();
+
             const src1 = audioContext.createMediaStreamSource(mainStream);
             const src2 = audioContext.createMediaStreamSource(secStream);
+
             src1.connect(audioDestination);
             src2.connect(audioDestination);
+
             finalAudioTrack = audioDestination.stream.getAudioTracks()[0];
         }
 
-        localStream = new MediaStream([mainStream.getVideoTracks()[0], finalAudioTrack]);
+        // --- SET LOCAL STREAM ---
+        // This 'localStream' is what YOU see in the "You" box.
+        localStream = new MediaStream([
+            mainStream.getVideoTracks()[0], 
+            finalAudioTrack
+        ]);
+        
+        // Set local video element (Host Preview)
         $('localVideo').srcObject = localStream;
-        $('localVideo').muted = true;
+        $('localVideo').muted = true; // Mute to prevent echo
 
-        // UPDATE VIEWERS (Send Mixed Canvas)
+        // --- UPDATE VIEWERS (BROADCAST) ---
+        // Crucial: Viewers do NOT get localStream directly anymore.
+        // They get the CANVAS STREAM (The Mixed Output).
+        
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
+
         const updateViewerPC = (pc) => {
             if (!pc) return;
             const senders = pc.getSenders();
+            
+            // Replace Video Track with MIXER Track
             const vSender = senders.find(s => s.track && s.track.kind === 'video');
             if (vSender) vSender.replaceTrack(mixedVideoTrack);
+            
+            // Replace Audio Track with MIXED AUDIO Track
             const aSender = senders.find(s => s.track && s.track.kind === 'audio');
             if (aSender) aSender.replaceTrack(finalAudioTrack);
         };
+
+        // Update all connected Broadcast Viewers
         Object.values(viewerPeers).forEach(updateViewerPC);
         
-        // UPDATE GUESTS (Send Raw Cam)
+        // Update 1:1 Callers (Guests)
+        // Guests usually want to see your RAW camera, not the mixed stream
         Object.values(callPeers).forEach(p => {
              const senders = p.pc.getSenders();
              const vSender = senders.find(s => s.track && s.track.kind === 'video');
+             // Send RAW camera to the guest, so they see you clearly
              if(vSender) vSender.replaceTrack(mainStream.getVideoTracks()[0]);
+             
+             // Send Mixed Audio
              const aSender = senders.find(s => s.track && s.track.kind === 'audio');
              if(aSender) aSender.replaceTrack(finalAudioTrack);
         });
 
+        // Enable UI
         $('hangupBtn').disabled = false;
         updateMediaButtons();
 
-    } catch (e) { console.error(e); alert("Camera access failed."); }
+    } catch (e) { 
+        console.error(e); 
+        alert("Camera access failed. Please check your browser permissions."); 
+    }
 }
 
 function updateMediaButtons() {
     if (!localStream) return;
     const vTrack = localStream.getVideoTracks()[0];
     const aTrack = localStream.getAudioTracks()[0];
+
+    // Update Camera Button
     if ($('toggleCamBtn')) {
-        $('toggleCamBtn').textContent = (vTrack && vTrack.enabled) ? 'Camera On' : 'Camera Off';
-        $('toggleCamBtn').classList.toggle('danger', !vTrack.enabled);
+        const isCamOn = vTrack && vTrack.enabled;
+        $('toggleCamBtn').textContent = isCamOn ? 'Camera On' : 'Camera Off';
+        $('toggleCamBtn').classList.toggle('danger', !isCamOn);
     }
+
+    // Update Mic Button
     if ($('toggleMicBtn')) {
-        $('toggleMicBtn').textContent = (aTrack && aTrack.enabled) ? 'Mute' : 'Unmute';
-        $('toggleMicBtn').classList.toggle('danger', !aTrack.enabled);
+        const isMicOn = aTrack && aTrack.enabled;
+        $('toggleMicBtn').textContent = isMicOn ? 'Mute' : 'Unmute';
+        $('toggleMicBtn').classList.toggle('danger', !isMicOn);
     }
 }
 
-if ($('toggleMicBtn')) $('toggleMicBtn').onclick = () => { if (localStream) { const t = localStream.getAudioTracks()[0]; if(t) { t.enabled = !t.enabled; updateMediaButtons(); } } };
-if ($('toggleCamBtn')) $('toggleCamBtn').onclick = () => { if (localStream) { const t = localStream.getVideoTracks()[0]; if(t) { t.enabled = !t.enabled; updateMediaButtons(); } } };
+if ($('toggleMicBtn')) {
+    $('toggleMicBtn').addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        if (track) { 
+            track.enabled = !track.enabled; 
+            updateMediaButtons(); 
+        }
+    });
+}
+
+if ($('toggleCamBtn')) {
+    $('toggleCamBtn').addEventListener('click', () => {
+        if (!localStream) return;
+        const track = localStream.getVideoTracks()[0];
+        if (track) { 
+            track.enabled = !track.enabled; 
+            updateMediaButtons(); 
+        }
+    });
+}
 
 
 // ======================================================
-// 7. SCREEN SHARING
+// 7. SCREEN SHARING LOGIC
 // ======================================================
+
 if ($('shareScreenBtn')) {
     $('shareScreenBtn').addEventListener('click', async () => {
         if (isScreenSharing) {
@@ -349,91 +535,184 @@ if ($('shareScreenBtn')) {
             try {
                 screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
                 isScreenSharing = true;
+                
+                // Update Button UI
                 $('shareScreenBtn').textContent = 'Stop Screen';
                 $('shareScreenBtn').classList.add('danger');
-                $('localVideo').srcObject = screenStream; // Mixer picks this up
+                
+                // Show screen locally in the 'You' box
+                $('localVideo').srcObject = screenStream;
+                
+                // Note: The CANVAS MIXER automatically reads from $('localVideo').
+                // So we don't need to manually replace tracks for viewers! 
+                // The drawMixer() loop will now paint the screen instead of the cam.
+                
+                // Handle native "Stop Sharing" bar
                 screenStream.getVideoTracks()[0].onended = stopScreenShare;
-            } catch(e) { console.error(e); }
+
+            } catch(e) { 
+                console.error("Screen share cancelled", e); 
+            }
         }
     });
 }
 
 function stopScreenShare() {
     if (!isScreenSharing) return;
-    if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+
+    // Stop the screen tracks
+    if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+    }
+    
     screenStream = null;
     isScreenSharing = false;
+    
+    // Reset Button UI
     $('shareScreenBtn').textContent = 'Share Screen';
     $('shareScreenBtn').classList.remove('danger');
+    
+    // Switch back to Camera
     startLocalMedia();
 }
 
 
 // ======================================================
-// 8. BROADCAST STREAMING
+// 8. BROADCAST STREAMING (1-to-Many)
 // ======================================================
+
 if ($('startStreamBtn')) {
     $('startStreamBtn').addEventListener('click', async () => {
-        if (!currentRoom || !iAmHost) return alert("Host only.");
+        // Security check: Only host can stream
+        if (!currentRoom || !iAmHost) {
+            return alert("Host only functionality.");
+        }
+        
         if (isStreaming) {
+            // --- STOP STREAMING ---
             isStreaming = false;
             $('startStreamBtn').textContent = "Start Stream";
             $('startStreamBtn').classList.remove('danger');
+            
+            // Disconnect all viewers (Cut the feed)
             Object.values(viewerPeers).forEach(pc => pc.close());
             for (const k in viewerPeers) delete viewerPeers[k];
+            
         } else {
+            // --- START STREAMING ---
             if (!localStream) await startLocalMedia();
+            
             isStreaming = true;
             $('startStreamBtn').textContent = "Stop Stream"; 
             $('startStreamBtn').classList.add('danger');
-            latestUserList.forEach(u => { if (u.id !== myId) connectViewer(u.id); });
+            
+            // Connect to every user currently in the list
+            latestUserList.forEach(u => { 
+                if (u.id !== myId) {
+                    connectViewer(u.id); 
+                }
+            });
         }
     });
 }
 
 
 // ======================================================
-// 9. P2P CALLING
+// 9. P2P CALLING (1-to-1)
 // ======================================================
-if ($('hangupBtn')) $('hangupBtn').onclick = () => Object.keys(callPeers).forEach(id => endPeerCall(id));
-socket.on('ring-alert', async ({ from, fromId }) => { if (confirm(`Call from ${from}?`)) await callPeer(fromId); });
 
+// HANGUP BUTTON: Ends call connection ONLY. Keeps camera ON.
+if ($('hangupBtn')) {
+    $('hangupBtn').addEventListener('click', () => {
+        // Only end peer calls, do not stop local media
+        Object.keys(callPeers).forEach(id => endPeerCall(id));
+    });
+}
+
+// Incoming Call Alert
+socket.on('ring-alert', async ({ from, fromId }) => {
+    if (confirm(`Incoming call from ${from}. Accept?`)) {
+        await callPeer(fromId);
+    }
+});
+
+// Start a Call
 async function callPeer(targetId) {
     if (!localStream) await startLocalMedia();
+    
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
-    pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
+    
+    pc.onicecandidate = e => { 
+        if (e.candidate) {
+            socket.emit('call-ice', { targetId, candidate: e.candidate }); 
+        }
+    };
+
+    // Show remote video when received
     pc.ontrack = e => addRemoteVideo(targetId, e.streams[0]);
+    
+    // Add local video to send
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit('call-offer', { targetId, offer });
+    
     renderUserList();
 }
 
+// Receive a Call
 socket.on('incoming-call', async ({ from, name, offer }) => {
     if (!localStream) await startLocalMedia();
+    
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[from] = { pc, name };
-    pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
+    
+    pc.onicecandidate = e => { 
+        if (e.candidate) {
+            socket.emit('call-ice', { targetId: from, candidate: e.candidate }); 
+        }
+    };
+    
     pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
+    
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     socket.emit('call-answer', { targetId: from, answer });
+    
     renderUserList();
 });
 
-socket.on('call-answer', async ({ from, answer }) => { if (callPeers[from]) await callPeers[from].pc.setRemoteDescription(new RTCSessionDescription(answer)); });
-socket.on('call-ice', ({ from, candidate }) => { if (callPeers[from]) callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate)); });
-socket.on('call-end', ({ from }) => endPeerCall(from, true));
+socket.on('call-answer', async ({ from, answer }) => { 
+    if (callPeers[from]) {
+        await callPeers[from].pc.setRemoteDescription(new RTCSessionDescription(answer)); 
+    }
+});
+
+socket.on('call-ice', ({ from, candidate }) => { 
+    if (callPeers[from]) {
+        callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate)); 
+    }
+});
+
+socket.on('call-end', ({ from }) => {
+    endPeerCall(from, true);
+});
 
 function endPeerCall(id, isIncomingSignal) {
-    if (callPeers[id]) { try { callPeers[id].pc.close(); } catch(e){} }
+    if (callPeers[id]) { 
+        try { callPeers[id].pc.close(); } catch(e){} 
+    }
     delete callPeers[id];
     removeRemoteVideo(id);
-    if (!isIncomingSignal) socket.emit('call-end', { targetId: id });
+    
+    if (!isIncomingSignal) {
+        socket.emit('call-end', { targetId: id });
+    }
     renderUserList();
 }
 
@@ -443,6 +722,7 @@ function endPeerCall(id, isIncomingSignal) {
 // ======================================================
 async function connectViewer(targetId) {
     if (viewerPeers[targetId]) return;
+    
     const pc = new RTCPeerConnection(iceConfig);
     viewerPeers[targetId] = pc;
     
@@ -475,8 +755,9 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => { if (viewerPee
 
 
 // ======================================================
-// 11. SOCKET & ROOM
+// 11. SOCKET & ROOM LOGIC
 // ======================================================
+
 socket.on('connect', () => { $('signalStatus').className = 'status-dot status-connected'; $('signalStatus').textContent = 'Connected'; myId = socket.id; });
 socket.on('disconnect', () => { $('signalStatus').className = 'status-dot status-disconnected'; $('signalStatus').textContent = 'Disconnected'; });
 
