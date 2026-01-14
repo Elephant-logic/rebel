@@ -82,7 +82,7 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
 }
 
 /**
- * UNIVERSAL DATA RECEIVER (CRITICAL FIX APPLIED)
+ * UNIVERSAL DATA RECEIVER (NEW FUNCTION)
  * Listens for incoming files on a connection.
  * Necessary for receiving files in chat or tools in arcade.
  */
@@ -93,8 +93,7 @@ function setupDataReceiver(pc, peerId) {
         // Filter: Only accept known data pipes
         if (chan.label !== "side-load-pipe" && chan.label !== "transfer-pipe") return; 
 
-        // *** CRITICAL FIX: Force ArrayBuffer ***
-        // Without this, 'data.byteLength' is undefined on some browsers (Chrome defaults to Blob)
+        // *** FIX: Force ArrayBuffer so .byteLength works correctly ***
         chan.binaryType = 'arraybuffer';
 
         let chunks = [];
@@ -1187,24 +1186,6 @@ $('sendFileBtn').addEventListener('click', () => {
     // Reset UI
     fileInput.value = ''; 
     $('sendFileBtn').disabled = true;
-    
-    // *** OLD SOCKET CODE (Disabled) ***
-    /*
-    const reader = new FileReader();
-    reader.onload = () => {
-        socket.emit('file-share', { 
-            room: currentRoom, 
-            name: userName, 
-            fileName: file.name, 
-            fileData: reader.result 
-        });
-        
-        fileInput.value = ''; 
-        $('fileNameLabel').textContent = 'No file selected'; 
-        $('sendFileBtn').disabled = true;
-    };
-    reader.readAsDataURL(file);
-    */
 });
 
 // FIX: SECURE RENDERING (No InnerHTML) - Still listening for socket files just in case
