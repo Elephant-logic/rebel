@@ -1,5 +1,5 @@
-// ======================================================
-// 1. ARCADE ENGINE (P2P File Transfer) - PATCHED
+======================================================
+// 1. ARCADE ENGINE (P2P File Transfer)
 // ======================================================
 // This handles splitting games/tools into chunks 
 // and sending them securely over WebRTC to all viewers.
@@ -29,7 +29,7 @@ async function pushFileToPeer(pc, file, onProgress) {
         let offset = 0;
 
         const sendLoop = async () => {
-            // Check backpressure to prevent memory overflow
+            // Check backpressure
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
@@ -37,12 +37,12 @@ async function pushFileToPeer(pc, file, onProgress) {
 
             if (channel.readyState !== 'open') return;
 
-            // FIX: Slice only what we need now (prevents RAM crash on big files)
+            // Slice only what we need now (prevents RAM crash on big files)
             const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
             const chunkBuffer = await chunkBlob.arrayBuffer();
             
             channel.send(chunkBuffer);
-            offset += chunkBuffer.byteLength;
+            offset += CHUNK_SIZE;
 
             // Calculate percentage
             if (onProgress) {
@@ -77,7 +77,7 @@ let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
-let wasHost = false; // FIX: Tracking state for Auto-Takeover
+let wasHost = false; 
 let latestUserList = [];
 let currentOwnerId = null;
 
@@ -116,7 +116,7 @@ const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
 
 
 // ======================================================
-// 3. CANVAS MIXER ENGINE - PATCHED
+// 3. CANVAS MIXER ENGINE
 // ======================================================
 
 function drawMixer() {
@@ -164,7 +164,6 @@ function drawMixer() {
             ctx.drawImage(guestVideo, x, y, pipW, pipH);
         }
     }
-    // FIX: New Reverse PIP Layout
     else if (mixerLayout === 'PIP_REV') {
         if (guestVideo && guestVideo.readyState === 4) {
             ctx.drawImage(guestVideo, 0, 0, canvas.width, canvas.height);
@@ -177,7 +176,6 @@ function drawMixer() {
         }
     }
 
-    // FIX: QR Overlay Burned into Stream
     if (showQrOnStream && qrImage.src) {
         const size = 180; const m = 30;
         ctx.fillStyle = "white"; ctx.fillRect(canvas.width - size - m - 5, m - 5, size + 10, size + 10);
@@ -471,7 +469,7 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
 
 
 // ======================================================
-// 10. ROOM & ROLE (Auto-Takeover) - PATCHED
+// 10. ROOM & ROLE (Auto-Takeover)
 // ======================================================
 
 socket.on('connect', () => { $('signalStatus').textContent = 'Connected'; myId = socket.id; });
@@ -490,7 +488,6 @@ function updateLink(roomSlug) {
 }
 
 socket.on('role', async ({ isHost }) => {
-    // FIX: Auto-Takeover logic (Promotion triggers broadcast)
     if (!wasHost && isHost && currentRoom) {
         const notify = document.createElement('div');
         notify.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:var(--accent); color:#000; padding:10px 20px; border-radius:20px; font-weight:bold; z-index:9999;";
@@ -500,8 +497,7 @@ socket.on('role', async ({ isHost }) => {
         if (!localStream) await startLocalMedia();
         if (!isStreaming) { iAmHost = true; $('startStreamBtn').click(); }
     }
-    iAmHost = isHost; 
-    wasHost = isHost; // Update state to prevent loop on join
+    iAmHost = isHost; wasHost = isHost;
     $('hostControls').style.display = isHost ? 'block' : 'none';
     renderUserList();
 });
@@ -526,7 +522,7 @@ socket.on('user-joined', d => {
 });
 
 // ======================================================
-// 11. CHAT & FILES
+// 11. CHAT & FILES (50MB Limit)
 // ======================================================
 
 function appendChat(log, name, text) {
@@ -633,4 +629,4 @@ $('arcadeInput').onchange = () => {
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.kickUser = (id) => socket.emit('kick-user', id);
 window.makeHost = (id) => socket.emit('promote-host', id);
-window.openStream = () => window.open($('streamLinkInput').value, '_blank');
+window.openStream = () => window.open($('streamLinkInput').value, '_blank');      this code its fucking massive remember it all
