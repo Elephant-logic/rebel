@@ -13,11 +13,11 @@
       .live-pill { background: #e50914; color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; text-transform: uppercase; }
       .status-badge { font-size: 0.75rem; opacity: 0.85; }
       
-      /* Video Container */
+      /* Video Layer */
       .video-container { position: relative; background: #111; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; box-shadow: 0 4px 30px rgba(0,0,0,0.5); border: 1px solid #333; flex-shrink: 0; }
       video { width: 100%; height: 100%; object-fit: contain; background: #000; }
       
-      /* Toolbox Overlay (Fixed Visibility) */
+      /* TOOLBOX OVERLAY (Fixed on top of video) */
       .toolbox-overlay { 
           position: absolute; top: 10px; right: 10px; 
           z-index: 99999; display: flex; flex-direction: column; gap: 10px; 
@@ -33,7 +33,6 @@
       .control-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; }
       .control-btn:hover { background: #fff; color: #000; }
       
-      /* Chat */
       .viewer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
       .chat-section { flex: 1; background: #111; border-radius: 12px; border: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; }
       .chat-header { padding: 10px; border-bottom: 1px solid #222; background: #161616; font-size: 0.9rem; font-weight: bold; display: flex; justify-content: space-between; }
@@ -46,7 +45,6 @@
       .btn { padding: 8px 16px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; }
       .btn.primary { background: #4af3a3; color: #000; }
       
-      /* Fullscreen */
       .fullscreen-mode .video-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; border-radius: 0; }
       .fullscreen-mode .viewer-header, .fullscreen-mode .viewer-body { display: none; }
     </style>
@@ -60,7 +58,6 @@
       
       <div class="video-container" id="videoContainer">
         <video id="viewerVideo" autoplay playsinline muted></video>
-        
         <div id="toolboxContainer" class="toolbox-overlay"></div>
         
         <div class="controls-overlay">
@@ -79,17 +76,17 @@
           <div id="chatLog"></div>
           <div id="emojiStrip" class="emoji-strip">
             <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">😍</span>
-            <span class="emoji">👍</span><span class=\"emoji\">🔥</span><span class=\"emoji\">💀</span>
+            <span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span>
           </div>
-          <div class=\"chat-input-row\">
-            <input id=\"chatInput\" class=\"text-input\" placeholder=\"Say something...\" />
-            <button id=\"sendBtn\" class=\"btn primary\">Send</button>
+          <div class="chat-input-row">
+            <input id="chatInput" class="text-input" placeholder="Say something..." />
+            <button id="sendBtn" class="btn primary">Send</button>
           </div>
         </div>
       </div>
     </div>
-    <script src=\"https://cdn.socket.io/4.8.1/socket.io.min.js\"></script>
-    <script src=\"config/ice.js\"></script>
-    <script src=\"viewer.js\"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script src="config/ice.js"></script>
+    <script src="viewer.js"></script>
   </body>
 </html>
