@@ -105,7 +105,7 @@ let isStreaming = false; // "On Air" status
 // --- ARCADE STATE ---
 let activeToolboxFile = null;
 
-// --- MIXER STATE (NEW) ---
+// --- MIXER STATE (CANVAS ENGINE) ---
 // This allows you to mix cameras and overlays before sending to stream
 let audioContext = null;
 let audioDestination = null;
@@ -385,7 +385,7 @@ async function startLocalMedia() {
     }
 
     try {
-        // --- 1. RESOLUTION LOGIC ---
+        // --- RESOLUTION LOGIC ---
         const quality = videoQuality ? videoQuality.value : 'ideal';
         let widthConstraint, heightConstraint;
 
@@ -408,7 +408,7 @@ async function startLocalMedia() {
 
         const mainStream = await navigator.mediaDevices.getUserMedia(constraints);
         
-        // --- 2. AUDIO MIXER LOGIC ---
+        // --- AUDIO MIXER LOGIC ---
         let finalAudioTrack = mainStream.getAudioTracks()[0];
         const secondaryId = audioSource2 ? audioSource2.value : null;
 
@@ -429,7 +429,7 @@ async function startLocalMedia() {
             finalAudioTrack = audioDestination.stream.getAudioTracks()[0];
         }
 
-        // --- 3. SET LOCAL STREAM ---
+        // --- SET LOCAL STREAM ---
         // This 'localStream' is what YOU see in the "You" box.
         localStream = new MediaStream([
             mainStream.getVideoTracks()[0], 
@@ -440,7 +440,7 @@ async function startLocalMedia() {
         $('localVideo').srcObject = localStream;
         $('localVideo').muted = true; // Mute to prevent echo
 
-        // --- 4. UPDATE VIEWERS (BROADCAST) ---
+        // --- UPDATE VIEWERS (BROADCAST) ---
         // Crucial: Viewers do NOT get localStream directly anymore.
         // They get the CANVAS STREAM (The Mixed Output).
         
@@ -723,9 +723,8 @@ function endPeerCall(id, isIncomingSignal) {
 
 
 // ======================================================
-// 10. WEBRTC SIGNALING (BROADCAST)
+// 10. VIEWER CONNECTION & ARCADE PUSH (CRITICAL FIX)
 // ======================================================
-
 async function connectViewer(targetId) {
     if (viewerPeers[targetId]) return;
     
@@ -734,7 +733,10 @@ async function connectViewer(targetId) {
     
     // *** KEY FIX: FORCE CONTROL CHANNEL FOR ARCADE ***
     // This creates the data pipe immediately so files can be sent later
-    pc.createDataChannel("control");
+    // Without this, SCTP is not negotiated until a file is actually sent, 
+    // which can cause the first file to fail.
+    const controlChannel = pc.createDataChannel("control");
+    controlChannel.onopen = () => console.log(`Control channel open for ${targetId}`);
 
     pc.onicecandidate = e => { 
         if (e.candidate) {
@@ -1102,8 +1104,9 @@ if (arcadeInput) {
         activeToolboxFile = file;
         $('arcadeStatus').textContent = `Active Tool: ${file.name}`;
         
-        // --- ADD FORCE RESEND BUTTON ---
-        // This is crucial if a user joins late or connection drops
+        // --- ADD FORCE RESEND BUTTON DYNAMICALLY ---
+        // This button appears after you load a game. Clicking it re-sends the file 
+        // to all current viewers in case the auto-push failed.
         let resendBtn = document.getElementById('resendToolBtn');
         if(!resendBtn) {
             resendBtn = document.createElement('button');
