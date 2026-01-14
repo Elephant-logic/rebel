@@ -7,7 +7,7 @@
 // 4. WebRTC Signaling (Broadcasting & 1:1 Calling)
 // ======================================================
 
-console.log("Rebel Stream Monster App Loaded - PATCHED & COMPLETE"); 
+console.log("Rebel Stream Monster App Loaded - ULTIMATE VERSION"); 
 
 // --- CONFIGURATION ---
 const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
@@ -70,11 +70,10 @@ const callPeers = {};   // Two-way (Room Guests)   -> RECEIVES CHAT FILES
  * @param {string} type - 'arcade' (Tools) or 'file' (Chat Download)
  * @param {function} onProgress - Optional callback for UI bars
  */
-async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
+async function pushFileToPeer(pc, file, type, onProgress) {
     if (!pc) return;
 
     // Create a new data channel for this specific transfer
-    // We use different labels to separate Arcade from Chat Files
     const label = type === 'arcade' ? 'side-load-pipe' : 'transfer-pipe';
     const channel = pc.createDataChannel(label);
 
@@ -83,7 +82,7 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
 
         // 1. Send Metadata
         const metadata = JSON.stringify({
-            dataType: type, 
+            dataType: type, // 'arcade' or 'file'
             name: file.name,
             size: file.size,
             mime: file.type
@@ -134,7 +133,7 @@ function setupDataReceiver(pc, peerId) {
         if (chan.label !== "transfer-pipe" && chan.label !== "side-load-pipe") return; 
 
         // *** CRITICAL FIX: Force ArrayBuffer ***
-        // Without this, browsers default to Blob, which has no .byteLength, causing transfer to fail
+        // Without this, 'data.byteLength' is undefined on some browsers (Chrome defaults to Blob)
         chan.binaryType = 'arraybuffer';
 
         let chunks = [];
@@ -471,7 +470,7 @@ async function callPeer(targetId) {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
     
-    // *** DATA CHANNEL LISTENER (FIX) ***
+    // *** LISTEN FOR FILES ***
     setupDataReceiver(pc, targetId);
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
@@ -489,7 +488,7 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[from] = { pc, name };
     
-    // *** DATA CHANNEL LISTENER (FIX) ***
+    // *** LISTEN FOR FILES ***
     setupDataReceiver(pc, from);
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
@@ -536,7 +535,6 @@ async function connectViewer(targetId) {
     }
     
     if (activeToolboxFile) {
-        // *** BUG FIX: Explicitly send 'arcade' type, not null ***
         setTimeout(() => pushFileToPeer(pc, activeToolboxFile, 'arcade'), 1000);
     }
 
