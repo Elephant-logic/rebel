@@ -97,12 +97,11 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
             `;
             btn.innerHTML = `<div>🕹️ LAUNCH TOOL</div><div style="font-size:0.7rem">${name}</div>`;
             
-            // Inject CSS for animation
             const style = document.createElement('style');
             style.innerHTML = `@keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }`;
             document.head.appendChild(style);
 
-            // FIXED: Append to the dedicated overlay container
+            // APPEND TO NEW CONTAINER
             const container = document.getElementById('toolboxContainer') || document.body;
             container.appendChild(btn);
             
