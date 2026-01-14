@@ -8,20 +8,18 @@ const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
 
-// FIX: 1MB limit prevents crashes. PingTimeout kills laggy connections.
+// FIX: Increased buffer to 50MB for large arcade transfers and tight timeouts for migration
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 1e6, 
+  maxHttpBufferSize: 5e7, 
   pingTimeout: 10000,     
   pingInterval: 25000
 });
 
-// Serve static files from the root directory
-app.use(express.static(__dirname));
+// FIX: This ensures the server finds index.html in the public folder to fix "Cannot GET /"
+app.use(express.static(path.join(__dirname, 'public')));
 
-// ----------------------------------------------------
 // In-memory room state
-// ----------------------------------------------------
 const rooms = Object.create(null);
 
 function getRoomInfo(roomName) {
@@ -53,9 +51,6 @@ function broadcastRoomUpdate(roomName) {
   });
 }
 
-// ----------------------------------------------------
-// Socket.io Events
-// ----------------------------------------------------
 io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
@@ -97,7 +92,7 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // Authority Handover Listener
+  // Authority Handover (Manual Promote)
   socket.on('promote-to-host', ({ targetId }) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -147,38 +142,35 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
+  // WEBRTC SIGNALING
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
-
   socket.on('webrtc-answer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
   });
-
   socket.on('webrtc-ice-candidate', ({ targetId, candidate }) => {
     if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
+  // CALLING SIGNALS
   socket.on('ring-user', (targetId) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
-
   socket.on('call-offer', ({ targetId, offer }) => {
     if (targetId && offer) io.to(targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer });
   });
-
   socket.on('call-answer', ({ targetId, answer }) => {
     if (targetId && answer) io.to(targetId).emit('call-answer', { from: socket.id, answer });
   });
-
   socket.on('call-ice', ({ targetId, candidate }) => {
     if (targetId && candidate) io.to(targetId).emit('call-ice', { from: socket.id, candidate });
   });
-
   socket.on('call-end', ({ targetId }) => {
     if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
   });
 
+  // CHAT & FILES
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
@@ -220,13 +212,16 @@ io.on('connection', (socket) => {
     if (!info) return;
     info.users.delete(socket.id);
 
+    // Host Migration: Automatically pass the crown if the host leaves
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       if (info.users.size > 0) {
           const nextId = info.users.keys().next().value;
           info.ownerId = nextId;
           const nextSocket = io.sockets.sockets.get(nextId);
-          if (nextSocket) nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
+          if (nextSocket) {
+              nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
+          }
       }
     }
 
