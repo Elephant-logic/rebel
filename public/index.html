@@ -5,6 +5,7 @@
   <title>Rebel Stream</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -118,8 +119,7 @@
         <div class="mixer-controls">
            <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
            <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
-           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (Me)</button>
-           <button class="mixer-btn" onclick="setMixerLayout('PIP_REV')">🔄 Overlay (Guest)</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (PiP)</button>
            <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split</button>
         </div>
 
@@ -141,10 +141,17 @@
           <button id="hangupBtn" class="btn danger" disabled>End Call</button>
         </div>
 
-        <div class="file-row" style="margin:10px 0; padding:0 4px;">
-           <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
-           <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
-           <button id="openStreamBtn" class="btn small">Open</button>
+        <div class="file-row" style="margin:10px 0; padding:10px; background: var(--panel-soft); border-radius: 8px; display: flex; flex-direction: column; gap: 10px;">
+           <div style="display:flex; align-items:center; gap:10px; width:100%;">
+               <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
+               <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
+               <button id="openStreamBtn" class="btn small">Open</button>
+           </div>
+           
+           <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px;">
+               <div style="font-size: 0.75rem; color: var(--accent);">Scan to Share Stream:</div>
+               <div id="qrcode" style="padding:5px; background:#fff; border-radius:4px;"></div>
+           </div>
         </div>
 
         <div class="chat-panel">
@@ -182,24 +189,24 @@
                 <label class="btn secondary">
                   <input id="fileInput" type="file" hidden /> 📎 Choose File
                 </label>
-                <span id="fileNameLabel" style="font-size:0.8rem; margin:0 8px; color:var(--muted);">No file selected</span>
-                <button id="sendFileBtn" class="btn primary full-width" disabled>Send</button>
+                <span id=\"fileNameLabel\" style=\"font-size:0.8rem; margin:0 8px; color:var(--muted);\">No file selected</span>
+                <button id=\"sendFileBtn\" class=\"btn primary full-width\" disabled>Send</button>
              </div>
-             <div class="files-list">
-                <div id="fileLog" class="file-log"></div>
+             <div class=\"files-list\">
+                <div id=\"fileLog\" class=\"file-log\"></div>
              </div>
           </div>
 
-          <div id="contentUsers" class="tab-content">
+          <div id=\"contentUsers\" class=\"tab-content\">
              <h3>Active Users</h3>
-             <div id="userList"></div>
+             <div id=\"userList\"></div>
           </div>
         </div>
       </section>
     </main>
   </div>
-  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="config/ice.js"></script>
-  <script src="app.js"></script>
+  <script src=\"https://cdn.socket.io/4.8.1/socket.io.min.js\"></script>
+  <script src=\"config/ice.js\"></script>
+  <script src=\"app.js\"></script>
 </body>
 </html>
