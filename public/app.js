@@ -2,17 +2,18 @@
 // 1. ARCADE ENGINE (P2P Binary Transfer Protocol)
 // ======================================================
 // Chunks files into 16KB packets to bypass browser memory limits.
-// This version is memory-safe: it slices the file on the fly to handle GBs without crashing.
+// This handles splitting games/tools into chunks 
+// and sending them securely over WebRTC to all viewers.
 
-const CHUNK_SIZE = 16 * 1024; // 16KB (Safe WebRTC limit)
-const MAX_BUFFER = 256 * 1024; // 256KB Max Buffer before pausing
+const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
+const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit to prevent crashes
 
 async function pushFileToPeer(pc, file, onProgress) {
     if (!pc) return;
-    
+
     // Create a specific data channel for the arcade
     const channel = pc.createDataChannel("side-load-pipe");
-    
+
     channel.onopen = async () => {
         console.log(`[Arcade] Starting transfer of: ${file.name}`);
 
@@ -26,6 +27,7 @@ async function pushFileToPeer(pc, file, onProgress) {
         channel.send(metadata);
 
         // 2. Memory-Safe Send Loop (Slice on demand)
+        // This prevents loading massive files into RAM at once.
         let offset = 0;
 
         const sendLoop = async () => {
@@ -39,7 +41,6 @@ async function pushFileToPeer(pc, file, onProgress) {
             if (channel.readyState !== 'open') return;
 
             // Slice ONLY the chunk we need right now from the original File object
-            // This prevents loading the whole file into RAM
             const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
             const chunkBuffer = await chunkBlob.arrayBuffer();
             
@@ -221,7 +222,10 @@ window.setActiveGuest = (id) => { activeGuestId = id; renderUserList(); };
 window.toggleQrOnStream = () => {
     showQrOnStream = !showQrOnStream;
     const btn = $('toggleQrBtn');
-    if(btn) btn.textContent = showQrOnStream ? "QR On Stream: ON" : "QR On Stream: OFF";
+    if(btn) {
+        btn.textContent = showQrOnStream ? "QR On Stream: ON" : "QR On Stream: OFF";
+        btn.classList.toggle('danger', !showQrOnStream);
+    }
 };
 
 
@@ -480,12 +484,8 @@ async function connectViewer(targetId) {
     socket.emit('webrtc-offer', { targetId, sdp: offer });
 }
 
-socket.on('webrtc-answer', async ({ from, sdp }) => { 
-    if (viewerPeers[from]) await viewerPeers[from].setRemoteDescription(new RTCSessionDescription(sdp)); 
-});
-socket.on('webrtc-ice-candidate', async ({ from, candidate }) => { 
-    if (viewerPeers[from]) await viewerPeers[from].addIceCandidate(new RTCIceCandidate(candidate)); 
-});
+socket.on('webrtc-answer', async ({ from, sdp }) => { if (viewerPeers[from]) await viewerPeers[from].setRemoteDescription(new RTCSessionDescription(sdp)); });
+socket.on('webrtc-ice-candidate', async ({ from, candidate }) => { if (viewerPeers[from]) await viewerPeers[from].addIceCandidate(new RTCIceCandidate(candidate)); });
 
 
 // ======================================================
@@ -513,7 +513,7 @@ function updateLink(roomSlug) {
 }
 
 socket.on('role', async ({ isHost }) => {
-    // FIX: Only trigger Auto-Takeover if already a connected member (myId set)
+    // Takeover Patch: Only trigger if already a connected member (myId set)
     if (!wasHost && isHost && myId !== null) {
         const notify = document.createElement('div');
         notify.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:var(--accent); color:#000; padding:10px 20px; border-radius:20px; font-weight:bold; z-index:9999;";
@@ -583,7 +583,7 @@ socket.on('file-share', d => {
 
 
 // ======================================================
-// 13. USER LIST & DIRECTOR FEATURES
+// 13. USER LIST & DIRECTOR FEATURES (Director Features & Mute)
 // ======================================================
 
 function renderUserList() {
@@ -610,7 +610,6 @@ function renderUserList() {
             const endBtn = document.createElement('button'); endBtn.className = 'action-btn danger'; endBtn.textContent = 'End';
             endBtn.onclick = () => endPeerCall(u.id); actions.appendChild(endBtn);
             
-            // Mixer Selection
             if(iAmHost) {
                 const selBtn = document.createElement('button'); selBtn.className = 'action-btn';
                 selBtn.textContent = (activeGuestId === u.id) ? 'Live' : 'Mix';
@@ -658,17 +657,10 @@ if ($('arcadeInput')) {
     };
 }
 
-// Global Functions & Signaling Handlers
+// Global Exports
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.kickUser = (id) => socket.emit('kick-user', id);
 window.makeHost = (id) => socket.emit('promote-host', id);
 window.openStream = () => window.open($('streamLinkInput').value, '_blank');
 
 socket.on('disconnect', () => { $('signalStatus').className = 'status-dot status-disconnected'; $('signalStatus').textContent = 'Disconnected'; });
-socket.on('role', async ({ isHost }) => {
-    // Redundant but safe role sync
-    iAmHost = isHost;
-    if ($('localContainer')) $('localContainer').querySelector('h2').textContent = isHost ? 'You (Host)' : 'You';
-    $('hostControls').style.display = isHost ? 'block' : 'none';
-    renderUserList();
-});
