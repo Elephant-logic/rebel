@@ -101,6 +101,8 @@ socket.on('public-chat', d => addChat(d.name, d.text));
 const send = () => { const i=$('chatInput'); if(!i.value.trim()) return; socket.emit('public-chat', {room:currentRoom, text:i.value, name:myName, fromViewer:true}); i.value=''; };
 $('sendBtn').onclick = send; $('chatInput').onkeydown = e => { if(e.key==='Enter') send(); };
 
+if ($('emojiStrip')) $('emojiStrip').onclick = (e) => { if (e.target.classList.contains('emoji')) $('chatInput').value += e.target.textContent; };
+
 $('toggleChatBtn').onclick = () => $('chatBox').classList.toggle('hidden');
 $('fullscreenBtn').onclick = () => document.documentElement.requestFullscreen().catch(()=>{});
 $('unmuteBtn').onclick = () => { const v = $('viewerVideo'); v.muted = !v.muted; $('unmuteBtn').textContent = v.muted ? '🔇 Unmute' : '🔊 Mute'; };
