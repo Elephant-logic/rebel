@@ -55,7 +55,7 @@ async function pushFileToPeer(pc, file, onProgress) {
 
             // Continue or Finish
             if (offset < buffer.byteLength) {
-                setTimeout(sendLoop, 0); // Schedule next chunk immediately
+                setTimeout(sendLoop, 0); 
             } else {
                 console.log(`[Arcade] Transfer Complete.`);
                 // Close the channel after a short delay to ensure delivery
@@ -1093,6 +1093,23 @@ if (arcadeInput) {
         activeToolboxFile = file;
         $('arcadeStatus').textContent = `Active Tool: ${file.name}`;
         
+        // --- NEW: ADD RESEND BUTTON DYNAMICALLY ---
+        // This fixes the issue where a game doesn't load for a viewer
+        let resendBtn = document.getElementById('resendToolBtn');
+        if(!resendBtn) {
+            resendBtn = document.createElement('button');
+            resendBtn.id = 'resendToolBtn';
+            resendBtn.textContent = 'Force Resend Tool';
+            resendBtn.className = 'btn small secondary full-width';
+            resendBtn.style.marginTop = '5px';
+            resendBtn.onclick = () => {
+                console.log("Forcing arcade resend...");
+                Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, activeToolboxFile));
+                alert("Tool resent to all connected viewers.");
+            };
+            $('arcadeStatus').parentNode.appendChild(resendBtn);
+        }
+
         // Push file to all currently connected peers
         Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file));
     });
