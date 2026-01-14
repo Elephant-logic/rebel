@@ -1,20 +1,20 @@
 // =======================================================================
-// REBEL STREAM - HOST APPLICATION (FULL VERSION)
+// REBEL STREAM - MAIN APPLICATION (HOST & GUEST CLIENT)
 // =======================================================================
-// 1. P2P Transfer Engine (Arcade & Files)
-// 2. Canvas Video Mixer (Split/PIP/Solo)
-// 3. Audio Mixer (Mic + System)
-// 4. WebRTC Broadcasting & Calling
-// 5. Room Administration
+// This file contains the complete logic for:
+// 1. P2P Data Engine (File Sharing & Arcade Tooling)
+// 2. Canvas Video Mixer (Compositing Cameras & Overlays)
+// 3. Audio Mixer (Mic + System Audio + Music)
+// 4. WebRTC Signaling (Broadcasting & 1:1 Calling)
+// 5. Room Management (Admin Controls, Banning, Locking)
 // =======================================================================
 
-console.log("Rebel Stream Host App Loaded - Full Stack"); 
+console.log("Rebel Stream App Loaded - Full Version"); 
 
 // --- CONFIGURATION ---
 const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
 const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit
 
-// ICE Servers for NAT Traversal
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
     ? { iceServers: ICE_SERVERS } 
     : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
@@ -57,26 +57,24 @@ let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
 let activeGuestId = null; 
 
 // --- CONNECTION MAPS ---
-const viewerPeers = {}; // One-way (Stream)
+const viewerPeers = {}; // One-way (Stream Viewers)
 const callPeers = {};   // Two-way (Room Guests)
 
 
 // =======================================================================
-// 1. UNIVERSAL P2P TRANSFER ENGINE (Files & Arcade)
+// 1. P2P DATA TRANSFER ENGINE (FILES & ARCADE)
 // =======================================================================
 
 /**
- * Sends a file to a specific peer using WebRTC Data Channels.
- * @param {RTCPeerConnection} pc - The target peer connection
- * @param {File} file - The file object to send
- * @param {string} type - 'arcade' (auto-launch) or 'file' (chat link)
- * @param {function} onProgress - Callback for progress percentage
+ * Sends a file via WebRTC Data Channel.
+ * @param {RTCPeerConnection} pc - Target connection
+ * @param {File} file - File object
+ * @param {string} type - 'arcade' (Launch) or 'file' (Chat)
  */
 async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
     if (!pc) return;
 
-    // Open a fresh channel for this file to ensure clean buffers
-    // We use "transfer-pipe" for everything now
+    // Create a unique channel for this transfer
     const channel = pc.createDataChannel("transfer-pipe");
 
     channel.onopen = async () => {
@@ -84,7 +82,7 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
 
         // 1. Send Metadata
         const metadata = JSON.stringify({
-            dataType: type, // 'arcade' or 'file'
+            dataType: type,
             name: file.name,
             size: file.size,
             mime: file.type
@@ -97,7 +95,7 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
 
         // 3. Send Loop
         const sendLoop = () => {
-            // Backpressure: Wait if buffer is full
+            // Flow Control: Pause if buffer is full
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
@@ -116,7 +114,7 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
             if (offset < buffer.byteLength) {
                 setTimeout(sendLoop, 0); 
             } else {
-                console.log(`[P2P] Transfer Complete: ${file.name}`);
+                console.log(`[P2P] Transfer Complete.`);
                 setTimeout(() => channel.close(), 1000);
             }
         };
@@ -125,13 +123,13 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
 }
 
 /**
- * Setup a listener on a peer connection to receive files.
- * Used for receiving files from Guests.
+ * Listens for incoming data on a peer connection.
+ * Used by Host and Guests to receive files.
  */
 function setupDataReceiver(pc, peerId) {
     pc.ondatachannel = (e) => {
         const chan = e.channel;
-        // Accept both legacy and new pipe names
+        // Accept valid transfer channels
         if (chan.label !== "transfer-pipe" && chan.label !== "side-load-pipe") return; 
 
         let chunks = [];
@@ -140,14 +138,11 @@ function setupDataReceiver(pc, peerId) {
         chan.onmessage = (evt) => {
             const data = evt.data;
             
-            // 1. Handle Metadata
+            // 1. Metadata
             if(typeof data === 'string') {
-                try { 
-                    meta = JSON.parse(data); 
-                    total = meta.size; 
-                } catch(e) { console.error("Bad Metadata", e); }
+                try { meta = JSON.parse(data); total = meta.size; } catch(e){}
             } 
-            // 2. Handle Binary Chunks
+            // 2. Binary Chunks
             else {
                 chunks.push(data); 
                 curr += data.byteLength;
@@ -156,7 +151,7 @@ function setupDataReceiver(pc, peerId) {
                     const blob = new Blob(chunks, {type: meta ? meta.mime : 'application/octet-stream'});
                     const url = URL.createObjectURL(blob);
                     
-                    // ROUTING: If 'file', put link in Private Chat
+                    // ROUTING: If 'file', add to Chat. If 'arcade', ignore (Host/Guest logic).
                     if (meta && meta.dataType === 'file') {
                         const senderName = callPeers[peerId] ? callPeers[peerId].name : "Guest";
                         addFileToChat(senderName, meta.name, url);
@@ -169,16 +164,18 @@ function setupDataReceiver(pc, peerId) {
 }
 
 /**
- * Renders a file download card into the Private Chat Log.
+ * Creates a download card in the Private Chat
  */
 function addFileToChat(senderName, fileName, url) {
     const log = $('chatLogPrivate');
+    if(!log) return;
+
     const div = document.createElement('div');
     div.className = 'chat-line system-msg';
     div.innerHTML = `
         <div style="background: rgba(255,255,255,0.05); border: 1px solid #4af3a3; padding: 10px; border-radius: 8px; margin: 8px 0;">
-            <div style="font-size:0.8rem; color:#aaa; margin-bottom:4px;">${senderName} shared:</div>
-            <div style="color:#fff; font-weight:bold; margin-bottom:8px;">${fileName}</div>
+            <div style="font-size:0.8rem; color:#aaa;">${senderName} shared:</div>
+            <div style="color:#fff; font-weight:bold; margin: 4px 0;">${fileName}</div>
             <a href="${url}" download="${fileName}" class="btn small primary" style="text-decoration:none; display:inline-block;">
                 ⬇️ Download
             </a>
@@ -187,7 +184,7 @@ function addFileToChat(senderName, fileName, url) {
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
     
-    // Alert user if not on the tab
+    // Notification Badge
     if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new');
 }
 
@@ -203,7 +200,7 @@ function drawMixer() {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Get Sources
+    // Sources
     const myVideo = $('localVideo');
     let guestVideo = null;
     if (activeGuestId) {
@@ -211,7 +208,7 @@ function drawMixer() {
         if(el) guestVideo = el.querySelector('video');
     }
 
-    // --- LAYOUT LOGIC ---
+    // --- LAYOUTS ---
     if (mixerLayout === 'SOLO') {
         if (myVideo && myVideo.readyState === 4) {
             ctx.drawImage(myVideo, 0, 0, canvas.width, canvas.height);
@@ -227,7 +224,7 @@ function drawMixer() {
         }
     }
     else if (mixerLayout === 'SPLIT') {
-        // Fixed 16:9 Split Logic (No Stetching)
+        // 16:9 Letterboxed Split
         const slotW = 960; 
         const vidH = 540; 
         const yOffset = (1080 - vidH) / 2;
@@ -251,7 +248,7 @@ function drawMixer() {
     requestAnimationFrame(drawMixer);
 }
 
-// Start Mixer
+// Start Mixer Loop
 canvasStream = canvas.captureStream(30);
 drawMixer();
 
@@ -268,7 +265,7 @@ window.setMixerLayout = (mode) => {
 
 window.setActiveGuest = (id) => {
     activeGuestId = id;
-    alert(`Guest Selected! Switch to 'Overlay' or 'Split' to see them.`);
+    alert(`Guest Selected! Switch to 'Overlay' or 'Split' to view.`);
 };
 
 
@@ -312,9 +309,7 @@ async function getDevices() {
         if(audioSource2) audioSource2.innerHTML = '<option value="">-- None --</option>';
 
         devices.forEach(d => {
-            const opt = document.createElement('option');
-            opt.value = d.deviceId;
-            opt.text = d.label || `${d.kind} - ${d.deviceId.slice(0, 5)}`;
+            const opt = document.createElement('option'); opt.value = d.deviceId; opt.text = d.label || d.kind;
             if (d.kind === 'audioinput') {
                 audioSource.appendChild(opt);
                 if(audioSource2) audioSource2.appendChild(opt.cloneNode(true));
@@ -328,7 +323,7 @@ async function getDevices() {
             if (at) audioSource.value = at.getSettings().deviceId;
             if (vt) videoSource.value = vt.getSettings().deviceId;
         }
-    } catch (e) {}
+    } catch (e) { console.error(e); }
 }
 audioSource.onchange = startLocalMedia;
 if(audioSource2) audioSource2.onchange = startLocalMedia;
@@ -356,7 +351,6 @@ async function startLocalMedia() {
             video: { deviceId: videoSource.value ? { exact: videoSource.value } : undefined, width: widthConstraint, height: heightConstraint }
         });
 
-        // Audio Mixing
         let finalAudioTrack = mainStream.getAudioTracks()[0];
         const secondaryId = audioSource2 ? audioSource2.value : null;
 
@@ -375,7 +369,7 @@ async function startLocalMedia() {
         $('localVideo').srcObject = localStream;
         $('localVideo').muted = true;
 
-        // Broadcast to Viewers (Mixed)
+        // BROADCAST (Viewers get Mixer)
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
         Object.values(viewerPeers).forEach(pc => {
             pc.getSenders().forEach(s => {
@@ -384,7 +378,7 @@ async function startLocalMedia() {
             });
         });
         
-        // P2P Guests (Raw Cam)
+        // P2P (Guests get Raw Camera)
         Object.values(callPeers).forEach(p => {
              p.pc.getSenders().forEach(s => {
                  if(s.track.kind === 'video') s.replaceTrack(mainStream.getVideoTracks()[0]);
@@ -430,7 +424,7 @@ if ($('shareScreenBtn')) {
                 $('shareScreenBtn').classList.add('danger');
                 $('localVideo').srcObject = screenStream; 
                 
-                // Update Guests with Screen (Important fix)
+                // Update Guests with Screen (Crucial Fix)
                 const screenTrack = screenStream.getVideoTracks()[0];
                 const screenAudio = screenStream.getAudioTracks()[0];
                 Object.values(callPeers).forEach(p => {
@@ -458,7 +452,7 @@ function stopScreenShare() {
 
 
 // =======================================================================
-// 7. BROADCAST STREAMING
+// 7. BROADCASTING (Host -> Viewers)
 // =======================================================================
 if ($('startStreamBtn')) {
     $('startStreamBtn').addEventListener('click', async () => {
@@ -481,7 +475,7 @@ if ($('startStreamBtn')) {
 
 
 // =======================================================================
-// 8. P2P CALLING (Guests)
+// 8. P2P CALLING (Host <-> Guests)
 // =======================================================================
 if ($('hangupBtn')) $('hangupBtn').onclick = () => Object.keys(callPeers).forEach(id => endPeerCall(id));
 socket.on('ring-alert', async ({ from, fromId }) => { if (confirm(`Call from ${from}?`)) await callPeer(fromId); });
@@ -491,7 +485,7 @@ async function callPeer(targetId) {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
     
-    setupDataReceiver(pc, targetId); // Listen for files from guest
+    setupDataReceiver(pc, targetId); // Listen for files
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(targetId, e.streams[0]);
@@ -508,7 +502,7 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[from] = { pc, name };
     
-    setupDataReceiver(pc, from); // Listen for files from guest
+    setupDataReceiver(pc, from); // Listen for files
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
     pc.ontrack = e => addRemoteVideo(from, e.streams[0]);
@@ -535,7 +529,7 @@ function endPeerCall(id, isIncomingSignal) {
 
 
 // =======================================================================
-// 9. VIEWER CONNECTION (Broadcasting)
+// 9. VIEWER CONNECTION (Streaming)
 // =======================================================================
 async function connectViewer(targetId) {
     if (viewerPeers[targetId]) return;
@@ -568,12 +562,12 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => { if (viewerPee
 
 
 // =======================================================================
-// 10. SOCKET & ROOM LOGIC
+// 10. SOCKET EVENTS
 // =======================================================================
 socket.on('connect', () => { $('signalStatus').className = 'status-dot status-connected'; $('signalStatus').textContent = 'Connected'; myId = socket.id; });
 socket.on('disconnect', () => { $('signalStatus').className = 'status-dot status-disconnected'; $('signalStatus').textContent = 'Disconnected'; });
 
-$('joinBtn').onclick = () => {
+$('joinBtn').addEventListener('click', () => {
     const room = $('roomInput').value.trim();
     if (!room) return;
     currentRoom = room; userName = $('nameInput').value.trim() || 'Host';
@@ -581,8 +575,8 @@ $('joinBtn').onclick = () => {
     socket.emit('join-room', { room, name: userName });
     $('joinBtn').disabled = true; $('leaveBtn').disabled = false;
     updateLink(room); startLocalMedia();
-};
-if ($('leaveBtn')) $('leaveBtn').onclick = () => window.location.reload();
+});
+if ($('leaveBtn')) $('leaveBtn').addEventListener('click', () => window.location.reload());
 
 function updateLink(roomSlug) {
     const url = new URL(window.location.href);
@@ -663,7 +657,6 @@ $('sendFileBtn').onclick = () => {
         });
     });
     
-    // Add to local chat log
     addFileToChat("You", file.name, URL.createObjectURL(file));
 };
 
@@ -673,7 +666,6 @@ if ($('arcadeInput')) $('arcadeInput').onchange = () => {
     activeToolboxFile = file;
     $('arcadeStatus').textContent = `Active: ${file.name}`;
     
-    // Add Resend Button Dynamically
     let btn = document.getElementById('resendToolBtn');
     if(!btn) {
         btn = document.createElement('button'); btn.id = 'resendToolBtn';
