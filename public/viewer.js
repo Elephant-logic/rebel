@@ -50,10 +50,18 @@ function showLaunchButton(url, name) {
         color: '#000', fontWeight: '900', textDecoration: 'none',
         borderRadius: '8px', border: '3px solid #fff',
         boxShadow: '0 0 30px #4af3a3', fontSize: '1.2rem',
-        cursor: 'pointer', transform: 'scale(0)', transition: 'transform 0.3s'
+        cursor: 'pointer', transform: 'scale(0)', transition: 'transform 0.3s',
+        pointerEvents: 'auto' // Ensure clickable
     });
     
-    $('toolboxContainer').appendChild(btn);
+    // *** FIX: REMOVE BUTTON WHEN CLICKED ***
+    btn.onclick = () => {
+        btn.style.transform = 'scale(0)';
+        setTimeout(() => btn.remove(), 300); // Remove after animation
+    };
+    
+    const container = $('toolboxContainer') || document.body;
+    container.appendChild(btn);
     setTimeout(() => btn.style.transform = 'scale(1)', 50);
 }
 
