@@ -1,16 +1,16 @@
 // =============================================================
 // ICE CONFIGURATION (STUN + TURN + TURNS)
 // =============================================================
-// 1. STUN: Finds your IP.
-// 2. TURN: Relays video over UDP/TCP (Standard).
-// 3. TURNS: Relays video over TLS 443 (The "Mobile Fix").
+// 1. STUN: Finds your IP (WiFi).
+// 2. TURN: Relays video over UDP/TCP.
+// 3. TURNS: Relays video over TLS 443 (Vital for Mobile 4G/5G).
 
 const ICE_SERVERS = [
-  // Fast Google STUN (First check)
+  // 1. Fast Google STUN (First check)
   { urls: 'stun:stun.l.google.com:19302' },
-  
-  // --- OPENRELAY (Free Tier) ---
-  // Standard TURN (UDP/TCP)
+  { urls: 'stun:stun1.l.google.com:19302' },
+
+  // 2. Standard TURN (OpenRelay Free Tier)
   {
     urls: 'turn:openrelay.metered.ca:80',
     username: 'openrelayproject',
@@ -27,9 +27,9 @@ const ICE_SERVERS = [
     credential: 'openrelayproject'
   },
 
-  // *** THE MOBILE FIX (From your screenshot) ***
-  // TURNS = Secure TURN over TLS.
-  // This looks like HTTPS traffic to mobile carriers.
+  // 3. SECURE TURNS (The "Mobile Fix")
+  // Uses TLS on Port 443 to look like regular HTTPS web traffic.
+  // This bypasses strict mobile carrier firewalls.
   {
     urls: 'turns:openrelay.metered.ca:443?transport=tcp',
     username: 'openrelayproject',
