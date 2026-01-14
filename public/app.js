@@ -1,8 +1,8 @@
 // ======================================================
 // 1. ARCADE ENGINE (P2P File Transfer)
 // ======================================================
-const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
-const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit
+const CHUNK_SIZE = 16 * 1024; 
+const MAX_BUFFER = 256 * 1024; 
 
 async function pushFileToPeer(pc, file, onProgress) {
     if (!pc) return;
@@ -22,17 +22,19 @@ async function pushFileToPeer(pc, file, onProgress) {
         });
         channel.send(metadata);
 
-        // 2. Read file
+        // 2. Read the file into memory
         const buffer = await file.arrayBuffer();
         let offset = 0;
 
-        // 3. Send Loop
+        // 3. Send Loop (Chunks)
         const sendLoop = () => {
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
             }
-            if (channel.readyState !== 'open') return;
+            if (channel.readyState !== 'open') {
+                return;
+            }
 
             const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
             channel.send(chunk);
