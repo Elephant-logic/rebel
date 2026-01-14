@@ -11,13 +11,12 @@ async function pushFileToPeer(pc, file, onProgress) {
     if (!pc) return;
 
     // Create a specific data channel for the arcade
-    // This runs parallel to video/audio
     const channel = pc.createDataChannel("side-load-pipe");
 
     channel.onopen = async () => {
         console.log(`[Arcade] Starting transfer of: ${file.name}`);
 
-        // 1. Send Metadata (So the receiver knows what's coming)
+        // 1. Send Metadata
         const metadata = JSON.stringify({
             type: 'meta',
             name: file.name,
@@ -26,43 +25,37 @@ async function pushFileToPeer(pc, file, onProgress) {
         });
         channel.send(metadata);
 
-        // 2. Read the file into memory
-        const buffer = await file.arrayBuffer();
+        // 2. Memory-Safe Send Loop (Slice on demand)
         let offset = 0;
 
-        // 3. Send Loop (Chunks)
-        const sendLoop = () => {
-            // Check if the network buffer is full. If so, wait.
+        const sendLoop = async () => {
+            // Check backpressure
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
             }
 
-            // If the channel closed unexpectedly, stop.
-            if (channel.readyState !== 'open') {
-                return;
-            }
+            if (channel.readyState !== 'open') return;
 
-            // Slice the next chunk of data
-            const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-            channel.send(chunk);
+            // Slice only what we need now (prevents RAM crash on big files)
+            const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
+            const chunkBuffer = await chunkBlob.arrayBuffer();
+            
+            channel.send(chunkBuffer);
             offset += CHUNK_SIZE;
 
-            // Calculate percentage for the UI status
+            // Calculate percentage
             if (onProgress) {
                 const percent = Math.min(100, Math.round((offset / file.size) * 100));
                 onProgress(percent);
             }
 
             // Continue or Finish
-            if (offset < buffer.byteLength) {
-                setTimeout(sendLoop, 0); // Schedule next chunk immediately
+            if (offset < file.size) {
+                setTimeout(sendLoop, 0); 
             } else {
                 console.log(`[Arcade] Transfer Complete.`);
-                // Close the channel after a short delay to ensure delivery
-                setTimeout(() => {
-                    channel.close();
-                }, 1000);
+                setTimeout(() => { channel.close(); }, 1000);
             }
         };
 
@@ -114,7 +107,7 @@ canvas.width = 1920;
 canvas.height = 1080;
 let ctx = canvas.getContext('2d');
 let canvasStream = null; 
-let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
+let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'PIP_REV', 'SPLIT'
 let activeGuestId = null; // The ID of the guest currently selected for the mixer
 
 // --- CONNECTION STORAGE ---
@@ -167,10 +160,7 @@ function drawMixer() {
         }
     }
     else if (mixerLayout === 'SPLIT') {
-        // --- FIXED 16:9 SPLIT LOGIC ---
-        // Instead of stretching, we fit the 16:9 video into half-width slots (960px).
-        // A 960px wide 16:9 video is 540px tall. We center it vertically.
-        
+        // --- 16:9 SPLIT LOGIC ---
         const slotW = 960;
         const vidH = 540; // 960 / (16/9)
         const yOffset = (1080 - vidH) / 2;
@@ -218,6 +208,36 @@ function drawMixer() {
             ctx.drawImage(guestVideo, x, y, pipW, pipH);
         }
     }
+    else if (mixerLayout === 'PIP_REV') {
+        // *** NEW: REVERSE PIP (Guest Full + Host Small) ***
+        
+        // Guest Base
+        if (guestVideo && guestVideo.readyState === 4) {
+            ctx.drawImage(guestVideo, 0, 0, canvas.width, canvas.height);
+        } else {
+            // Placeholder
+            ctx.fillStyle = '#222'; ctx.fillRect(0,0,canvas.width, canvas.height);
+            ctx.fillStyle = '#666'; ctx.font = "60px Arial"; ctx.textAlign = "center";
+            ctx.fillText("Waiting for Guest...", canvas.width/2, canvas.height/2);
+        }
+        
+        // Host Overlay (Bottom Right)
+        if (myVideo && myVideo.readyState === 4) {
+            const pipW = 480;
+            const pipH = 270;
+            const padding = 30;
+            const x = canvas.width - pipW - padding;
+            const y = canvas.height - pipH - padding;
+            
+            // Draw Border
+            ctx.strokeStyle = "#4af3a3";
+            ctx.lineWidth = 5;
+            ctx.strokeRect(x, y, pipW, pipH);
+            
+            // Draw Video
+            ctx.drawImage(myVideo, x, y, pipW, pipH);
+        }
+    }
 
     // Loop
     requestAnimationFrame(drawMixer);
@@ -235,7 +255,8 @@ window.setMixerLayout = (mode) => {
     // Update UI Buttons
     document.querySelectorAll('.mixer-btn').forEach(b => {
         b.classList.remove('active');
-        if (b.textContent.toUpperCase().includes(mode) || (mode==='PIP' && b.textContent.includes('Overlay'))) {
+        // Match existing modes + new PIP_REV
+        if (b.onclick.toString().includes(mode)) {
             b.classList.add('active');
         }
     });
@@ -745,8 +766,6 @@ async function connectViewer(targetId) {
     
     // *** FIX: FORCE DATA CHANNEL FOR ARCADE ***
     // This creates the pipe so games can be sent later
-    // Without this, SCTP is not negotiated until a file is actually sent, 
-    // which can cause the first file to fail.
     const controlChannel = pc.createDataChannel("control");
     controlChannel.onopen = () => console.log(`Control channel open for ${targetId}`);
 
@@ -1055,9 +1074,9 @@ fileInput.addEventListener('change', () => {
 $('sendFileBtn').addEventListener('click', () => {
     const file = fileInput.files[0];
     
-    // FIX: CRASH PREVENTION (Limit Size)
-    if(file.size > 1024 * 1024) {
-        alert("File too large for chat share (Limit: 1MB). Use 'Arcade' for larger P2P transfers.");
+    // *** PATCH: Increased limit to 50MB for Server-based sharing ***
+    if(file.size > 50 * 1024 * 1024) {
+        alert("File too large for chat share (Limit: 50MB). Use 'Arcade' for larger P2P transfers.");
         return;
     }
 
@@ -1164,34 +1183,54 @@ function renderUserList() {
 
         const isCalling = !!callPeers[u.id];
         
-        // CALL BUTTON
-        const actionBtn = document.createElement('button');
-        actionBtn.className = 'action-btn';
-        
         if (isCalling) {
+            // 1. END CALL BUTTON
+            const actionBtn = document.createElement('button');
+            actionBtn.className = 'action-btn';
             actionBtn.textContent = 'End Call';
             actionBtn.style.cssText = 'border-color:var(--danger); color:var(--danger)';
             actionBtn.onclick = () => endPeerCall(u.id);
+            actionsDiv.appendChild(actionBtn);
+
+            // 2. *** PATCH: MUTE GUEST BUTTON ***
+            // Finds the video element associated with this user ID
+            const vidContainer = document.getElementById(`vid-${u.id}`);
+            const vidTag = vidContainer ? vidContainer.querySelector('video') : null;
+            
+            if (vidTag) {
+                const muteBtn = document.createElement('button');
+                muteBtn.className = 'action-btn';
+                muteBtn.textContent = vidTag.muted ? '🔊 Unmute' : '🔇 Mute';
+                
+                muteBtn.onclick = () => {
+                    vidTag.muted = !vidTag.muted;
+                    renderUserList(); // Update button text
+                };
+                actionsDiv.appendChild(muteBtn);
+            }
+
+            // 3. MIXER SELECT BUTTON (Director Mode)
+            if (iAmHost) {
+                const selBtn = document.createElement('button');
+                selBtn.className = 'action-btn';
+                selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Select';
+                selBtn.title = "Select for Overlay/Split";
+                selBtn.onclick = () => {
+                    activeGuestId = u.id;
+                    renderUserList(); // Redraw to show "Selected" status
+                    window.setActiveGuest(u.id);
+                };
+                actionsDiv.appendChild(selBtn);
+            }
+
         } else {
+            // CALL BUTTON
+            const actionBtn = document.createElement('button');
+            actionBtn.className = 'action-btn';
             actionBtn.textContent = 'Call';
             actionBtn.onclick = () => window.ringUser(u.id);
+            actionsDiv.appendChild(actionBtn);
         }
-        actionsDiv.appendChild(actionBtn);
-
-        // --- MIXER SELECT BUTTON (Director Mode) ---
-        if (isCalling && iAmHost) {
-            const selBtn = document.createElement('button');
-            selBtn.className = 'action-btn';
-            selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Select';
-            selBtn.title = "Select for Overlay/Split";
-            selBtn.onclick = () => {
-                activeGuestId = u.id;
-                renderUserList(); // Redraw to show "Selected" status
-                window.setActiveGuest(u.id);
-            };
-            actionsDiv.appendChild(selBtn);
-        }
-        // -------------------------------------------
 
         if (iAmHost) {
             const kickBtn = document.createElement('button');
