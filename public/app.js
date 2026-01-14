@@ -1,6 +1,9 @@
 // ======================================================
 // 1. ARCADE ENGINE (P2P File Transfer)
 // ======================================================
+// This handles splitting games/tools into chunks 
+// and sending them securely over WebRTC to all viewers.
+
 const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
 const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit
 
@@ -436,14 +439,15 @@ function endPeerCall(id, isIncomingSignal) {
 
 
 // ======================================================
-// 10. VIEWER CONNECTION & ARCADE PUSH
+// 10. VIEWER CONNECTION & ARCADE PUSH (CRITICAL FIX)
 // ======================================================
 async function connectViewer(targetId) {
     if (viewerPeers[targetId]) return;
     const pc = new RTCPeerConnection(iceConfig);
     viewerPeers[targetId] = pc;
     
-    // Force Create Data Channel (Fix for Arcade)
+    // *** FIX: FORCE DATA CHANNEL FOR ARCADE ***
+    // This creates the pipe so games can be sent later
     pc.createDataChannel("control");
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId, candidate: e.candidate }); };
@@ -455,7 +459,7 @@ async function connectViewer(targetId) {
         if(audioTrack) pc.addTrack(audioTrack, canvasStream);
     }
     
-    // Auto-Push Arcade
+    // Auto-Push Arcade if selected
     if (activeToolboxFile) {
         console.log(`[Arcade] Auto-pushing to ${targetId}`);
         pushFileToPeer(pc, activeToolboxFile, null); 
@@ -546,6 +550,7 @@ $('btnSendPrivate').onclick = () => sendChat('private'); $('inputPrivate').onkey
 socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text, d.ts); if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new'); });
 socket.on('private-chat', d => { appendChat($('chatLogPrivate'), d.name, d.text, d.ts); if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new'); });
 
+// --- EMOJI LISTENERS (FIXED) ---
 if ($('emojiStripPublic')) $('emojiStripPublic').onclick = e => { if(e.target.classList.contains('emoji')) $('inputPublic').value += e.target.textContent; };
 if ($('emojiStripPrivate')) $('emojiStripPrivate').onclick = e => { if(e.target.classList.contains('emoji')) $('inputPrivate').value += e.target.textContent; };
 
@@ -576,6 +581,7 @@ if ($('arcadeInput')) $('arcadeInput').onchange = () => {
         btn.id = 'resendToolBtn';
         btn.textContent = 'Force Resend';
         btn.className = 'btn small secondary full-width';
+        btn.style.marginTop='5px';
         btn.onclick = () => { Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, activeToolboxFile)); alert("Resent."); };
         $('arcadeStatus').parentNode.appendChild(btn);
     }
