@@ -1,5 +1,5 @@
 // ======================================================
-// 1. ARCADE ENGINE (P2P File Transfer) - PATCHED
+// 1. ARCADE & DATA ENGINE (P2P File Transfer) - PATCHED
 // ======================================================
 // This handles splitting games/tools into chunks 
 // and sending them securely over WebRTC to all viewers.
@@ -82,7 +82,7 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
 }
 
 /**
- * UNIVERSAL DATA RECEIVER (NEW FUNCTION)
+ * UNIVERSAL DATA RECEIVER (CRITICAL FIX APPLIED)
  * Listens for incoming files on a connection.
  * Necessary for receiving files in chat or tools in arcade.
  */
@@ -93,7 +93,8 @@ function setupDataReceiver(pc, peerId) {
         // Filter: Only accept known data pipes
         if (chan.label !== "side-load-pipe" && chan.label !== "transfer-pipe") return; 
 
-        // *** FIX: Force ArrayBuffer so .byteLength works correctly ***
+        // *** CRITICAL FIX: Force ArrayBuffer ***
+        // Without this, 'data.byteLength' is undefined on some browsers (Chrome defaults to Blob)
         chan.binaryType = 'arraybuffer';
 
         let chunks = [];
