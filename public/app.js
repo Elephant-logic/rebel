@@ -242,8 +242,7 @@ function drawMixer() {
         if (myVideo && myVideo.readyState === 4) ctx.drawImage(myVideo, 0, 0, canvas.width, canvas.height);
         if (guestVideo && guestVideo.readyState === 4) {
             const pipW = 480; const pipH = 270; const padding = 30;
-            const x = canvas.width - pipW - padding;
-            const y = canvas.height - pipH - padding;
+            const x = canvas.width - pipW - padding; const y = canvas.height - pipH - padding;
             ctx.strokeStyle = "#4af3a3"; ctx.lineWidth = 5; ctx.strokeRect(x, y, pipW, pipH);
             ctx.drawImage(guestVideo, x, y, pipW, pipH);
         }
@@ -283,8 +282,7 @@ function switchTab(name) {
     if (!tabs[name]) return;
     Object.values(tabs).forEach(t => t.classList.remove('active'));
     Object.values(contents).forEach(c => c.classList.remove('active'));
-    tabs[name].classList.add('active');
-    contents[name].classList.add('active');
+    tabs[name].classList.add('active'); contents[name].classList.add('active');
     tabs[name].classList.remove('has-new');
 }
 Object.keys(tabs).forEach(k => { if(tabs[k]) tabs[k].onclick = () => switchTab(k); });
@@ -323,7 +321,14 @@ async function getDevices() {
             }
             if (d.kind === 'videoinput') videoSource.appendChild(opt);
         });
-    } catch (e) { console.error(e); }
+        
+        if (localStream) {
+            const at = localStream.getAudioTracks()[0];
+            const vt = localStream.getVideoTracks()[0];
+            if (at) audioSource.value = at.getSettings().deviceId;
+            if (vt) videoSource.value = vt.getSettings().deviceId;
+        }
+    } catch (e) {}
 }
 audioSource.onchange = startLocalMedia;
 if(audioSource2) audioSource2.onchange = startLocalMedia;
@@ -370,7 +375,7 @@ async function startLocalMedia() {
         $('localVideo').srcObject = localStream;
         $('localVideo').muted = true;
 
-        // Broadcast to Viewers (Mixer Stream)
+        // Broadcast to Viewers (Mixed)
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
         Object.values(viewerPeers).forEach(pc => {
             pc.getSenders().forEach(s => {
@@ -542,7 +547,6 @@ async function connectViewer(targetId) {
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId, candidate: e.candidate }); };
     
-    // Send Canvas Stream
     canvasStream.getTracks().forEach(t => pc.addTrack(t, canvasStream));
     if(localStream) {
         const audioTrack = localStream.getAudioTracks()[0];
@@ -669,6 +673,7 @@ if ($('arcadeInput')) $('arcadeInput').onchange = () => {
     activeToolboxFile = file;
     $('arcadeStatus').textContent = `Active: ${file.name}`;
     
+    // Add Resend Button Dynamically
     let btn = document.getElementById('resendToolBtn');
     if(!btn) {
         btn = document.createElement('button'); btn.id = 'resendToolBtn';
