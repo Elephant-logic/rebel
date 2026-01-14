@@ -1,20 +1,23 @@
 // ======================================================
 // 1. ARCADE ENGINE (P2P Binary Transfer Protocol)
 // ======================================================
-// Chunks files into 16KB packets to bypass browser memory limits.
+// This handles splitting games/tools into chunks 
+// and sending them securely over WebRTC to all viewers.
 // This version is memory-safe: it slices the file on the fly.
 
-const CHUNK_SIZE = 16 * 1024; // 16KB (Safe WebRTC limit)
-const MAX_BUFFER = 256 * 1024; // 256KB Max Buffer before pausing
+const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
+const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit to prevent crashes
 
 async function pushFileToPeer(pc, file, onProgress) {
     if (!pc) return;
-    
+
+    // Create a specific data channel for the arcade
     const channel = pc.createDataChannel("side-load-pipe");
-    
+
     channel.onopen = async () => {
         console.log(`[Arcade] Starting transfer of: ${file.name}`);
 
+        // 1. Send Metadata (So the receiver knows what's coming)
         const metadata = JSON.stringify({
             type: 'meta',
             name: file.name,
@@ -23,43 +26,51 @@ async function pushFileToPeer(pc, file, onProgress) {
         });
         channel.send(metadata);
 
+        // 2. Memory-Safe Send Loop (Slice on demand)
+        // This prevents loading massive files (GBs) into RAM at once.
         let offset = 0;
 
         const sendLoop = async () => {
+            // Check backpressure: If the network buffer is full, wait.
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
             }
 
+            // If the channel closed unexpectedly, stop.
             if (channel.readyState !== 'open') return;
 
-            // FIX: Slice on demand to handle GB-sized files without crashing RAM
+            // Slice ONLY the chunk we need right now from the original File object
             const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
             const chunkBuffer = await chunkBlob.arrayBuffer();
             
             channel.send(chunkBuffer);
             offset += CHUNK_SIZE;
 
+            // UI Progress calculation
             if (onProgress) {
                 const percent = Math.min(100, Math.round((offset / file.size) * 100));
                 onProgress(percent);
             }
 
+            // Continue or Finish
             if (offset < file.size) {
                 setTimeout(sendLoop, 0); 
             } else {
                 console.log(`[Arcade] Transfer Complete: ${file.name}`);
+                // Short delay to ensure delivery before closing
                 setTimeout(() => { channel.close(); }, 1000);
             }
         };
 
+        // Kick off the loop
         sendLoop();
     };
 }
 
 
 // ======================================================
-// 2. MAIN APP SETUP & VARIABLES
+// 2. MAIN APP SETUP & GLOBAL VARIABLES
 // ======================================================
 
 console.log("Rebel Stream Host App Loaded"); 
@@ -67,25 +78,29 @@ console.log("Rebel Stream Host App Loaded");
 const socket = io({ autoConnect: false });
 const $ = id => document.getElementById(id);
 
+// --- STATE MANAGEMENT ---
 let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
-let wasHost = false; 
+let wasHost = false; // Required for Auto-Takeover timing
 let latestUserList = [];
 let currentOwnerId = null;
 
+// --- VIP / SECURITY ---
 let isPrivateMode = false;
 let allowedGuests = [];
 
+// --- MEDIA STREAMS ---
 let localStream = null;
 let screenStream = null;
 let isScreenSharing = false;
 let isStreaming = false; 
 
+// --- ARCADE DATA ---
 let activeToolboxFile = null;
 
-// Mixer State
+// --- MIXER (CANVAS ENGINE) ---
 let audioContext = null;
 let audioDestination = null;
 let canvas = document.createElement('canvas'); 
@@ -96,29 +111,33 @@ let canvasStream = null;
 let mixerLayout = 'SOLO'; 
 let activeGuestId = null;
 
-// QR Overlay State
+// --- QR OVERLAY ---
 let qrcodeInstance = null;
 let qrImage = new Image();
 let showQrOnStream = true; 
 
+// --- PEER STORAGE ---
 const viewerPeers = {}; 
 const callPeers = {};   
 
+// --- ICE / TURN CONFIG ---
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
     ? { iceServers: ICE_SERVERS } 
     : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 
 // ======================================================
-// 3. CANVAS MIXER ENGINE
+// 3. CANVAS MIXER ENGINE (The Visual Core)
 // ======================================================
 
 function drawMixer() {
     if (!ctx) return;
     
+    // Background Clear
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Identify Video Sources
     const myVideo = $('localVideo'); 
     
     let guestVideo = null;
@@ -127,6 +146,7 @@ function drawMixer() {
         if(el) guestVideo = el.querySelector('video');
     }
 
+    // Drawing Layout Logic
     if (mixerLayout === 'SOLO') {
         if (myVideo && myVideo.readyState === 4) {
             ctx.drawImage(myVideo, 0, 0, canvas.width, canvas.height);
@@ -171,7 +191,7 @@ function drawMixer() {
         }
     }
 
-    // QR OVERLAY
+    // Live QR Code Stream Overlay
     if (showQrOnStream && qrImage && qrImage.src) {
         const qrSize = 180; const margin = 30;
         ctx.fillStyle = "white";
@@ -184,9 +204,11 @@ function drawMixer() {
     requestAnimationFrame(drawMixer);
 }
 
+// Start Broadcast Capture
 canvasStream = canvas.captureStream(30); 
 drawMixer();
 
+// Global Mixer Exposed to Buttons
 window.setMixerLayout = (mode) => {
     mixerLayout = mode;
     document.querySelectorAll('.mixer-btn').forEach(b => {
@@ -205,7 +227,7 @@ window.toggleQrOnStream = () => {
 
 
 // ======================================================
-// 4. TAB NAVIGATION
+// 4. NAVIGATION & TABS
 // ======================================================
 
 const tabs = { stream: $('tabStreamChat'), room: $('tabRoomChat'), files: $('tabFiles'), users: $('tabUsers') };
@@ -219,11 +241,12 @@ function switchTab(name) {
     contents[name].classList.add('active');
     tabs[name].classList.remove('has-new');
 }
+
 Object.keys(tabs).forEach(k => tabs[k].onclick = () => switchTab(k));
 
 
 // ======================================================
-// 5. DEVICE SETTINGS
+// 5. DEVICE CONTROL
 // ======================================================
 
 const settingsPanel = $('settingsPanel');
@@ -264,7 +287,7 @@ if(videoQuality) videoQuality.onchange = startLocalMedia;
 
 
 // ======================================================
-// 6. MEDIA CONTROLS
+// 6. LOCAL MEDIA & METERING
 // ======================================================
 
 async function startLocalMedia() {
@@ -272,7 +295,7 @@ async function startLocalMedia() {
     if (localStream) localStream.getTracks().forEach(t => t.stop());
 
     try {
-        const quality = videoQuality ? videoQuality.value : 'ideal';
+        const quality = videoQuality?.value || 'ideal';
         let resW = 1280, resH = 720;
         if (quality === 'max') { resW = 1920; resH = 1080; }
         if (quality === 'low') { resW = 640; resH = 360; }
@@ -285,6 +308,7 @@ async function startLocalMedia() {
         const mainStream = await navigator.mediaDevices.getUserMedia(constraints);
         let finalAudioTrack = mainStream.getAudioTracks()[0];
 
+        // Mixer Logic: Mix Mic + Loopback/Secondary Source
         if (audioSource2 && audioSource2.value) {
             const secStream = await navigator.mediaDevices.getUserMedia({ audio: { exact: audioSource2.value } });
             if(!audioContext) audioContext = new AudioContext();
@@ -297,6 +321,7 @@ async function startLocalMedia() {
         localStream = new MediaStream([mainStream.getVideoTracks()[0], finalAudioTrack]);
         $('localVideo').srcObject = localStream;
 
+        // Hot-swap outgoing tracks for all active viewers
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
         Object.values(viewerPeers).forEach(pc => {
             pc.getSenders().forEach(s => {
@@ -304,6 +329,7 @@ async function startLocalMedia() {
                 if(s.track.kind === 'audio') s.replaceTrack(finalAudioTrack);
             });
         });
+        // Callers see raw cam, but mixed audio
         Object.values(callPeers).forEach(p => {
             p.pc.getSenders().forEach(s => {
                 if(s.track.kind === 'video') s.replaceTrack(mainStream.getVideoTracks()[0]);
@@ -363,7 +389,7 @@ function stopScreenShare() {
 
 
 // ======================================================
-// 8. BROADCAST & STREAMING
+// 8. BROADCAST & STREAMING ENGINE
 // ======================================================
 
 $('startStreamBtn').onclick = async () => {
@@ -383,11 +409,14 @@ $('startStreamBtn').onclick = async () => {
 
 $('hangupBtn').onclick = () => { Object.keys(callPeers).forEach(id => endPeerCall(id)); };
 
+
 // ======================================================
-// 9. P2P CALLING LOGIC
+// 9. P2P CALLING & SIGNALLING
 // ======================================================
 
-socket.on('ring-alert', async ({ from, fromId }) => { if (confirm(`Incoming call from ${from}. Accept?`)) await callPeer(fromId); });
+socket.on('ring-alert', async ({ from, fromId }) => { 
+    if (confirm(`Incoming call from ${from}. Accept?`)) await callPeer(fromId); 
+});
 
 async function callPeer(targetId) {
     if (!localStream) await startLocalMedia();
@@ -416,8 +445,12 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     renderUserList();
 });
 
-socket.on('call-answer', async ({ from, answer }) => { if (callPeers[from]) await callPeers[from].pc.setRemoteDescription(new RTCSessionDescription(answer)); });
-socket.on('call-ice', ({ from, candidate }) => { if (callPeers[from]) callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate)); });
+socket.on('call-answer', async ({ from, answer }) => { 
+    if (callPeers[from]) await callPeers[from].pc.setRemoteDescription(new RTCSessionDescription(answer)); 
+});
+socket.on('call-ice', ({ from, candidate }) => { 
+    if (callPeers[from]) callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate)); 
+});
 
 function endPeerCall(id, isIncomingSignal) {
     if (callPeers[id]) { try { callPeers[id].pc.close(); } catch(e){} }
@@ -429,7 +462,7 @@ socket.on('call-end', ({ from }) => endPeerCall(from, true));
 
 
 // ======================================================
-// 10. VIEWER SIGNALLING
+// 10. BROADCAST VIEWER SIGNALLING
 // ======================================================
 
 async function connectViewer(targetId) {
@@ -449,15 +482,23 @@ async function connectViewer(targetId) {
     socket.emit('webrtc-offer', { targetId, sdp: offer });
 }
 
-socket.on('webrtc-answer', async ({ from, sdp }) => { if (viewerPeers[from]) await viewerPeers[from].setRemoteDescription(new RTCSessionDescription(sdp)); });
-socket.on('webrtc-ice-candidate', async ({ from, candidate }) => { if (viewerPeers[from]) await viewerPeers[from].addIceCandidate(new RTCIceCandidate(candidate)); });
+socket.on('webrtc-answer', async ({ from, sdp }) => { 
+    if (viewerPeers[from]) await viewerPeers[from].setRemoteDescription(new RTCSessionDescription(sdp)); 
+});
+socket.on('webrtc-ice-candidate', async ({ from, candidate }) => { 
+    if (viewerPeers[from]) await viewerPeers[from].addIceCandidate(new RTCIceCandidate(candidate)); 
+});
 
 
 // ======================================================
-// 11. ROOM & ROLE (Auto-Takeover Corrected)
+// 11. ROOM & ROLE (Auto-Takeover Correction)
 // ======================================================
 
-socket.on('connect', () => { $('signalStatus').className = 'status-dot status-connected'; $('signalStatus').textContent = 'Connected'; myId = socket.id; });
+socket.on('connect', () => { 
+    $('signalStatus').className = 'status-dot status-connected'; 
+    $('signalStatus').textContent = 'Connected'; 
+    myId = socket.id; 
+});
 
 function updateLink(roomSlug) {
     const url = new URL(window.location.href);
@@ -474,7 +515,7 @@ function updateLink(roomSlug) {
 }
 
 socket.on('role', async ({ isHost }) => {
-    // FIX: Only trigger Auto-Takeover if already a connected member (myId set)
+    // FIX: Only trigger Takeover if already connected to room (myId set)
     if (!wasHost && isHost && myId !== null) {
         const notify = document.createElement('div');
         notify.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:var(--accent); color:#000; padding:10px 20px; border-radius:20px; font-weight:bold; z-index:9999;";
@@ -507,7 +548,7 @@ socket.on('user-joined', d => {
 
 
 // ======================================================
-// 12. CHAT & FILES (50MB Limit)
+// 12. CHAT & FILES (50MB Limit Fix)
 // ======================================================
 
 function appendChat(log, name, text) {
@@ -526,6 +567,7 @@ socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text); 
 $('sendFileBtn').onclick = () => {
     const file = $('fileInput').files[0];
     if (!file) return;
+    // PATCHED: 50MB limit for server-based chat sharing
     if (file.size > 50 * 1024 * 1024) return alert("File too large (Max 50MB)");
     const reader = new FileReader();
     reader.onload = () => {
@@ -543,7 +585,7 @@ socket.on('file-share', d => {
 
 
 // ======================================================
-// 13. USER LIST (Director Features & Mute)
+// 13. USER LIST & DIRECTOR FEATURES
 // ======================================================
 
 function renderUserList() {
@@ -558,6 +600,7 @@ function renderUserList() {
         const actions = document.createElement('div'); actions.className = 'user-actions';
 
         if (callPeers[u.id]) {
+            // Guest Mute Toggle (Local only)
             const vidContainer = document.getElementById(`vid-${u.id}`);
             const vid = vidContainer ? vidContainer.querySelector('video') : null;
             if (vid) {
@@ -569,6 +612,7 @@ function renderUserList() {
             const endBtn = document.createElement('button'); endBtn.className = 'action-btn danger'; endBtn.textContent = 'End';
             endBtn.onclick = () => endPeerCall(u.id); actions.appendChild(endBtn);
             
+            // Mixer Selection
             if(iAmHost) {
                 const selBtn = document.createElement('button'); selBtn.className = 'action-btn';
                 selBtn.textContent = (activeGuestId === u.id) ? 'Live' : 'Mix';
@@ -581,9 +625,12 @@ function renderUserList() {
         }
 
         if (iAmHost) {
+            // Manual Promote to Host
             const pBtn = document.createElement('button'); pBtn.className = 'action-btn'; pBtn.textContent = '👑';
             pBtn.onclick = () => { if(confirm("Pass Host?")) socket.emit('promote-host', u.id); };
             actions.appendChild(pBtn);
+
+            // Kick
             const kBtn = document.createElement('button'); kBtn.className = 'action-btn kick'; kBtn.textContent = 'Kick';
             kBtn.onclick = () => { if(confirm("Kick?")) socket.emit('kick-user', u.id); };
             actions.appendChild(kBtn);
@@ -604,13 +651,14 @@ function addRemoteVideo(id, stream) {
 
 function removeRemoteVideo(id) { const el = document.getElementById(`vid-${id}`); if(el) el.remove(); }
 
+// Arcade Input Logic
 $('arcadeInput').onchange = () => {
     const file = $('arcadeInput').files[0]; if(!file) return;
     activeToolboxFile = file; $('arcadeStatus').textContent = "Loaded: " + file.name;
     Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file));
 };
 
-// Global exports
+// Global Exports
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.kickUser = (id) => socket.emit('kick-user', id);
 window.makeHost = (id) => socket.emit('promote-host', id);
