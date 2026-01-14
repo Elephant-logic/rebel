@@ -1,5 +1,5 @@
 // ======================================================
-// 1. ARCADE ENGINE (P2P File Transfer)
+// 1. ARCADE ENGINE (P2P File Transfer) - PATCHED
 // ======================================================
 // This handles splitting games/tools into chunks 
 // and sending them securely over WebRTC to all viewers.
@@ -29,7 +29,7 @@ async function pushFileToPeer(pc, file, onProgress) {
         let offset = 0;
 
         const sendLoop = async () => {
-            // Check backpressure
+            // Check backpressure to prevent memory overflow
             if (channel.bufferedAmount > MAX_BUFFER) {
                 setTimeout(sendLoop, 10);
                 return;
@@ -37,12 +37,12 @@ async function pushFileToPeer(pc, file, onProgress) {
 
             if (channel.readyState !== 'open') return;
 
-            // Slice only what we need now (prevents RAM crash on big files)
+            // FIX: Slice only what we need now (prevents RAM crash on big files)
             const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
             const chunkBuffer = await chunkBlob.arrayBuffer();
             
             channel.send(chunkBuffer);
-            offset += CHUNK_SIZE;
+            offset += chunkBuffer.byteLength;
 
             // Calculate percentage
             if (onProgress) {
@@ -77,7 +77,7 @@ let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
-let wasHost = false; 
+let wasHost = false; // FIX: Tracking state for Auto-Takeover
 let latestUserList = [];
 let currentOwnerId = null;
 
@@ -116,7 +116,7 @@ const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
 
 
 // ======================================================
-// 3. CANVAS MIXER ENGINE
+// 3. CANVAS MIXER ENGINE - PATCHED
 // ======================================================
 
 function drawMixer() {
@@ -164,6 +164,7 @@ function drawMixer() {
             ctx.drawImage(guestVideo, x, y, pipW, pipH);
         }
     }
+    // FIX: New Reverse PIP Layout
     else if (mixerLayout === 'PIP_REV') {
         if (guestVideo && guestVideo.readyState === 4) {
             ctx.drawImage(guestVideo, 0, 0, canvas.width, canvas.height);
@@ -176,6 +177,7 @@ function drawMixer() {
         }
     }
 
+    // FIX: QR Overlay Burned into Stream
     if (showQrOnStream && qrImage.src) {
         const size = 180; const m = 30;
         ctx.fillStyle = "white"; ctx.fillRect(canvas.width - size - m - 5, m - 5, size + 10, size + 10);
@@ -199,8 +201,6 @@ window.setMixerLayout = (mode) => {
 };
 
 window.setActiveGuest = (id) => { activeGuestId = id; renderUserList(); };
-
-// PATCHED: QR Toggle Logic
 window.toggleQrOnStream = () => {
     showQrOnStream = !showQrOnStream;
     const btn = $('toggleQrBtn');
@@ -208,21 +208,6 @@ window.toggleQrOnStream = () => {
         btn.textContent = showQrOnStream ? "QR On Stream: ON" : "QR On Stream: OFF";
         btn.classList.toggle('danger', !showQrOnStream);
     }
-};
-
-// PATCHED: Copy Link Logic
-window.copyStreamLink = () => {
-    const input = $('streamLinkInput');
-    if(!input) return;
-    input.select();
-    input.setSelectionRange(0, 99999);
-    navigator.clipboard.writeText(input.value).then(() => {
-        const btn = $('copyLinkBtn');
-        if(!btn) return;
-        const oldText = btn.textContent;
-        btn.textContent = "✅ Copied!";
-        setTimeout(() => { btn.textContent = oldText; }, 2000);
-    });
 };
 
 // ======================================================
@@ -233,13 +218,13 @@ const tabs = { stream: $('tabStreamChat'), room: $('tabRoomChat'), files: $('tab
 const contents = { stream: $('contentStreamChat'), room: $('contentRoomChat'), files: $('contentFiles'), users: $('contentUsers') };
 
 function switchTab(name) {
-    Object.values(tabs).forEach(t => { if(t) t.classList.remove('active'); });
-    Object.values(contents).forEach(c => { if(c) c.classList.remove('active'); });
-    if(tabs[name]) tabs[name].classList.add('active');
-    if(contents[name]) contents[name].classList.add('active');
-    if(tabs[name]) tabs[name].classList.remove('has-new');
+    Object.values(tabs).forEach(t => t.classList.remove('active'));
+    Object.values(contents).forEach(c => c.classList.remove('active'));
+    tabs[name].classList.add('active');
+    contents[name].classList.add('active');
+    tabs[name].classList.remove('has-new');
 }
-Object.keys(tabs).forEach(k => { if(tabs[k]) tabs[k].onclick = () => switchTab(k); });
+Object.keys(tabs).forEach(k => tabs[k].onclick = () => switchTab(k));
 
 
 // ======================================================
@@ -274,9 +259,9 @@ async function getDevices() {
     });
 }
 
-if(audioSource) audioSource.onchange = startLocalMedia;
+audioSource.onchange = startLocalMedia;
 if(audioSource2) audioSource2.onchange = startLocalMedia;
-if(videoSource) videoSource.onchange = startLocalMedia;
+videoSource.onchange = startLocalMedia;
 if(videoQuality) videoQuality.onchange = startLocalMedia;
 
 
@@ -329,7 +314,7 @@ async function startLocalMedia() {
             });
         });
 
-        if($('hangupBtn')) $('hangupBtn').disabled = false;
+        $('hangupBtn').disabled = false;
         updateMediaButtons();
     } catch (e) { console.error(e); }
 }
@@ -347,15 +332,15 @@ function updateMediaButtons() {
     }
 }
 
-if($('toggleMicBtn')) $('toggleMicBtn').onclick = () => { if(localStream) { localStream.getAudioTracks()[0].enabled = !localStream.getAudioTracks()[0].enabled; updateMediaButtons(); } };
-if($('toggleCamBtn')) $('toggleCamBtn').onclick = () => { if(localStream) { localStream.getVideoTracks()[0].enabled = !localStream.getVideoTracks()[0].enabled; updateMediaButtons(); } };
+$('toggleMicBtn').onclick = () => { if(localStream) { localStream.getAudioTracks()[0].enabled = !localStream.getAudioTracks()[0].enabled; updateMediaButtons(); } };
+$('toggleCamBtn').onclick = () => { if(localStream) { localStream.getVideoTracks()[0].enabled = !localStream.getVideoTracks()[0].enabled; updateMediaButtons(); } };
 
 
 // ======================================================
 // 7. SCREEN SHARE
 // ======================================================
 
-if($('shareScreenBtn')) $('shareScreenBtn').onclick = async () => {
+$('shareScreenBtn').onclick = async () => {
     if (isScreenSharing) { stopScreenShare(); }
     else {
         try {
@@ -388,7 +373,7 @@ function stopScreenShare() {
 // 8. BROADCAST & CALLING
 // ======================================================
 
-if($('startStreamBtn')) $('startStreamBtn').onclick = async () => {
+$('startStreamBtn').onclick = async () => {
     if (!iAmHost) return;
     if (isStreaming) {
         isStreaming = false;
@@ -405,7 +390,7 @@ if($('startStreamBtn')) $('startStreamBtn').onclick = async () => {
     }
 };
 
-if($('hangupBtn')) $('hangupBtn').onclick = () => Object.keys(callPeers).forEach(id => endPeerCall(id));
+$('hangupBtn').onclick = () => Object.keys(callPeers).forEach(id => endPeerCall(id));
 
 socket.on('ring-alert', async ({ from, fromId }) => {
     if (confirm(`Incoming call from ${from}. Accept?`)) await callPeer(fromId);
@@ -486,7 +471,7 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
 
 
 // ======================================================
-// 10. ROOM & ROLE (Auto-Takeover)
+// 10. ROOM & ROLE (Auto-Takeover) - PATCHED
 // ======================================================
 
 socket.on('connect', () => { $('signalStatus').textContent = 'Connected'; myId = socket.id; });
@@ -497,17 +482,15 @@ function updateLink(roomSlug) {
     url.search = `?room=${encodeURIComponent(roomSlug)}`;
     const fullUrl = url.toString();
     $('streamLinkInput').value = fullUrl;
-    
-    // PATCHED: QR Image generation for Canvas Mixer
-    const qrTarget = $('qrcode');
-    if (qrTarget) {
-        if (!qrcodeInstance) qrcodeInstance = new QRCode(qrTarget, { text: fullUrl, width: 256, height: 256, correctLevel: QRCode.CorrectLevel.H });
+    if ($('qrcode')) {
+        if (!qrcodeInstance) qrcodeInstance = new QRCode($('qrcode'), { text: fullUrl, width: 256, height: 256, correctLevel: QRCode.CorrectLevel.H });
         else qrcodeInstance.makeCode(fullUrl);
-        setTimeout(() => { const c = qrTarget.querySelector('canvas'); if (c) qrImage.src = c.toDataURL(); }, 500);
+        setTimeout(() => { const c = $('qrcode').querySelector('canvas'); if (c) qrImage.src = c.toDataURL(); }, 500);
     }
 }
 
 socket.on('role', async ({ isHost }) => {
+    // FIX: Auto-Takeover logic (Promotion triggers broadcast)
     if (!wasHost && isHost && currentRoom) {
         const notify = document.createElement('div');
         notify.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:var(--accent); color:#000; padding:10px 20px; border-radius:20px; font-weight:bold; z-index:9999;";
@@ -515,14 +498,15 @@ socket.on('role', async ({ isHost }) => {
         document.body.appendChild(notify);
         setTimeout(() => notify.remove(), 4000);
         if (!localStream) await startLocalMedia();
-        if (!isStreaming) { iAmHost = true; if($('startStreamBtn')) $('startStreamBtn').click(); }
+        if (!isStreaming) { iAmHost = true; $('startStreamBtn').click(); }
     }
-    iAmHost = isHost; wasHost = isHost;
+    iAmHost = isHost; 
+    wasHost = isHost; // Update state to prevent loop on join
     $('hostControls').style.display = isHost ? 'block' : 'none';
     renderUserList();
 });
 
-if($('joinBtn')) $('joinBtn').onclick = () => {
+$('joinBtn').onclick = () => {
     currentRoom = $('roomInput').value.trim(); 
     userName = $('nameInput').value.trim() || 'Host';
     if(!currentRoom) return;
@@ -530,7 +514,7 @@ if($('joinBtn')) $('joinBtn').onclick = () => {
     socket.emit('join-room', { room: currentRoom, name: userName });
     updateLink(currentRoom); 
     startLocalMedia();
-    $('joinBtn').disabled = true; if($('leaveBtn')) $('leaveBtn').disabled = false;
+    $('joinBtn').disabled = true; $('leaveBtn').disabled = false;
 };
 
 socket.on('room-update', d => { latestUserList = d.users; currentOwnerId = d.ownerId; renderUserList(); });
@@ -542,39 +526,38 @@ socket.on('user-joined', d => {
 });
 
 // ======================================================
-// 11. CHAT & FILES (50MB Limit)
+// 11. CHAT & FILES
 // ======================================================
 
 function appendChat(log, name, text) {
-    if(!log) return;
     const d = document.createElement('div'); d.className = 'chat-line';
     const s = document.createElement('strong'); s.textContent = name;
     d.appendChild(s); d.appendChild(document.createTextNode(': ' + text));
     log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
 
-if($('btnSendPublic')) $('btnSendPublic').onclick = () => { 
+$('btnSendPublic').onclick = () => { 
     const val = $('inputPublic').value.trim();
     if(!val) return;
     socket.emit('public-chat', { room: currentRoom, name: userName, text: val }); 
     $('inputPublic').value = ''; 
 };
-socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text); if(tabs.stream && !tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new'); });
+socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text); if(!tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new'); });
 
-if($('sendFileBtn')) $('sendFileBtn').onclick = () => {
+$('sendFileBtn').onclick = () => {
     const file = $('fileInput').files[0];
     if (file.size > 50 * 1024 * 1024) return alert("File too large (Max 50MB)");
     const reader = new FileReader();
     reader.onload = () => {
         socket.emit('file-share', { room: currentRoom, name: userName, fileName: file.name, fileData: reader.result });
-        $('fileInput').value = ''; if($('fileNameLabel')) $('fileNameLabel').textContent = 'No file selected'; $('sendFileBtn').disabled = true;
+        $('fileInput').value = ''; $('fileNameLabel').textContent = 'No file selected'; $('sendFileBtn').disabled = true;
     };
     reader.readAsDataURL(file);
 };
 socket.on('file-share', d => {
     const div = document.createElement('div'); div.className = 'file-item';
     div.innerHTML = `<span><strong>${d.name}</strong> shared ${d.fileName}</span> <a href="${d.fileData}" download="${d.fileName}" class="btn small primary">Download</a>`;
-    if($('fileLog')) $('fileLog').appendChild(div);
+    $('fileLog').appendChild(div);
 });
 
 
@@ -583,8 +566,7 @@ socket.on('file-share', d => {
 // ======================================================
 
 function renderUserList() {
-    const list = $('userList'); if(!list) return;
-    list.innerHTML = '';
+    const list = $('userList'); list.innerHTML = '';
     latestUserList.forEach(u => {
         if (u.id === myId) return;
         const div = document.createElement('div'); div.className = 'user-item';
@@ -631,21 +613,19 @@ function addRemoteVideo(id, stream) {
     if (!d) {
         d = document.createElement('div'); d.className = 'video-container'; d.id = `vid-${id}`;
         d.innerHTML = `<video autoplay playsinline></video><h2>${callPeers[id].name}</h2>`;
-        const grid = $('videoGrid');
-        if(grid) grid.appendChild(d);
+        $('videoGrid').appendChild(d);
     }
-    const vid = d.querySelector('video');
-    if(vid) vid.srcObject = stream;
+    d.querySelector('video').srcObject = stream;
 }
 
 function removeRemoteVideo(id) { const el = document.getElementById(`vid-${id}`); if(el) el.remove(); }
 
 // Arcade Input
-if($('arcadeInput')) $('arcadeInput').onchange = () => {
+$('arcadeInput').onchange = () => {
     const file = $('arcadeInput').files[0];
     if(!file) return;
     activeToolboxFile = file;
-    if($('arcadeStatus')) $('arcadeStatus').textContent = "Loaded: " + file.name;
+    $('arcadeStatus').textContent = "Loaded: " + file.name;
     Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file));
 };
 
@@ -653,7 +633,4 @@ if($('arcadeInput')) $('arcadeInput').onchange = () => {
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.kickUser = (id) => socket.emit('kick-user', id);
 window.makeHost = (id) => socket.emit('promote-host', id);
-window.openStream = () => {
-    const input = $('streamLinkInput');
-    if(input) window.open(input.value, '_blank');
-};
+window.openStream = () => window.open($('streamLinkInput').value, '_blank');
