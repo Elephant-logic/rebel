@@ -6,9 +6,6 @@ let pc = null;
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random()*1000);
 
-// ==========================================
-// ARCADE RECEIVER (Game -> Chat Logic)
-// ==========================================
 function setupReceiver(pc) {
     pc.ondatachannel = (e) => {
         const chan = e.channel;
@@ -28,14 +25,12 @@ function setupReceiver(pc) {
             } else {
                 chunks.push(d); curr += d.byteLength;
                 
-                // Show percentage in status bar
                 if(total > 0) $('viewerStatus').textContent = `DL: ${Math.round((curr/total)*100)}%`;
                 
                 if(curr >= total) {
                     const blob = new Blob(chunks, {type: meta?meta.mime:'application/octet-stream'});
                     const url = URL.createObjectURL(blob);
                     
-                    // *** CHANGED: SEND TO CHAT INSTEAD OF SCREEN ***
                     addGameToChat(url, meta?meta.name:'Game');
                     
                     chan.close();
@@ -48,8 +43,6 @@ function setupReceiver(pc) {
 
 function addGameToChat(url, name) {
     const log = $('chatLog');
-    
-    // Force open chat so they see it
     const chatBox = $('chatBox');
     if(chatBox.classList.contains('hidden')) {
         chatBox.classList.remove('hidden');
@@ -58,7 +51,6 @@ function addGameToChat(url, name) {
     const div = document.createElement('div');
     div.className = 'chat-line system-msg';
     
-    // Create a nice looking card inside the chat
     div.innerHTML = `
         <div style="background: rgba(74, 243, 163, 0.1); border: 1px solid #4af3a3; padding: 10px; border-radius: 8px; margin: 10px 0; text-align: center;">
             <div style="color: #4af3a3; font-weight: 900; font-size: 0.9rem; margin-bottom: 5px;">🚀 NEW TOOL RECEIVED</div>
@@ -73,7 +65,6 @@ function addGameToChat(url, name) {
     log.scrollTop = log.scrollHeight;
 }
 
-// --- INIT ---
 const params = new URLSearchParams(location.search);
 const room = params.get('room');
 if(room) { 
@@ -84,9 +75,11 @@ if(room) {
     socket.emit('join-room', {room, name:myName}); 
 } else { alert("No Room ID"); }
 
-socket.on('disconnect', () => $('viewerStatus').textContent="Disconnected");
+socket.on('disconnect', () => {
+    $('viewerStatus').textContent="Disconnected";
+    if(pc) { pc.close(); pc = null; }
+});
 
-// --- WEBRTC ---
 socket.on('webrtc-offer', async ({sdp, from}) => {
     if(pc) pc.close();
     pc = new RTCPeerConnection(iceConfig);
@@ -109,7 +102,6 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
 });
 socket.on('webrtc-ice-candidate', async ({candidate}) => { if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); });
 
-// --- CHAT & UI ---
 const log = $('chatLog');
 function addChat(n,t) { 
     const d=document.createElement('div'); 
@@ -123,7 +115,6 @@ socket.on('public-chat', d => addChat(d.name, d.text));
 const send = () => { const i=$('chatInput'); if(!i.value.trim()) return; socket.emit('public-chat', {room:currentRoom, text:i.value, name:myName, fromViewer:true}); i.value=''; };
 $('sendBtn').onclick = send; $('chatInput').onkeydown = e => { if(e.key==='Enter') send(); };
 
-// Emojis
 if ($('emojiStrip')) $('emojiStrip').onclick = (e) => { 
     if (e.target.classList.contains('emoji')) {
         $('chatInput').value += e.target.textContent;
