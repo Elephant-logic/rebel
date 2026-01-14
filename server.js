@@ -8,10 +8,10 @@ const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
 
-// FIX: 1MB limit prevents crashes. PingTimeout kills laggy connections.
+// FIX: Increased buffer to 30MB to handle 20MB files + Base64 overhead
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 1e6, 
+  maxHttpBufferSize: 30e6, 
   pingTimeout: 10000,     
   pingInterval: 25000
 });
