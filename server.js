@@ -16,7 +16,7 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-// FIX: This ensures the server finds index.html in the public folder to fix "Cannot GET /"
+// FIX: Pointing specifically to the public folder to resolve "Cannot GET /"
 app.use(express.static(path.join(__dirname, 'public')));
 
 // In-memory room state
