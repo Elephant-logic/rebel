@@ -75,6 +75,7 @@ io.on('connection', (socket) => {
 
     const info = getRoomInfo(roomName);
 
+    // SECURITY: Locked Room Check
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       socket.emit('room-error', 'Room is locked by host');
       socket.disconnect();
@@ -85,6 +86,7 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
+    // First user becomes Host
     if (!info.ownerId) {
       info.ownerId = socket.id;
     }
@@ -101,6 +103,7 @@ io.on('connection', (socket) => {
   });
 
   // --- HOST CONTROLS ---
+  
   socket.on('lock-room', (locked) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -108,6 +111,31 @@ io.on('connection', (socket) => {
     if (!info || info.ownerId !== socket.id) return;
 
     info.locked = !!locked;
+    broadcastRoomUpdate(roomName);
+  });
+
+  // *** NEW: MANUALLY PROMOTE HOST ***
+  socket.on('promote-host', (targetId) => {
+    const roomName = socket.data.room;
+    if (!roomName) return;
+    const info = rooms[roomName];
+    
+    // Only current host can promote
+    if (!info || info.ownerId !== socket.id) return;
+    if (!info.users.has(targetId)) return;
+
+    // Transfer
+    info.ownerId = targetId;
+
+    // Notify Old Host
+    socket.emit('role', { isHost: false, streamTitle: info.streamTitle });
+
+    // Notify New Host
+    const newHostSocket = io.sockets.sockets.get(targetId);
+    if (newHostSocket) {
+        newHostSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
+    }
+
     broadcastRoomUpdate(roomName);
   });
 
@@ -138,7 +166,7 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --- STREAMING SIGNALS (Host -> Viewer) ---
+  // --- STREAMING & CALLING SIGNALS ---
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
@@ -151,7 +179,6 @@ io.on('connection', (socket) => {
     if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
-  // --- CALLING SIGNALS (P2P) ---
   socket.on('ring-user', (targetId) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
@@ -190,7 +217,6 @@ io.on('connection', (socket) => {
   socket.on('private-chat', ({ room, name, text }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
-    
     io.to(roomName).emit('private-chat', {
       name: (name || socket.data.name || 'Anon').slice(0,30),
       text: String(text).slice(0, 500),
@@ -201,7 +227,6 @@ io.on('connection', (socket) => {
   socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !fileName || !fileData) return;
-    
     io.to(roomName).emit('file-share', {
       name: (name || socket.data.name).slice(0,30),
       fileName: String(fileName).slice(0, 100),
@@ -210,7 +235,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // --- DISCONNECT ---
+  // --- DISCONNECT & AUTO-PASS HOST ---
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -220,6 +245,7 @@ io.on('connection', (socket) => {
 
     info.users.delete(socket.id);
 
+    // Host Migration: If Host leaves, give crown to next user
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       info.locked = false;
