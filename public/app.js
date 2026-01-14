@@ -1,89 +1,34 @@
-// =======================================================================
-// REBEL STREAM - MONSTER APP (HOST & GUEST CLIENT)
-// =======================================================================
-// 1. P2P Data Engine (Arcade Tools + Chat Files)
-// 2. Canvas Video Mixer (Compositing Cameras & Overlays)
-// 3. Audio Mixer (Mic + System Audio + Music)
-// 4. WebRTC Signaling (Broadcasting & 1:1 Calling)
-// 5. Room Management (Admin Controls, Banning, Locking)
-// =======================================================================
+// ======================================================
+// 1. ARCADE & DATA ENGINE (P2P File Transfer)
+// ======================================================
+// This handles splitting games/tools/files into chunks 
+// and sending them securely over WebRTC to all viewers.
 
-console.log("Rebel Stream Monster App Loaded - COMPLETE"); 
-
-// --- CONFIGURATION ---
 const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
-const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit
-
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
-    ? { iceServers: ICE_SERVERS } 
-    : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-// --- DOM HELPER ---
-const $ = id => document.getElementById(id);
-
-// --- GLOBAL VARIABLES ---
-// Initialize Socket.io (Manual connect)
-const socket = io({ autoConnect: false });
-
-let currentRoom = null;
-let userName = 'User';
-let myId = null;
-let iAmHost = false;
-let latestUserList = [];
-let currentOwnerId = null;
-
-// --- VIP BOUNCER STATE ---
-let isPrivateMode = false;
-let allowedGuests = [];
-
-// --- MEDIA STATE ---
-let localStream = null;
-let screenStream = null;
-let isScreenSharing = false;
-let isStreaming = false; 
-
-// --- ARCADE STATE ---
-let activeToolboxFile = null;
-
-// --- MIXER STATE (CANVAS ENGINE) ---
-let audioContext = null;
-let audioDestination = null;
-let canvas = document.createElement('canvas'); 
-canvas.width = 1920; 
-canvas.height = 1080;
-let ctx = canvas.getContext('2d');
-let canvasStream = null; 
-let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
-let activeGuestId = null; // The ID of the guest currently selected for the mixer
-
-// --- CONNECTION STORAGE ---
-const viewerPeers = {}; // One-way connections (Broadcast) -> RECEIVES ARCADE
-const callPeers = {};   // Two-way connections (1:1 Calls) -> RECEIVES CHAT FILES
-
-
-// =======================================================================
-// 1. P2P DATA TRANSFER ENGINE (FIXED: ARCADE & FILES)
-// =======================================================================
+const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit to prevent crashes
 
 /**
- * Universal function to send data to a specific peer.
- * @param {RTCPeerConnection} pc - The connection to send to
- * @param {File} file - The file object
- * @param {string} type - 'arcade' (Tools) or 'file' (Chat Download)
- * @param {function} onProgress - Optional callback for UI bars
+ * UNIVERSAL DATA SENDER
+ * Sends any file (Arcade Tool or Chat File) to a specific peer.
+ * @param {RTCPeerConnection} pc - The target connection
+ * @param {File} file - The file to send
+ * @param {string} type - 'arcade' (Launch) or 'file' (Chat Download)
+ * @param {function} onProgress - Optional callback for UI progress bars
  */
-async function pushFileToPeer(pc, file, type, onProgress) {
+async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
     if (!pc) return;
 
-    // Create a new data channel for this specific transfer
-    const label = type === 'arcade' ? 'arcade-pipe' : 'transfer-pipe';
+    // Create a specific data channel for this transfer
+    // We use different labels to distinguish Arcade games from Chat files
+    const label = type === 'arcade' ? 'side-load-pipe' : 'transfer-pipe';
     const channel = pc.createDataChannel(label);
 
     channel.onopen = async () => {
-        console.log(`[P2P] Starting ${type} transfer: ${file.name}`);
+        console.log(`[Data-Engine] Starting transfer of (${type}): ${file.name}`);
 
         // 1. Send Metadata (So the receiver knows what's coming)
         const metadata = JSON.stringify({
+            type: 'meta',
             dataType: type, // 'arcade' or 'file'
             name: file.name,
             size: file.size,
@@ -123,7 +68,7 @@ async function pushFileToPeer(pc, file, type, onProgress) {
             if (offset < buffer.byteLength) {
                 setTimeout(sendLoop, 0); // Schedule next chunk immediately
             } else {
-                console.log(`[P2P] ${type} Transfer Complete.`);
+                console.log(`[Data-Engine] Transfer Complete.`);
                 // Close the channel after a short delay to ensure delivery
                 setTimeout(() => {
                     channel.close();
@@ -137,15 +82,15 @@ async function pushFileToPeer(pc, file, type, onProgress) {
 }
 
 /**
- * Receiver Logic (Runs on Guest/Viewer side)
- * Handles incoming 'transfer-pipe' (Files) or 'arcade-pipe' (Tools)
+ * UNIVERSAL DATA RECEIVER
+ * Listens for incoming files on a connection (Host or Guest).
  */
 function setupDataReceiver(pc, peerId) {
     pc.ondatachannel = (e) => {
         const chan = e.channel;
         
-        // Filter: Only accept known data pipes
-        if (!['transfer-pipe', 'arcade-pipe'].includes(chan.label)) return; 
+        // Filter: Only accept our specific pipes
+        if (chan.label !== "side-load-pipe" && chan.label !== "transfer-pipe") return; 
 
         let chunks = [];
         let total = 0, curr = 0, meta = null;
@@ -155,7 +100,10 @@ function setupDataReceiver(pc, peerId) {
             
             // A. Handle Metadata (First Message)
             if(typeof data === 'string') {
-                try { meta = JSON.parse(data); total = meta.size; } catch(e){}
+                try { 
+                    meta = JSON.parse(data); 
+                    total = meta.size; 
+                } catch(e) { console.error("Bad Metadata", e); }
             } 
             // B. Handle Binary Data (Chunks)
             else {
@@ -174,7 +122,7 @@ function setupDataReceiver(pc, peerId) {
                         addFileToChat(senderName, meta.name, url);
                     } 
                     else if (meta && meta.dataType === 'arcade') {
-                        // ARCADE TOOL: Log it (The Viewer page usually handles the execution)
+                        // ARCADE TOOL: The View.html usually handles this, but we log it here.
                         console.log("Arcade Tool Received via P2P:", meta.name);
                     }
                     
@@ -186,9 +134,64 @@ function setupDataReceiver(pc, peerId) {
 }
 
 
-// =======================================================================
-// 2. CANVAS MIXER ENGINE (The "Broadcast" Logic)
-// =======================================================================
+// ======================================================
+// 2. MAIN APP SETUP & VARIABLES
+// ======================================================
+
+console.log("Rebel Stream Host App Loaded"); 
+
+// Initialize Socket.io (Manual connect)
+const socket = io({ autoConnect: false });
+
+// Helper function to select DOM elements
+const $ = id => document.getElementById(id);
+
+// --- GLOBAL VARIABLES ---
+let currentRoom = null;
+let userName = 'User';
+let myId = null;
+let iAmHost = false;
+let latestUserList = [];
+let currentOwnerId = null;
+
+// --- VIP BOUNCER STATE ---
+let isPrivateMode = false;
+let allowedGuests = [];
+
+// --- MEDIA STATE ---
+let localStream = null;
+let screenStream = null;
+let isScreenSharing = false;
+let isStreaming = false; // "On Air" status
+
+// --- ARCADE STATE ---
+let activeToolboxFile = null;
+
+// --- MIXER STATE (CANVAS ENGINE) ---
+// This allows you to mix cameras and overlays before sending to stream
+let audioContext = null;
+let audioDestination = null;
+let canvas = document.createElement('canvas'); 
+canvas.width = 1920; 
+canvas.height = 1080;
+let ctx = canvas.getContext('2d');
+let canvasStream = null; 
+let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
+let activeGuestId = null; // The ID of the guest currently selected for the mixer
+
+// --- CONNECTION STORAGE ---
+const viewerPeers = {}; // One-way connections (Broadcast) -> RECEIVES ARCADE
+const callPeers = {};   // Two-way connections (1:1 Calls) -> RECEIVES CHAT FILES
+
+// --- ICE CONFIGURATION (Servers) ---
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) 
+    ? { iceServers: ICE_SERVERS } 
+    : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+
+// ======================================================
+// 3. CANVAS MIXER ENGINE (The "Broadcast" Logic)
+// ======================================================
 
 // This function runs 30 times a second to paint the video frame
 function drawMixer() {
@@ -227,6 +230,9 @@ function drawMixer() {
     }
     else if (mixerLayout === 'SPLIT') {
         // --- FIXED 16:9 SPLIT LOGIC ---
+        // Instead of stretching, we fit the 16:9 video into half-width slots (960px).
+        // A 960px wide 16:9 video is 540px tall. We center it vertically.
+        
         const slotW = 960;
         const vidH = 540; // 960 / (16/9)
         const yOffset = (1080 - vidH) / 2;
@@ -251,6 +257,8 @@ function drawMixer() {
     }
     else if (mixerLayout === 'PIP') {
         // Picture-in-Picture (Host Full + Guest Small)
+        
+        // Host Base
         if (myVideo && myVideo.readyState === 4) {
             ctx.drawImage(myVideo, 0, 0, canvas.width, canvas.height);
         }
@@ -301,9 +309,10 @@ window.setActiveGuest = (id) => {
 };
 
 
-// =======================================================================
-// 3. TAB NAVIGATION INTERFACE
-// =======================================================================
+// ======================================================
+// 4. TAB NAVIGATION INTERFACE
+// ======================================================
+
 const tabs = { 
     stream: $('tabStreamChat'), 
     room: $('tabRoomChat'), 
@@ -334,15 +343,24 @@ function switchTab(name) {
 }
 
 // Click Listeners for Tabs
-if(tabs.stream) tabs.stream.onclick = () => switchTab('stream');
-if(tabs.room) tabs.room.onclick = () => switchTab('room');
-if(tabs.files) tabs.files.onclick = () => switchTab('files');
-if(tabs.users) tabs.users.onclick = () => switchTab('users');
+if(tabs.stream) {
+    tabs.stream.onclick = () => switchTab('stream');
+}
+if(tabs.room) {
+    tabs.room.onclick = () => switchTab('room');
+}
+if(tabs.files) {
+    tabs.files.onclick = () => switchTab('files');
+}
+if(tabs.users) {
+    tabs.users.onclick = () => switchTab('users');
+}
 
 
-// =======================================================================
-// 4. DEVICE SETTINGS (Audio/Video/Mixer)
-// =======================================================================
+// ======================================================
+// 5. DEVICE SETTINGS (Audio/Video/Mixer)
+// ======================================================
+
 const settingsPanel = $('settingsPanel');
 const audioSource = $('audioSource');
 const audioSource2 = $('audioSource2'); // Secondary Audio (Mixer)
@@ -412,11 +430,13 @@ videoSource.onchange = startLocalMedia;
 if(videoQuality) videoQuality.onchange = startLocalMedia;
 
 
-// =======================================================================
-// 5. MEDIA CONTROLS (CAMERA, MIC & MIXER ENGINE)
-// =======================================================================
+// ======================================================
+// 6. MEDIA CONTROLS (CAMERA, MIC & MIXER ENGINE)
+// ======================================================
+
 async function startLocalMedia() {
     // If sharing screen, we don't want to kill the screen stream logic.
+    // Screen sharing now feeds into "localStream" so the mixer picks it up automatically.
     if (isScreenSharing) {
         return; 
     }
@@ -472,6 +492,7 @@ async function startLocalMedia() {
         }
 
         // --- 3. SET LOCAL STREAM ---
+        // This 'localStream' is what YOU see in the "You" box.
         localStream = new MediaStream([
             mainStream.getVideoTracks()[0], 
             finalAudioTrack
@@ -481,24 +502,37 @@ async function startLocalMedia() {
         $('localVideo').srcObject = localStream;
         $('localVideo').muted = true; // Mute to prevent echo
 
-        // --- 4. UPDATE BROADCAST VIEWERS (THEY GET MIXER) ---
+        // --- 4. UPDATE VIEWERS (BROADCAST) ---
+        // Crucial: Viewers do NOT get localStream directly anymore.
+        // They get the CANVAS STREAM (The Mixed Output).
+        
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
 
-        Object.values(viewerPeers).forEach(pc => {
+        const updateViewerPC = (pc) => {
+            if (!pc) return;
             const senders = pc.getSenders();
+            
+            // Replace Video Track with MIXER Track
             const vSender = senders.find(s => s.track && s.track.kind === 'video');
             if (vSender) vSender.replaceTrack(mixedVideoTrack);
             
+            // Replace Audio Track with MIXED AUDIO Track
             const aSender = senders.find(s => s.track && s.track.kind === 'audio');
             if (aSender) aSender.replaceTrack(finalAudioTrack);
-        });
+        };
+
+        // Update all connected Broadcast Viewers
+        Object.values(viewerPeers).forEach(updateViewerPC);
         
-        // --- 5. UPDATE P2P GUESTS (THEY GET RAW CAM) ---
+        // Update 1:1 Callers (Guests)
+        // Guests usually want to see your RAW camera, not the mixed stream
         Object.values(callPeers).forEach(p => {
              const senders = p.pc.getSenders();
              const vSender = senders.find(s => s.track && s.track.kind === 'video');
+             // Send RAW camera to the guest, so they see you clearly
              if(vSender) vSender.replaceTrack(mainStream.getVideoTracks()[0]);
              
+             // Send Mixed Audio
              const aSender = senders.find(s => s.track && s.track.kind === 'audio');
              if(aSender) aSender.replaceTrack(finalAudioTrack);
         });
@@ -556,9 +590,9 @@ if ($('toggleCamBtn')) {
 }
 
 
-// =======================================================================
-// 6. SCREEN SHARING LOGIC
-// =======================================================================
+// ======================================================
+// 7. SCREEN SHARING LOGIC
+// ======================================================
 
 if ($('shareScreenBtn')) {
     $('shareScreenBtn').addEventListener('click', async () => {
@@ -576,8 +610,12 @@ if ($('shareScreenBtn')) {
                 // Show screen locally in the 'You' box
                 $('localVideo').srcObject = screenStream;
                 
+                // Note: The CANVAS MIXER automatically reads from $('localVideo').
+                // So we don't need to manually replace tracks for viewers! 
+                // The drawMixer() loop will now paint the screen instead of the cam.
+
                 // *** FIX: Send Screen to All Peers (Guests) ***
-                // Guests don't see the Mixer, they see the direct track.
+                // Guests don't see the Mixer, they see the direct track. So we must update them.
                 const screenTrack = screenStream.getVideoTracks()[0];
                 const screenAudio = screenStream.getAudioTracks()[0]; // Capture system audio if present
 
@@ -618,9 +656,9 @@ function stopScreenShare() {
 }
 
 
-// =======================================================================
-// 7. BROADCAST STREAMING (1-to-Many)
-// =======================================================================
+// ======================================================
+// 8. BROADCAST STREAMING (1-to-Many)
+// ======================================================
 
 if ($('startStreamBtn')) {
     $('startStreamBtn').addEventListener('click', async () => {
@@ -658,13 +696,14 @@ if ($('startStreamBtn')) {
 }
 
 
-// =======================================================================
-// 8. P2P CALLING (1-to-1)
-// =======================================================================
+// ======================================================
+// 9. P2P CALLING (1-to-1)
+// ======================================================
 
 // HANGUP BUTTON: Ends call connection ONLY. Keeps camera ON.
 if ($('hangupBtn')) {
     $('hangupBtn').addEventListener('click', () => {
+        // Only end peer calls, do not stop local media
         Object.keys(callPeers).forEach(id => endPeerCall(id));
     });
 }
@@ -683,9 +722,9 @@ async function callPeer(targetId) {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
     
-    // Listen for incoming files from guests
-    setupDataReceiver(pc, targetId); 
-
+    // *** SETUP DATA RECEIVER FOR FILES ***
+    setupDataReceiver(pc, targetId);
+    
     pc.onicecandidate = e => { 
         if (e.candidate) {
             socket.emit('call-ice', { targetId, candidate: e.candidate }); 
@@ -712,8 +751,9 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[from] = { pc, name };
     
-    setupDataReceiver(pc, from); 
-
+    // *** SETUP DATA RECEIVER FOR FILES ***
+    setupDataReceiver(pc, from);
+    
     pc.onicecandidate = e => { 
         if (e.candidate) {
             socket.emit('call-ice', { targetId: from, candidate: e.candidate }); 
@@ -762,16 +802,16 @@ function endPeerCall(id, isIncomingSignal) {
 }
 
 
-// =======================================================================
-// 9. VIEWER CONNECTION & ARCADE PUSH
-// =======================================================================
+// ======================================================
+// 10. VIEWER CONNECTION & ARCADE PUSH (CRITICAL FIX)
+// ======================================================
 async function connectViewer(targetId) {
     if (viewerPeers[targetId]) return;
     
     const pc = new RTCPeerConnection(iceConfig);
     viewerPeers[targetId] = pc;
     
-    // *** FORCE DATA CHANNEL FOR ARCADE ***
+    // *** FIX: FORCE DATA CHANNEL FOR ARCADE ***
     // This creates the pipe so games can be sent later
     const controlChannel = pc.createDataChannel("control");
     controlChannel.onopen = () => console.log(`Control channel open for ${targetId}`);
@@ -783,6 +823,7 @@ async function connectViewer(targetId) {
     };
     
     // --- SEND MIXED CANVAS STREAM ---
+    // This is the "Patch": Viewers see the canvas, not raw cam.
     canvasStream.getTracks().forEach(t => pc.addTrack(t, canvasStream));
     
     // Add Audio (From the local mixed stream)
@@ -791,14 +832,16 @@ async function connectViewer(targetId) {
         if(audioTrack) pc.addTrack(audioTrack, canvasStream);
     }
     
-    // *** ARCADE AUTO-PUSH ***
+    // --- ARCADE AUTO-PUSH ---
     // If a tool is loaded, send it to the new viewer immediately
     if (activeToolboxFile) {
         console.log(`[Arcade] Auto-pushing tool to ${targetId}`);
+        // Small delay to ensure connection is ready
         setTimeout(() => {
             pushFileToPeer(pc, activeToolboxFile, 'arcade'); 
-        }, 1000); // Small delay to let ICE settle
+        }, 1000);
     }
+    // ------------------------
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -818,9 +861,9 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
 });
 
 
-// =======================================================================
-// 10. SOCKET & ROOM LOGIC
-// =======================================================================
+// ======================================================
+// 11. SOCKET & ROOM LOGIC
+// ======================================================
 
 socket.on('connect', () => { 
     $('signalStatus').className = 'status-dot status-connected'; 
@@ -867,15 +910,17 @@ function updateLink(roomSlug) {
 
 // New User Joined Logic
 socket.on('user-joined', ({ id, name }) => {
+    
     // --- VIP BOUNCER CHECK ---
     if (iAmHost && isPrivateMode) {
         const isAllowed = allowedGuests.some(g => g.toLowerCase() === name.toLowerCase());
         if (!isAllowed) {
             console.log(`[Bouncer] Kicking ${name}`);
             socket.emit('kick-user', id);
-            return;
+            return; // Stop here, do not welcome
         }
     }
+    // -------------------------
 
     appendChat($('chatLogPrivate'), 'System', `${name} joined room`, Date.now());
     
@@ -898,10 +943,12 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     latestUserList = users;
     currentOwnerId = ownerId;
     
+    // Sync Title from Server
     if (streamTitle && $('streamTitleInput')) {
         $('streamTitleInput').value = streamTitle;
     }
 
+    // Sync Lock Button
     if ($('lockRoomBtn')) {
         $('lockRoomBtn').textContent = locked ? 'Unlock Room' : 'Lock Room';
         $('lockRoomBtn').onclick = () => { 
@@ -923,18 +970,52 @@ socket.on('role', ({ isHost }) => {
 });
 
 
-// =======================================================================
-// 11. HOST CONTROLS & CHAT
-// =======================================================================
+// ======================================================
+// 12. HOST CONTROLS (TITLE, SLUG, VIP)
+// ======================================================
 
-// --- HOST CONTROLS ---
-if ($('updateTitleBtn')) $('updateTitleBtn').onclick = () => socket.emit('update-stream-title', $('streamTitleInput').value.trim());
-if ($('updateSlugBtn')) $('updateSlugBtn').onclick = () => updateLink($('slugInput').value.trim());
+// --- UPDATE STREAM TITLE ---
+if ($('updateTitleBtn')) {
+    $('updateTitleBtn').addEventListener('click', () => {
+        const title = $('streamTitleInput').value.trim();
+        if (title) socket.emit('update-stream-title', title);
+    });
+}
 
-// --- VIP GUEST LIST ---
+if ($('streamTitleInput')) {
+    $('streamTitleInput').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') {
+            const title = $('streamTitleInput').value.trim();
+            if (title) socket.emit('update-stream-title', title);
+        }
+    });
+}
+
+// --- UPDATE LINK NAME (SLUG) ---
+if ($('updateSlugBtn')) {
+    $('updateSlugBtn').addEventListener('click', () => {
+        const slug = $('slugInput').value.trim();
+        if (slug) updateLink(slug);
+    });
+}
+
+if ($('slugInput')) {
+    $('slugInput').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') {
+            const slug = $('slugInput').value.trim();
+            if (slug) updateLink(slug);
+        }
+    });
+}
+
+// --- VIP GUEST LIST LOGIC ---
+const togglePrivateBtn = $('togglePrivateBtn');
+
 if ($('togglePrivateBtn')) {
     $('togglePrivateBtn').addEventListener('click', () => {
         isPrivateMode = !isPrivateMode;
+        
+        // Update Button UI
         $('togglePrivateBtn').textContent = isPrivateMode ? "ON" : "OFF";
         $('togglePrivateBtn').className = isPrivateMode ? "btn small danger" : "btn small secondary";
         $('guestListPanel').style.display = isPrivateMode ? "block" : "none";
@@ -975,7 +1056,11 @@ function renderGuestList() {
     });
 }
 
-// --- CHAT SYSTEM ---
+
+// ======================================================
+// 13. CHAT SYSTEM (Public/Private/Emojis)
+// ======================================================
+
 function appendChat(log, name, text, ts) {
     const d = document.createElement('div');
     d.className = 'chat-line';
@@ -989,12 +1074,14 @@ function appendChat(log, name, text, ts) {
     log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
 
+// ** HELPER FOR P2P FILE DOWNLOADS IN CHAT **
 function addFileToChat(senderName, fileName, url) {
     const log = $('chatLogPrivate'); if(!log) return;
     
     const div = document.createElement('div'); 
     div.className = 'chat-line system-msg';
     
+    // Use innerHTML safely for structure (no user input injected directly)
     div.innerHTML = `
         <div style="background: rgba(255,255,255,0.05); border: 1px solid #4af3a3; padding: 10px; border-radius: 8px; margin: 8px 0;">
             <div style="font-size:0.8rem; color:#aaa;">${senderName} shared:</div>
@@ -1033,15 +1120,22 @@ socket.on('public-chat', d => { appendChat($('chatLogPublic'), d.name, d.text, d
 socket.on('private-chat', d => { appendChat($('chatLogPrivate'), d.name, d.text, d.ts); if(!tabs.room.classList.contains('active')) tabs.room.classList.add('has-new'); });
 
 // Emoji Listeners
-if ($('emojiStripPublic')) $('emojiStripPublic').onclick = e => { if(e.target.classList.contains('emoji')) $('inputPublic').value += e.target.textContent; };
-if ($('emojiStripPrivate')) $('emojiStripPrivate').onclick = e => { if(e.target.classList.contains('emoji')) $('inputPrivate').value += e.target.textContent; };
+if ($('emojiStripPublic')) {
+    $('emojiStripPublic').addEventListener('click', e => { 
+        if(e.target.classList.contains('emoji')) $('inputPublic').value += e.target.textContent; 
+    });
+}
+if ($('emojiStripPrivate')) {
+    $('emojiStripPrivate').addEventListener('click', e => { 
+        if(e.target.classList.contains('emoji')) $('inputPrivate').value += e.target.textContent; 
+    });
+}
 
 
-// =======================================================================
-// 12. P2P FILE INPUTS (CHAT & ARCADE)
-// =======================================================================
+// ======================================================
+// 14. FILE SHARING TAB (P2P REPLACEMENT)
+// ======================================================
 
-// A. CHAT FILE SHARING
 const fileInput = $('fileInput');
 fileInput.addEventListener('change', () => { 
     if(fileInput.files.length) { 
@@ -1052,9 +1146,17 @@ fileInput.addEventListener('change', () => {
 
 $('sendFileBtn').addEventListener('click', () => {
     const file = fileInput.files[0];
-    if(!file) return;
+    
+    // FIX: CRASH PREVENTION (Limit Size)
+    if(file.size > 50 * 1024 * 1024) { // 50MB P2P Limit (Safe)
+        alert("File too large. Try < 50MB for stable P2P transfer.");
+        return;
+    }
+
+    if(!file || !currentRoom) return;
 
     // Send to all connected GUESTS (callPeers)
+    // Note: This sends to people you are in a CALL with (Private Room), not Stream Viewers.
     const guests = Object.values(callPeers);
     if(guests.length === 0) return alert("No guests in the room to share with.");
     
@@ -1065,11 +1167,19 @@ $('sendFileBtn').addEventListener('click', () => {
         });
     });
     
+    // Add local preview
     addFileToChat("You", file.name, URL.createObjectURL(file));
+    
+    // Reset UI
+    fileInput.value = ''; 
+    $('sendFileBtn').disabled = true;
 });
 
 
-// B. ARCADE TOOL SHARING
+// ======================================================
+// 15. ARCADE INPUT LOGIC
+// ======================================================
+
 const arcadeInput = $('arcadeInput');
 if (arcadeInput) {
     arcadeInput.addEventListener('change', () => {
@@ -1080,11 +1190,12 @@ if (arcadeInput) {
         $('arcadeStatus').textContent = `Active Tool: ${file.name}`;
         
         // --- ADD FORCE RESEND BUTTON DYNAMICALLY ---
+        // This is crucial if a user joins late or connection drops
         let resendBtn = document.getElementById('resendToolBtn');
         if(!resendBtn) {
             resendBtn = document.createElement('button');
             resendBtn.id = 'resendToolBtn';
-            resendBtn.textContent = 'Force Resend to Viewers';
+            resendBtn.textContent = 'Force Resend Tool';
             resendBtn.className = 'btn small secondary full-width';
             resendBtn.style.marginTop = '5px';
             resendBtn.onclick = () => {
@@ -1095,17 +1206,15 @@ if (arcadeInput) {
             $('arcadeStatus').parentNode.appendChild(resendBtn);
         }
         
-        // Push file to all currently connected viewers
-        const viewers = Object.values(viewerPeers);
-        console.log(`[Arcade] Broadcasting tool to ${viewers.length} viewers...`);
-        viewers.forEach(pc => pushFileToPeer(pc, file, 'arcade'));
+        // Push file to all currently connected viewers (Broadcast)
+        Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file, 'arcade'));
     });
 }
 
 
-// =======================================================================
-// 13. USER LIST & MIXER SELECTION
-// =======================================================================
+// ======================================================
+// 16. USER LIST & MIXER SELECTION
+// ======================================================
 
 function renderUserList() {
     const list = $('userList'); 
@@ -1117,6 +1226,7 @@ function renderUserList() {
         const div = document.createElement('div'); 
         div.className = 'user-item';
         
+        // FIX: Secure Name Rendering (No InnerHTML)
         const nameSpan = document.createElement('span');
         if (u.id === currentOwnerId) nameSpan.textContent = '👑 ';
         nameSpan.textContent += u.name;
