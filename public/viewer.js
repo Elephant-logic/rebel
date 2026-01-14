@@ -25,7 +25,6 @@ function setupReceiver(pc, onComplete, onProgress) {
                 
                 if (currentSize >= totalSize) {
                     const blob = new Blob(receivedChunks, { type: meta ? meta.mime : 'application/octet-stream' });
-                    // FIX: Sanitize Filename
                     const safeName = meta ? meta.name.replace(/[^a-zA-Z0-9._-]/g, '_') : 'download.bin';
                     if (onComplete) onComplete({ blob, name: safeName });
                     channel.close();
@@ -36,7 +35,6 @@ function setupReceiver(pc, onComplete, onProgress) {
 }
 
 const $ = id => document.getElementById(id);
-
 if (typeof io === 'undefined') { alert("Critical Error: Socket.io did not load."); throw new Error("Socket.io missing"); }
 
 const socket = io({ autoConnect: false });
@@ -56,7 +54,6 @@ function init() {
     const params = new URLSearchParams(window.location.search);
     let room = params.get('room');
     if (!room) room = prompt("Enter the Room ID to join:");
-
     if (room) {
         currentRoom = room;
         $('viewerStatus').textContent = 'Connecting...';
@@ -77,40 +74,39 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
     if (pc) pc.close();
     pc = new RTCPeerConnection(iceConfig);
     
-    // ARCADE HOOK
+    // ARCADE HOOK (FIXED VISIBILITY)
     setupReceiver(pc, 
         ({ blob, name }) => {
             const url = URL.createObjectURL(blob);
+            
+            // Remove old button if exists
             const oldBtn = document.getElementById('arcadeBtn');
             if(oldBtn) oldBtn.remove();
 
-            // FIX: Secure Button Creation
+            // Create New Button
             const btn = document.createElement('a');
             btn.id = 'arcadeBtn';
             btn.href = url;
             btn.download = name;
             btn.className = 'btn primary';
+            btn.style.cssText = `
+                display: block; text-align: center; 
+                padding: 12px 20px; box-shadow: 0 0 15px #4af3a3; 
+                text-decoration: none; color: #000; font-weight: 800; border: 2px solid #fff;
+                animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            `;
+            btn.innerHTML = `<div>🕹️ LAUNCH TOOL</div><div style="font-size:0.7rem">${name}</div>`;
             
-            const icon = document.createElement('div');
-            icon.textContent = "🕹️ LAUNCH TOOL";
-            icon.style.fontWeight = "bold";
-            const sub = document.createElement('div');
-            sub.textContent = name;
-            sub.style.fontSize = "0.7rem";
+            // Inject CSS for animation
+            const style = document.createElement('style');
+            style.innerHTML = `@keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }`;
+            document.head.appendChild(style);
+
+            // FIXED: Append to the dedicated overlay container
+            const container = document.getElementById('toolboxContainer') || document.body;
+            container.appendChild(btn);
             
-            btn.appendChild(icon);
-            btn.appendChild(sub);
-            
-            Object.assign(btn.style, {
-                position: 'absolute', top: '20px', right: '20px',
-                zIndex: '2000', boxShadow: '0 5px 20px rgba(0,0,0,0.8)',
-                textAlign: 'center', padding: '10px 20px', border: '2px solid #4af3a3',
-                textDecoration: 'none', color: '#000'
-            });
-            
-            const container = document.querySelector('.video-container');
-            if(container) container.appendChild(btn);
-            $('viewerStatus').textContent = 'LIVE'; 
+            $('viewerStatus').textContent = 'TOOL RECEIVED'; 
         },
         (percent) => { $('viewerStatus').textContent = `Loading Toolbox: ${percent}%`; }
     );
@@ -137,40 +133,31 @@ socket.on('webrtc-ice-candidate', async ({ candidate }) => { if (pc) await pc.ad
 // --- CHAT LOGIC ---
 socket.on('public-chat', ({ name, text, ts }) => {
     const log = $('chatLog');
-    const d = document.createElement('div');
-    d.className = 'chat-line';
-    const strong = document.createElement('strong');
-    strong.textContent = name;
-    const msgText = document.createTextNode(`: ${text}`);
-    d.append(strong, msgText);
-    log.appendChild(d);
-    log.scrollTop = log.scrollHeight;
+    const d = document.createElement('div'); d.className = 'chat-line';
+    const s = document.createElement('strong'); s.textContent = name;
+    const txt = document.createTextNode(`: ${text}`);
+    d.append(s, txt);
+    log.appendChild(d); log.scrollTop = log.scrollHeight;
 });
-
 function sendChat() {
-    const inp = $('chatInput');
-    const text = inp.value.trim();
+    const inp = $('chatInput'); const text = inp.value.trim();
     if (!text) return;
     socket.emit('public-chat', { room: currentRoom, text, fromViewer: true, name: myName });
     inp.value = '';
 }
+$('sendBtn').onclick = sendChat;
+$('chatInput').onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
+if ($('emojiStrip')) $('emojiStrip').onclick = (e) => { if (e.target.classList.contains('emoji')) $('chatInput').value += e.target.textContent; };
 
-$('sendBtn').addEventListener('click', sendChat);
-$('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
-
-if ($('emojiStrip')) $('emojiStrip').addEventListener('click', (e) => { if (e.target.classList.contains('emoji')) $('chatInput').value += e.target.textContent; });
-
-$('fullscreenBtn').addEventListener('click', () => document.body.classList.toggle('fullscreen-mode'));
-
-$('toggleChatBtn').addEventListener('click', () => {
+$('fullscreenBtn').onclick = () => document.body.classList.toggle('fullscreen-mode');
+$('toggleChatBtn').onclick = () => {
     const section = document.querySelector('.chat-section');
     const isHidden = section.style.display === 'none';
     section.style.display = isHidden ? 'flex' : 'none';
     $('toggleChatBtn').textContent = isHidden ? 'Hide Chat' : 'Show Chat';
-});
-
-$('unmuteBtn').addEventListener('click', () => {
+};
+$('unmuteBtn').onclick = () => {
     const v = $('viewerVideo');
     v.muted = !v.muted;
     $('unmuteBtn').textContent = v.muted ? '🔇 Unmute' : '🔊 Mute';
-});
+};
