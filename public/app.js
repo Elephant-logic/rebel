@@ -82,6 +82,7 @@ let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
+let wasHost = false; // Used to detect promotion
 let latestUserList = [];
 let currentOwnerId = null;
 
@@ -910,8 +911,34 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     renderUserList();
 });
 
-socket.on('role', ({ isHost }) => {
+// *** UPDATED: ROLE HANDLER WITH AUTO-TAKEOVER ***
+socket.on('role', async ({ isHost }) => {
+    // Check if I was just promoted (I wasn't host, now I am)
+    if (!wasHost && isHost) {
+        console.log("👑 I have been promoted to Host!");
+        
+        // 1. Notify the user
+        const notification = document.createElement('div');
+        notification.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#4af3a3; color:#000; padding:15px 30px; border-radius:30px; font-weight:bold; z-index:9999; box-shadow:0 0 20px rgba(74,243,163,0.5);";
+        notification.innerHTML = "👑 HOST LEFT — YOU ARE NOW LIVE!";
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 5000);
+
+        // 2. Auto-Start Camera (if not already on)
+        if (!localStream) {
+            try { await startLocalMedia(); } catch(e) { console.error("Auto-start cam failed", e); }
+        }
+
+        // 3. AUTO-CONNECT TO VIEWERS (The "Jump" Logic)
+        if (!isStreaming) {
+             iAmHost = true; 
+             $('startStreamBtn').click(); 
+        }
+    }
+
     iAmHost = isHost;
+    wasHost = isHost;
+    
     if ($('localContainer')) {
         $('localContainer').querySelector('h2').textContent = isHost ? 'You (Host)' : 'You';
     }
@@ -1193,7 +1220,6 @@ function renderUserList() {
             actionsDiv.appendChild(actionBtn);
 
             // 2. *** PATCH: MUTE GUEST BUTTON ***
-            // Finds the video element associated with this user ID
             const vidContainer = document.getElementById(`vid-${u.id}`);
             const vidTag = vidContainer ? vidContainer.querySelector('video') : null;
             
@@ -1217,7 +1243,7 @@ function renderUserList() {
                 selBtn.title = "Select for Overlay/Split";
                 selBtn.onclick = () => {
                     activeGuestId = u.id;
-                    renderUserList(); // Redraw to show "Selected" status
+                    renderUserList(); 
                     window.setActiveGuest(u.id);
                 };
                 actionsDiv.appendChild(selBtn);
@@ -1238,6 +1264,19 @@ function renderUserList() {
             kickBtn.textContent = 'Kick';
             kickBtn.onclick = () => window.kickUser(u.id);
             actionsDiv.appendChild(kickBtn);
+
+            // 4. *** NEW: MAKE HOST BUTTON ***
+            const promoteBtn = document.createElement('button');
+            promoteBtn.className = 'action-btn';
+            promoteBtn.style.cssText = 'border-color:var(--accent); color:var(--accent);';
+            promoteBtn.textContent = '👑 Make Host';
+            promoteBtn.title = "Pass control to this user";
+            promoteBtn.onclick = () => {
+                if(confirm(`Pass Host powers to ${u.name}? You will lose control.`)) {
+                    window.makeHost(u.id);
+                }
+            };
+            actionsDiv.appendChild(promoteBtn);
         }
 
         div.appendChild(nameSpan);
@@ -1275,6 +1314,7 @@ function removeRemoteVideo(id) {
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
+window.makeHost = (id) => socket.emit('promote-host', id);
 
 if ($('openStreamBtn')) {
     $('openStreamBtn').addEventListener('click', () => { 
