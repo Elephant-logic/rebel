@@ -1,19 +1,18 @@
 // ======================================================
 // 1. ARCADE ENGINE (P2P Binary Transfer Protocol)
 // ======================================================
-// This handles splitting games/tools into chunks 
-// and sending them securely over WebRTC to all viewers.
-// This version is memory-safe: it slices the file on the fly.
+// Chunks files into 16KB packets to bypass browser memory limits.
+// This version is memory-safe: it slices the file on the fly to handle GBs without crashing.
 
-const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
-const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit to prevent crashes
+const CHUNK_SIZE = 16 * 1024; // 16KB (Safe WebRTC limit)
+const MAX_BUFFER = 256 * 1024; // 256KB Max Buffer before pausing
 
 async function pushFileToPeer(pc, file, onProgress) {
     if (!pc) return;
-
+    
     // Create a specific data channel for the arcade
     const channel = pc.createDataChannel("side-load-pipe");
-
+    
     channel.onopen = async () => {
         console.log(`[Arcade] Starting transfer of: ${file.name}`);
 
@@ -27,7 +26,6 @@ async function pushFileToPeer(pc, file, onProgress) {
         channel.send(metadata);
 
         // 2. Memory-Safe Send Loop (Slice on demand)
-        // This prevents loading massive files (GBs) into RAM at once.
         let offset = 0;
 
         const sendLoop = async () => {
@@ -41,6 +39,7 @@ async function pushFileToPeer(pc, file, onProgress) {
             if (channel.readyState !== 'open') return;
 
             // Slice ONLY the chunk we need right now from the original File object
+            // This prevents loading the whole file into RAM
             const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
             const chunkBuffer = await chunkBlob.arrayBuffer();
             
@@ -208,7 +207,7 @@ function drawMixer() {
 canvasStream = canvas.captureStream(30); 
 drawMixer();
 
-// Global Mixer Exposed to Buttons
+// Global Mixer Functions
 window.setMixerLayout = (mode) => {
     mixerLayout = mode;
     document.querySelectorAll('.mixer-btn').forEach(b => {
@@ -287,7 +286,7 @@ if(videoQuality) videoQuality.onchange = startLocalMedia;
 
 
 // ======================================================
-// 6. LOCAL MEDIA & METERING
+// 6. LOCAL MEDIA (CAMERA, MIC & MIXER ENGINE)
 // ======================================================
 
 async function startLocalMedia() {
@@ -308,7 +307,7 @@ async function startLocalMedia() {
         const mainStream = await navigator.mediaDevices.getUserMedia(constraints);
         let finalAudioTrack = mainStream.getAudioTracks()[0];
 
-        // Mixer Logic: Mix Mic + Loopback/Secondary Source
+        // Mixer Logic: Mix Mic + Secondary Source
         if (audioSource2 && audioSource2.value) {
             const secStream = await navigator.mediaDevices.getUserMedia({ audio: { exact: audioSource2.value } });
             if(!audioContext) audioContext = new AudioContext();
@@ -321,7 +320,7 @@ async function startLocalMedia() {
         localStream = new MediaStream([mainStream.getVideoTracks()[0], finalAudioTrack]);
         $('localVideo').srcObject = localStream;
 
-        // Hot-swap outgoing tracks for all active viewers
+        // Hot-swap tracks for active viewers and callers
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
         Object.values(viewerPeers).forEach(pc => {
             pc.getSenders().forEach(s => {
@@ -329,7 +328,6 @@ async function startLocalMedia() {
                 if(s.track.kind === 'audio') s.replaceTrack(finalAudioTrack);
             });
         });
-        // Callers see raw cam, but mixed audio
         Object.values(callPeers).forEach(p => {
             p.pc.getSenders().forEach(s => {
                 if(s.track.kind === 'video') s.replaceTrack(mainStream.getVideoTracks()[0]);
@@ -361,7 +359,7 @@ $('toggleCamBtn').onclick = () => { if (localStream) { localStream.getVideoTrack
 
 
 // ======================================================
-// 7. SCREEN SHARING
+// 7. SCREEN SHARING LOGIC
 // ======================================================
 
 $('shareScreenBtn').onclick = async () => {
@@ -462,7 +460,7 @@ socket.on('call-end', ({ from }) => endPeerCall(from, true));
 
 
 // ======================================================
-// 10. BROADCAST VIEWER SIGNALLING
+// 10. VIEWER SIGNALLING
 // ======================================================
 
 async function connectViewer(targetId) {
@@ -491,7 +489,7 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
 
 
 // ======================================================
-// 11. ROOM & ROLE (Auto-Takeover Correction)
+// 11. ROOM & ROLE (Auto-Takeover Corrected)
 // ======================================================
 
 socket.on('connect', () => { 
@@ -515,7 +513,7 @@ function updateLink(roomSlug) {
 }
 
 socket.on('role', async ({ isHost }) => {
-    // FIX: Only trigger Takeover if already connected to room (myId set)
+    // FIX: Only trigger Auto-Takeover if already a connected member (myId set)
     if (!wasHost && isHost && myId !== null) {
         const notify = document.createElement('div');
         notify.style.cssText = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:var(--accent); color:#000; padding:10px 20px; border-radius:20px; font-weight:bold; z-index:9999;";
@@ -652,16 +650,25 @@ function addRemoteVideo(id, stream) {
 function removeRemoteVideo(id) { const el = document.getElementById(`vid-${id}`); if(el) el.remove(); }
 
 // Arcade Input Logic
-$('arcadeInput').onchange = () => {
-    const file = $('arcadeInput').files[0]; if(!file) return;
-    activeToolboxFile = file; $('arcadeStatus').textContent = "Loaded: " + file.name;
-    Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file));
-};
+if ($('arcadeInput')) {
+    $('arcadeInput').onchange = () => {
+        const file = $('arcadeInput').files[0]; if(!file) return;
+        activeToolboxFile = file; $('arcadeStatus').textContent = "Loaded: " + file.name;
+        Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file));
+    };
+}
 
-// Global Exports
+// Global Functions & Signaling Handlers
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.kickUser = (id) => socket.emit('kick-user', id);
 window.makeHost = (id) => socket.emit('promote-host', id);
 window.openStream = () => window.open($('streamLinkInput').value, '_blank');
 
 socket.on('disconnect', () => { $('signalStatus').className = 'status-dot status-disconnected'; $('signalStatus').textContent = 'Disconnected'; });
+socket.on('role', async ({ isHost }) => {
+    // Redundant but safe role sync
+    iAmHost = isHost;
+    if ($('localContainer')) $('localContainer').querySelector('h2').textContent = isHost ? 'You (Host)' : 'You';
+    $('hostControls').style.display = isHost ? 'block' : 'none';
+    renderUserList();
+});
