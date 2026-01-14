@@ -16,7 +16,8 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files from the root directory
+app.use(express.static(__dirname));
 
 // ----------------------------------------------------
 // In-memory room state
@@ -59,7 +60,6 @@ io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
 
-  // --- JOIN ROOM ---
   socket.on('join-room', ({ room, name }) => {
     if (!room || typeof room !== 'string') {
       socket.emit('room-error', 'Invalid room');
@@ -72,7 +72,6 @@ io.on('connection', (socket) => {
 
     const info = getRoomInfo(roomName);
 
-    // SECURITY: If locked and user is not the owner, reject
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       socket.emit('room-error', 'Room is locked by host');
       socket.disconnect();
@@ -83,14 +82,12 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
-    // If room has no owner, this user becomes Host
     if (!info.ownerId) {
       info.ownerId = socket.id;
     }
 
     info.users.set(socket.id, { name: displayName });
 
-    // Tell the user their role
     socket.emit('role', { 
       isHost: info.ownerId === socket.id,
       streamTitle: info.streamTitle
@@ -100,36 +97,27 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --- MANUAL AUTHORITY HANDOVER ---
+  // Authority Handover Listener
   socket.on('promote-to-host', ({ targetId }) => {
     const roomName = socket.data.room;
     if (!roomName) return;
     const info = rooms[roomName];
-
-    // Only the current owner can promote someone else
     if (info && info.ownerId === socket.id) {
         info.ownerId = targetId;
-        
-        // Notify the old host
         socket.emit('role', { isHost: false });
-        
-        // Notify the new host
         const nextSocket = io.sockets.sockets.get(targetId);
         if (nextSocket) {
             nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
         }
-        
         broadcastRoomUpdate(roomName);
     }
   });
 
-  // --- HOST CONTROLS ---
   socket.on('lock-room', (locked) => {
     const roomName = socket.data.room;
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info || info.ownerId !== socket.id) return;
-
     info.locked = !!locked;
     broadcastRoomUpdate(roomName);
   });
@@ -139,7 +127,6 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info || info.ownerId !== socket.id) return;
-
     info.streamTitle = (title || 'Untitled Stream').slice(0, 100);
     broadcastRoomUpdate(roomName);
   });
@@ -156,12 +143,10 @@ io.on('connection', (socket) => {
       targetSocket.leave(roomName);
       targetSocket.disconnect();
     }
-    
     info.users.delete(targetId);
     broadcastRoomUpdate(roomName);
   });
 
-  // --- SIGNALLING RELAYS ---
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
@@ -174,7 +159,6 @@ io.on('connection', (socket) => {
     if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
-  // --- CALLING SIGNALS (P2P) ---
   socket.on('ring-user', (targetId) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
@@ -195,12 +179,10 @@ io.on('connection', (socket) => {
     if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
   });
 
-  // --- CHAT & FILES ---
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
     const info = rooms[roomName];
-    
     io.to(roomName).emit('public-chat', {
       name: (name || socket.data.name || 'Anon').slice(0,30),
       text: String(text).slice(0, 500),
@@ -213,7 +195,6 @@ io.on('connection', (socket) => {
   socket.on('private-chat', ({ room, name, text }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
-    
     io.to(roomName).emit('private-chat', {
       name: (name || socket.data.name || 'Anon').slice(0,30),
       text: String(text).slice(0, 500),
@@ -224,7 +205,6 @@ io.on('connection', (socket) => {
   socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !fileName || !fileData) return;
-    
     io.to(roomName).emit('file-share', {
       name: (name || socket.data.name).slice(0,30),
       fileName: String(fileName).slice(0, 100),
@@ -233,20 +213,15 @@ io.on('connection', (socket) => {
     });
   });
 
-  // --- DISCONNECT ---
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
-
     const info = rooms[roomName];
     if (!info) return;
-
     info.users.delete(socket.id);
 
-    // Host Migration Logic
     if (info.ownerId === socket.id) {
       info.ownerId = null;
-      info.locked = false;
       if (info.users.size > 0) {
           const nextId = info.users.keys().next().value;
           info.ownerId = nextId;
