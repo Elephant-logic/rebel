@@ -7,7 +7,7 @@
 // 4. WebRTC Signaling (Broadcasting & 1:1 Calling)
 // ======================================================
 
-console.log("Rebel Stream Monster App Loaded - ULTIMATE VERSION"); 
+console.log("Rebel Stream Monster App Loaded - PATCHED & COMPLETE"); 
 
 // --- CONFIGURATION ---
 const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe WebRTC limit)
@@ -70,10 +70,11 @@ const callPeers = {};   // Two-way (Room Guests)   -> RECEIVES CHAT FILES
  * @param {string} type - 'arcade' (Tools) or 'file' (Chat Download)
  * @param {function} onProgress - Optional callback for UI bars
  */
-async function pushFileToPeer(pc, file, type, onProgress) {
+async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
     if (!pc) return;
 
     // Create a new data channel for this specific transfer
+    // We use different labels to separate Arcade from Chat Files
     const label = type === 'arcade' ? 'side-load-pipe' : 'transfer-pipe';
     const channel = pc.createDataChannel(label);
 
@@ -82,7 +83,7 @@ async function pushFileToPeer(pc, file, type, onProgress) {
 
         // 1. Send Metadata
         const metadata = JSON.stringify({
-            dataType: type, // 'arcade' or 'file'
+            dataType: type, 
             name: file.name,
             size: file.size,
             mime: file.type
@@ -133,6 +134,7 @@ function setupDataReceiver(pc, peerId) {
         if (chan.label !== "transfer-pipe" && chan.label !== "side-load-pipe") return; 
 
         // *** CRITICAL FIX: Force ArrayBuffer ***
+        // Without this, browsers default to Blob, which has no .byteLength, causing transfer to fail
         chan.binaryType = 'arraybuffer';
 
         let chunks = [];
@@ -157,10 +159,12 @@ function setupDataReceiver(pc, peerId) {
                     
                     // --- ROUTING LOGIC ---
                     if (meta && meta.dataType === 'file') {
+                        // It's a Chat File -> Show Download Button
                         const senderName = (callPeers[peerId] && callPeers[peerId].name) ? callPeers[peerId].name : "Guest";
                         addFileToChat(senderName, meta.name, url);
                     } 
                     else if (meta && meta.dataType === 'arcade') {
+                        // It's an Arcade Tool -> Log it (View.html handles execution)
                         console.log("Arcade Tool Received via P2P:", meta.name);
                     }
                     
@@ -467,7 +471,7 @@ async function callPeer(targetId) {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[targetId] = { pc, name: "Peer" };
     
-    // *** LISTEN FOR FILES ***
+    // *** DATA CHANNEL LISTENER (FIX) ***
     setupDataReceiver(pc, targetId);
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId, candidate: e.candidate }); };
@@ -485,7 +489,7 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     const pc = new RTCPeerConnection(iceConfig);
     callPeers[from] = { pc, name };
     
-    // *** LISTEN FOR FILES ***
+    // *** DATA CHANNEL LISTENER (FIX) ***
     setupDataReceiver(pc, from);
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call-ice', { targetId: from, candidate: e.candidate }); };
@@ -532,6 +536,7 @@ async function connectViewer(targetId) {
     }
     
     if (activeToolboxFile) {
+        // *** BUG FIX: Explicitly send 'arcade' type, not null ***
         setTimeout(() => pushFileToPeer(pc, activeToolboxFile, 'arcade'), 1000);
     }
 
