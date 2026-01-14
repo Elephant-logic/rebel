@@ -8,10 +8,13 @@ const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
 
-// FIX: 1MB limit prevents crashes. PingTimeout kills laggy connections.
+// ================================================================
+// CONFIGURATION: 50MB LIMIT
+// ================================================================
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 1e6, 
+  // 5e7 = 50,000,000 bytes (50MB)
+  maxHttpBufferSize: 5e7, 
   pingTimeout: 10000,     
   pingInterval: 25000
 });
@@ -66,14 +69,12 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // FIX: Input Sanitization
     const roomName = room.trim().slice(0, 50); 
     const rawName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
     const displayName = rawName.slice(0, 30); 
 
     const info = getRoomInfo(roomName);
 
-    // SECURITY: If locked and user is not the owner, reject
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       socket.emit('room-error', 'Room is locked by host');
       socket.disconnect();
@@ -84,14 +85,12 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
-    // If room has no owner, this user becomes Host
     if (!info.ownerId) {
       info.ownerId = socket.id;
     }
 
     info.users.set(socket.id, { name: displayName });
 
-    // Tell the user their role
     socket.emit('role', { 
       isHost: info.ownerId === socket.id,
       streamTitle: info.streamTitle
@@ -221,7 +220,6 @@ io.on('connection', (socket) => {
 
     info.users.delete(socket.id);
 
-    // Host Migration Logic
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       info.locked = false;
