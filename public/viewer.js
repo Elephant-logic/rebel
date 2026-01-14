@@ -21,8 +21,13 @@ function setupReceiver(pc, onComplete, onProgress) {
             if (data instanceof ArrayBuffer) {
                 receivedChunks.push(data);
                 currentSize += data.byteLength;
-                if (onProgress && totalSize > 0) onProgress(Math.min(100, Math.round((currentSize / totalSize) * 100)));
                 
+                // Update UI with download progress
+                if(onProgress && totalSize > 0) {
+                     const pct = Math.round((currentSize / totalSize) * 100);
+                     onProgress(pct);
+                }
+
                 if (currentSize >= totalSize) {
                     const blob = new Blob(receivedChunks, { type: meta ? meta.mime : 'application/octet-stream' });
                     const safeName = meta ? meta.name.replace(/[^a-zA-Z0-9._-]/g, '_') : 'download.bin';
@@ -74,25 +79,25 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
     if (pc) pc.close();
     pc = new RTCPeerConnection(iceConfig);
     
-    // ARCADE HOOK (FIXED VISIBILITY)
+    // ARCADE HOOK
     setupReceiver(pc, 
         ({ blob, name }) => {
             const url = URL.createObjectURL(blob);
             
-            // Remove old button if exists
             const oldBtn = document.getElementById('arcadeBtn');
             if(oldBtn) oldBtn.remove();
 
-            // Create New Button
             const btn = document.createElement('a');
             btn.id = 'arcadeBtn';
             btn.href = url;
             btn.download = name;
-            btn.className = 'btn primary';
+            btn.className = 'btn-arcade';
+            // Styling directly to ensure it pops
             btn.style.cssText = `
-                display: block; text-align: center; 
-                padding: 12px 20px; box-shadow: 0 0 15px #4af3a3; 
-                text-decoration: none; color: #000; font-weight: 800; border: 2px solid #fff;
+                display: block; background: #4af3a3; color: #000;
+                padding: 15px 30px; font-weight: 800; border-radius: 8px;
+                text-decoration: none; box-shadow: 0 0 25px #4af3a3;
+                border: 3px solid #fff; text-align: center;
                 animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             `;
             btn.innerHTML = `<div>🕹️ LAUNCH TOOL</div><div style="font-size:0.7rem">${name}</div>`;
@@ -101,13 +106,13 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
             style.innerHTML = `@keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }`;
             document.head.appendChild(style);
 
-            // APPEND TO NEW CONTAINER
+            // Append to the explicit Overlay Layer
             const container = document.getElementById('toolboxContainer') || document.body;
             container.appendChild(btn);
             
-            $('viewerStatus').textContent = 'TOOL RECEIVED'; 
+            $('viewerStatus').textContent = 'GAME RECEIVED!'; 
         },
-        (percent) => { $('viewerStatus').textContent = `Loading Toolbox: ${percent}%`; }
+        (pct) => { $('viewerStatus').textContent = `Downloading: ${pct}%`; }
     );
 
     pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-ice-candidate', { targetId: from, candidate: e.candidate }); };
@@ -148,12 +153,14 @@ $('sendBtn').onclick = sendChat;
 $('chatInput').onkeydown = (e) => { if (e.key === 'Enter') sendChat(); };
 if ($('emojiStrip')) $('emojiStrip').onclick = (e) => { if (e.target.classList.contains('emoji')) $('chatInput').value += e.target.textContent; };
 
-$('fullscreenBtn').onclick = () => document.body.classList.toggle('fullscreen-mode');
+$('fullscreenBtn').onclick = () => {
+    const el = document.documentElement;
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+};
 $('toggleChatBtn').onclick = () => {
-    const section = document.querySelector('.chat-section');
-    const isHidden = section.style.display === 'none';
-    section.style.display = isHidden ? 'flex' : 'none';
-    $('toggleChatBtn').textContent = isHidden ? 'Hide Chat' : 'Show Chat';
+    const box = $('chatBox');
+    box.classList.toggle('hidden');
 };
 $('unmuteBtn').onclick = () => {
     const v = $('viewerVideo');
