@@ -59,18 +59,56 @@ function addGameToChat(url, name) {
     div.className = 'chat-line system-msg';
     
     // Create a nice looking card inside the chat
+    // UPDATED: Now creates a "PLAY NOW" button instead of a download link
     div.innerHTML = `
         <div style="background: rgba(74, 243, 163, 0.1); border: 1px solid #4af3a3; padding: 10px; border-radius: 8px; margin: 10px 0; text-align: center;">
             <div style="color: #4af3a3; font-weight: 900; font-size: 0.9rem; margin-bottom: 5px;">🚀 NEW TOOL RECEIVED</div>
             <div style="font-size: 0.8rem; margin-bottom: 8px; color: #fff;">${name}</div>
-            <a href="${url}" download="${name}" style="background: #4af3a3; color: #000; padding: 6px 12px; text-decoration: none; font-weight: bold; border-radius: 4px; display: inline-block; cursor: pointer;">
-                ▶️ LAUNCH NOW
-            </a>
+            <button class="arcade-launch-btn" style="background: #4af3a3; color: #000; border:none; padding: 8px 16px; font-weight: bold; border-radius: 4px; cursor: pointer; transition: 0.2s;">
+                ▶️ PLAY NOW
+            </button>
         </div>
     `;
     
+    // Attach Event Listener securely
+    const btn = div.querySelector('.arcade-launch-btn');
+    btn.onclick = () => openArcadePopup(url, name);
+    
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
+}
+
+// ==========================================
+// NEW: ARCADE POPUP ENGINE
+// ==========================================
+function openArcadePopup(url, name) {
+    // 1. Clean up existing modal if present
+    const existing = document.getElementById('arcadeModal');
+    if(existing) existing.remove();
+
+    // 2. Create Modal Structure
+    const modal = document.createElement('div');
+    modal.id = 'arcadeModal';
+    modal.className = 'arcade-modal'; // Uses new CSS in style.css
+    
+    modal.innerHTML = `
+        <div class="arcade-window">
+            <div class="arcade-header">
+                <span class="arcade-title">👾 ${name}</span>
+                <button id="closeArcadeBtn" class="arcade-close-btn">✕</button>
+            </div>
+            <div class="arcade-body">
+                <iframe src="${url}" allowfullscreen sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms"></iframe>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 3. Close Handler
+    document.getElementById('closeArcadeBtn').onclick = () => {
+        modal.remove();
+    };
 }
 
 // --- INIT ---
