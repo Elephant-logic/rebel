@@ -549,35 +549,67 @@ socket.on('public-chat', ({ name, text, ts }) => {
 // 11. ARCADE UI (Host Side)
 // ======================================================
 
-const arcadeFileInput = $('arcadeFile');
-const arcadeSendBtn = $('arcadeSendBtn');
-const arcadeLog = $('arcadeLog');
+const arcadeInput = $('arcadeInput');
+let activeToolboxFile = null;
 
-if (arcadeFileInput && arcadeSendBtn) {
-    arcadeFileInput.addEventListener('change', () => {
-        if (arcadeFileInput.files.length) {
-            arcadeSendBtn.disabled = false;
-            $('arcadeFileLabel').textContent = arcadeFileInput.files[0].name;
-        } else {
-            arcadeSendBtn.disabled = true;
-            $('arcadeFileLabel').textContent = 'No file selected';
+if (arcadeInput) {
+    arcadeInput.addEventListener('change', () => {
+        const file = arcadeInput.files[0];
+        if(!file) return;
+        
+        activeToolboxFile = file;
+        $('arcadeStatus').textContent = `Active Tool: ${file.name}`;
+        
+        // --- ADD FORCE RESEND BUTTON DYNAMICALLY ---
+        // This is crucial if a user joins later or the host wants to resend the same file.
+        const resendBtn = $('arcadeResendBtn');
+        if (resendBtn) {
+            resendBtn.disabled = false;
         }
     });
+}
 
+const arcadeSendBtn = $('arcadeSendBtn');
+if (arcadeSendBtn) {
     arcadeSendBtn.addEventListener('click', async () => {
-        const file = arcadeFileInput.files[0];
-        if (!file || !isStreaming || !pc) {
+        if (!activeToolboxFile) {
+            alert('Pick a tool file first.');
+            return;
+        }
+        if (!isStreaming || !pc) {
             alert('You must be streaming to send tools via Arcade.');
             return;
         }
 
-        logStatus(`Sending ${file.name} via Arcade...`);
-
-        await pushFileToPeer(pc, file, (percent) => {
-            arcadeLog.textContent = `Sending: ${percent}%`;
+        logStatus(`Sending ${activeToolboxFile.name} via Arcade...`);
+        
+        await pushFileToPeer(pc, activeToolboxFile, (percent) => {
+            $('arcadeStatus').textContent = `Sending: ${percent}%`;
         });
 
-        arcadeLog.textContent = `Sent: ${file.name}`;
+        $('arcadeStatus').textContent = `Sent: ${activeToolboxFile.name}`;
+    });
+}
+
+const arcadeResendBtn = $('arcadeResendBtn');
+if (arcadeResendBtn) {
+    arcadeResendBtn.addEventListener('click', async () => {
+        if (!activeToolboxFile) {
+            alert('No active tool to resend.');
+            return;
+        }
+        if (!isStreaming || !pc) {
+            alert('You must be streaming to resend via Arcade.');
+            return;
+        }
+
+        logStatus(`Re-sending ${activeToolboxFile.name} via Arcade...`);
+        
+        await pushFileToPeer(pc, activeToolboxFile, (percent) => {
+            $('arcadeStatus').textContent = `Re-sending: ${percent}%`;
+        });
+
+        $('arcadeStatus').textContent = `Re-sent: ${activeToolboxFile.name}`;
     });
 }
 
@@ -607,7 +639,7 @@ if ($('emojiStrip')) {
 
 const fileInput = $('fileInput');
 fileInput.addEventListener('change', () => { 
-    if(fileInput.files.length) { 
+    if (fileInput.files.length) { 
         $('fileNameLabel').textContent = fileInput.files[0].name; 
         $('sendFileBtn').disabled = false; 
     } 
@@ -616,14 +648,15 @@ fileInput.addEventListener('change', () => {
 $('sendFileBtn').addEventListener('click', () => {
     const file = fileInput.files[0];
 
-    // FIX: CRASH PREVENTION (Limit Size - raised for more useful sharing)
-    const MAX_CHAT_FILE = 20 * 1024 * 1024; // ~20MB
+    // Raised limit – allow larger files through Socket chat (~20MB)
+    const MAX_CHAT_FILE = 20 * 1024 * 1024;
     if (file && file.size > MAX_CHAT_FILE) {
-        alert("File too large for chat share (limit ~20MB). Use 'Arcade' for larger P2P transfers.");
+        alert("File too large for chat share (limit ~20MB). Use 'Arcade' for massive P2P transfers.");
         return;
     }
 
-    if(!file || !currentRoom) return;
+    if (!file || !currentRoom) return;
+
     const reader = new FileReader();
     reader.onload = () => {
         socket.emit('file-share', { 
@@ -632,12 +665,105 @@ $('sendFileBtn').addEventListener('click', () => {
             fileName: file.name, 
             fileData: reader.result 
         });
+        
+        fileInput.value = ''; 
+        $('fileNameLabel').textContent = 'No file selected'; 
+        $('sendFileBtn').disabled = true;
     };
     reader.readAsDataURL(file);
 });
 
+// FIX: SECURE RENDERING (No InnerHTML)
+socket.on('file-share', d => {
+    const div = document.createElement('div'); 
+    div.className = 'file-item';
+    
+    const info = document.createElement('div');
+    const b = document.createElement('strong'); 
+    b.textContent = d.name;
+    info.appendChild(b);
+    info.appendChild(document.createTextNode(` shared: ${d.fileName}`));
+    
+    const link = document.createElement('a');
+    link.href = d.fileData;
+    link.download = d.fileName;
+    link.className = 'btn small primary';
+    link.textContent = 'Download';
+    
+    div.appendChild(info);
+    div.appendChild(link);
+    
+    $('fileLog').appendChild(div);
+    if (!tabs.files.classList.contains('active')) tabs.files.classList.add('has-new');
+});
+
+
 // ======================================================
-// 15. TOOLBOX OVERLAY
+// 15. ARCADE INPUT LOGIC
+// ======================================================
+
+const arcadeInput2 = $('arcadeInput2');
+if (arcadeInput2) {
+    arcadeInput2.addEventListener('change', () => {
+        const file = arcadeInput2.files[0];
+        if(!file) return;
+        
+        activeToolboxFile = file;
+        $('arcadeStatus2').textContent = `Active Tool: ${file.name}`;
+        
+        const resendBtn = $('arcadeResendBtn2');
+        if (resendBtn) {
+            resendBtn.disabled = false;
+        }
+    });
+}
+
+const arcadeSendBtn2 = $('arcadeSendBtn2');
+if (arcadeSendBtn2) {
+    arcadeSendBtn2.addEventListener('click', async () => {
+        if (!activeToolboxFile) {
+            alert('Pick a tool file first.');
+            return;
+        }
+        if (!isStreaming || !pc) {
+            alert('You must be streaming to send tools via Arcade.');
+            return;
+        }
+
+        logStatus(`Sending ${activeToolboxFile.name} via Arcade (Slot 2)...`);
+        
+        await pushFileToPeer(pc, activeToolboxFile, (percent) => {
+            $('arcadeStatus2').textContent = `Sending: ${percent}%`;
+        });
+
+        $('arcadeStatus2').textContent = `Sent: ${activeToolboxFile.name}`;
+    });
+}
+
+const arcadeResendBtn2 = $('arcadeResendBtn2');
+if (arcadeResendBtn2) {
+    arcadeResendBtn2.addEventListener('click', async () => {
+        if (!activeToolboxFile) {
+            alert('No active tool to resend.');
+            return;
+        }
+        if (!isStreaming || !pc) {
+            alert('You must be streaming to resend via Arcade.');
+            return;
+        }
+
+        logStatus(`Re-sending ${activeToolboxFile.name} via Arcade (Slot 2)...`);
+        
+        await pushFileToPeer(pc, activeToolboxFile, (percent) => {
+            $('arcadeStatus2').textContent = `Re-sending: ${percent}%`;
+        });
+
+        $('arcadeStatus2').textContent = `Re-sent: ${activeToolboxFile.name}`;
+    });
+}
+
+// ======================================================
+// 16. TOOLBOX OVERLAY
 // ======================================================
 
 const toolboxBtn = $('toolboxBtn');
@@ -656,7 +782,7 @@ if (closeToolbox) {
 }
 
 // ======================================================
-// 16. INITIALIZE
+// 17. INITIALIZE
 // ======================================================
 
 window.addEventListener('DOMContentLoaded', () => {
