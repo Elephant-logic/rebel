@@ -1,16 +1,16 @@
 // =============================================================
-// ICE CONFIGURATION (STUN + TURN)
+// ICE CONFIGURATION (STUN + TURN + TURNS)
 // =============================================================
-// STUN: Tells you your public IP (Works for WiFi).
-// TURN: Relays traffic when direct connection is blocked (Vital for 4G/5G).
+// 1. STUN: Finds your IP.
+// 2. TURN: Relays video over UDP/TCP (Standard).
+// 3. TURNS: Relays video over TLS 443 (The "Mobile Fix").
 
 const ICE_SERVERS = [
-  // 1. Cheap/Fast STUN (Google) - First attempt
+  // Fast Google STUN (First check)
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-
-  // 2. TURN Servers (The fix for Mobile/4G/5G)
-  // using OpenRelay Project (Free Tier)
+  
+  // --- OPENRELAY (Free Tier) ---
+  // Standard TURN (UDP/TCP)
   {
     urls: 'turn:openrelay.metered.ca:80',
     username: 'openrelayproject',
@@ -25,10 +25,14 @@ const ICE_SERVERS = [
     urls: 'turn:openrelay.metered.ca:443?transport=tcp',
     username: 'openrelayproject',
     credential: 'openrelayproject'
+  },
+
+  // *** THE MOBILE FIX (From your screenshot) ***
+  // TURNS = Secure TURN over TLS.
+  // This looks like HTTPS traffic to mobile carriers.
+  {
+    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
   }
 ];
-
-// NOTE: If the stream is laggy or fails on mobile, the free OpenRelay
-// might be overloaded. You can get your own private free credentials 
-// at https://www.metered.ca/tools/openrelay/ and replace the 
-// 'username' and 'credential' fields above.
