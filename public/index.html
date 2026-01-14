@@ -115,9 +115,16 @@
           <button id="closeSettingsBtn" class="btn small full-width">Close</button>
         </div>
 
+        <div class="mixer-controls">
+           <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
+           <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (PiP)</button>
+           <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split</button>
+        </div>
+
         <div id="videoGrid" class="video-grid">
            <div class="video-container" id="localContainer">
-             <h2>You</h2>
+             <h2>You (Main)</h2>
              <video id="localVideo" autoplay playsinline muted></video>
            </div>
         </div>
