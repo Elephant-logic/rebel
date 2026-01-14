@@ -10,6 +10,10 @@ const MAX_BUFFER = 256 * 1024; // 256KB Buffer limit to prevent crashes
 /**
  * UNIVERSAL DATA SENDER (PATCHED)
  * Handles both 'arcade' (tools) and 'file' (chat sharing) types.
+ * @param {RTCPeerConnection} pc - Target connection
+ * @param {File} file - File object
+ * @param {string} type - 'arcade' or 'file'
+ * @param {function} onProgress - Callback for UI
  */
 async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
     if (!pc) return;
@@ -80,6 +84,7 @@ async function pushFileToPeer(pc, file, type = 'arcade', onProgress) {
 /**
  * UNIVERSAL DATA RECEIVER (NEW FUNCTION)
  * Listens for incoming files on a connection.
+ * Necessary for receiving files in chat or tools in arcade.
  */
 function setupDataReceiver(pc, peerId) {
     pc.ondatachannel = (e) => {
