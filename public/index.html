@@ -54,6 +54,23 @@
           </div>
 
           <div class="field" style="margin-top:15px; border-top:1px solid var(--border); padding-top:10px;">
+            <label style="color:var(--accent);">🎨 HTML Layout Side-Loader</label>
+            <p style="font-size:0.7rem; color:var(--muted); margin-bottom:5px;">
+              Upload HTML to overlay graphics across all screens.
+            </p>
+            <div style="display:flex; gap:5px;">
+              <label class="btn primary small" style="cursor: pointer; flex:1; text-align: center;">
+                <input id="htmlOverlayInput" type="file" accept=".html" hidden /> 
+                <span>📂 Load Layout</span>
+              </label>
+              <button onclick="clearOverlay()" class="btn danger small">Reset</button>
+            </div>
+            <div id="overlayStatus" style="font-size:0.75rem; color:var(--muted); margin-top:5px; text-align:center;">
+              [No Overlay]
+            </div>
+          </div>
+
+          <div class="field" style="margin-top:15px; border-top:1px solid var(--border); padding-top:10px;">
             <label style="color:var(--danger);">⛔ VIP / Private Room</label>
             <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
                 <span style="font-size:0.75rem; color:var(--muted);">Private Mode:</span>
@@ -119,7 +136,8 @@
         <div class="mixer-controls">
            <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
            <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
-           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (Inverted)</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ PiP (Guest Sm)</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP_INVERTED')">🔄 Inverted PiP (You Sm)</button>
            <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split (Dynamic)</button>
         </div>
 
