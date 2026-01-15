@@ -36,6 +36,11 @@
         <button id="joinBtn" class="btn primary full-width">Join Room</button>
         <button id="leaveBtn" class="btn full-width" disabled style="margin-top:8px">Leave</button>
 
+        <div id="qrContainer" style="background:#fff; padding:12px; border-radius:12px; margin-top:15px; display:none; text-align:center; box-shadow: 0 4px 15px rgba(0,0,0,0.4);">
+            <div id="qrcode" style="display:flex; justify-content:center; margin-bottom:8px;"></div>
+            <p style="color:#050814; font-size:0.75rem; margin:0; font-weight:bold; font-family:monospace;">SCAN TO JOIN</p>
+        </div>
+
         <div id="hostControls" class="host-controls">
           <h3 style="color:var(--accent); font-size:0.9rem; margin:0 0 10px;">👑 Host Controls</h3>
           
@@ -65,7 +70,7 @@
                     <button id="addGuestBtn" class="btn small primary">+</button>
                 </div>
                 <div id="guestListDisplay" style="margin-top:5px; max-height:80px; overflow-y:auto; display:flex; flex-wrap:wrap; gap:4px;">
-                </div>
+                    </div>
             </div>
           </div>
 
@@ -113,7 +118,7 @@
             </select>
             <p style="font-size:0.7rem; color:var(--muted);">Combine mic with Loopback/Music.</p>
           </div>
-          <button id="closeSettingsBtn" class="btn small full-width">Close Settings</button>
+          <button id="closeSettingsBtn" class="btn small full-width">Close</button>
         </div>
 
         <div class="mixer-controls">
@@ -141,24 +146,17 @@
           <button id="hangupBtn" class="btn danger" disabled>End Call</button>
         </div>
 
-        <div class="file-row" style="margin:10px 0; padding:10px; background: var(--panel-soft); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border);">
-           <div style="display:flex; align-items:center; gap:10px; width:100%;">
-               <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
-               <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
-               <button id="openStreamBtn" class="btn small">Open</button>
-           </div>
-           
-           <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px;">
-               <div style="font-size: 0.75rem; color: var(--accent); font-weight: bold;">Scan to Share Secure Stream:</div>
-               <div id="qrcode" style="padding:8px; background:#fff; border-radius:4px; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>
-           </div>
+        <div class="file-row" style="margin:10px 0; padding:0 4px;">
+           <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
+           <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
+           <button id="openStreamBtn" class="btn small">Open</button>
         </div>
 
         <div class="chat-panel">
           <div class="tabs-header">
             <button id="tabStreamChat" class="tab-btn active">Stream</button>
             <button id="tabRoomChat" class="tab-btn">Room</button>
-            <button id="tabFiles" class="tab-btn">Files</button>
+            <button id="tabGraphics" class="tab-btn">Graphics</button> <button id="tabFiles" class="tab-btn">Files</button>
             <button id="tabUsers" class="tab-btn">Users</button>
           </div>
 
@@ -184,13 +182,28 @@
             </div>
           </div>
 
+          <div id="contentGraphics" class="tab-content">
+              <h3>Live Graphics Overlay</h3>
+              <div class="field">
+                  <label>Lower Third Text</label>
+                  <input id="overlayText" type="text" placeholder="e.g. NOW LIVE: BREAKING" />
+              </div>
+              <div style="display:flex; gap:10px;">
+                  <button onclick="setOverlay(true)" class="btn primary small" style="flex:1">Show Overlay</button>
+                  <button onclick="setOverlay(false)" class="btn secondary small" style="flex:1">Hide Overlay</button>
+              </div>
+              <p style="font-size:0.7rem; color:var(--muted); margin-top:15px;">
+                  This text paints directly onto the broadcast stream for all viewers.
+              </p>
+          </div>
+
           <div id="contentFiles" class="tab-content">
              <div class="file-upload-area">
-                <label class="btn secondary" style="flex:1;">
+                <label class="btn secondary">
                   <input id="fileInput" type="file" hidden /> 📎 Choose File
                 </label>
-                <span id="fileNameLabel" style="font-size:0.8rem; margin:0 8px; color:var(--muted); flex:2; overflow:hidden; text-overflow:ellipsis;">No file selected</span>
-                <button id="sendFileBtn" class="btn primary" disabled>Send</button>
+                <span id="fileNameLabel" style="font-size:0.8rem; margin:0 8px; color:var(--muted);">No file selected</span>
+                <button id="sendFileBtn" class="btn primary full-width" disabled>Send</button>
              </div>
              <div class="files-list">
                 <div id="fileLog" class="file-log"></div>
@@ -198,16 +211,15 @@
           </div>
 
           <div id="contentUsers" class="tab-content">
-             <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;">Active Users</h3>
+             <h3>Active Users</h3>
              <div id="userList"></div>
           </div>
         </div>
       </section>
     </main>
   </div>
-  
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="ice.js"></script>
+  <script src="config/ice.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
