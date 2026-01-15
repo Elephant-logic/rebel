@@ -975,8 +975,19 @@ function addRemoteVideo(id, stream) {
     d.querySelector('video').srcObject = stream;
 }
 
-function removeRemoteVideo(id) { const el = document.getElementById(`vid-${id}`); if(el) el.remove(); }
+function removeRemoteVideo(id) { 
+    const el = document.getElementById(`vid-${id}`); 
+    if(el) el.remove(); 
+}
+
+// Make functions available globally for HTML onclick events
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
-$('openStreamBtn').onclick = () => { const url = $('streamLinkInput').value; if(url) window.open(url, '_blank'); };
+
+if ($('openStreamBtn')) {
+    $('openStreamBtn').addEventListener('click', () => { 
+        const url = $('streamLinkInput').value;
+        if(url) window.open(url, '_blank');
+    });
+}
