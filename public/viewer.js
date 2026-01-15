@@ -50,26 +50,56 @@ if(room) {
     socket.emit('join-room', {room, name:myName}); 
 }
 
+// PATCH: Viewer will only receive stream if Host has clicked "Start Stream"
 socket.on('webrtc-offer', async ({sdp, from}) => {
-    // FIX: Kill old connection if host migrated so the new stream takes over instantly
+    // Kill old connection to ensure clean stream handover if host changes
     if(pc) pc.close();
+    
     pc = new RTCPeerConnection(iceConfig);
     setupReceiver(pc);
-    pc.ontrack = e => { if($('viewerVideo').srcObject !== e.streams[0]) $('viewerVideo').srcObject = e.streams[0]; };
-    pc.onicecandidate = e => { if(e.candidate) socket.emit('webrtc-ice-candidate', {targetId:from, candidate:e.candidate}); };
+    
+    pc.ontrack = e => { 
+        if($('viewerVideo').srcObject !== e.streams[0]) {
+            $('viewerVideo').srcObject = e.streams[0];
+            if($('viewerStatus')) $('viewerStatus').textContent = "LIVE";
+        }
+    };
+    
+    pc.onicecandidate = e => { 
+        if(e.candidate) socket.emit('webrtc-ice-candidate', {targetId:from, candidate:e.candidate}); 
+    };
+    
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     const ans = await pc.createAnswer();
     await pc.setLocalDescription(ans);
     socket.emit('webrtc-answer', {targetId:from, sdp:ans});
 });
 
-socket.on('webrtc-ice-candidate', async ({candidate}) => { if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); });
+socket.on('webrtc-ice-candidate', async ({candidate}) => { 
+    if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
+});
+
 socket.on('public-chat', d => { 
     const div = document.createElement('div'); 
     div.className = 'chat-line';
-    div.innerHTML = `<strong>${d.name}</strong>: <span>${d.text}</span>`; 
+    // Anti-XSS Secure Rendering
+    const name = document.createElement('strong'); name.textContent = d.name;
+    const msg = document.createElement('span'); msg.textContent = `: ${d.text}`;
+    div.appendChild(name);
+    div.appendChild(msg);
     $('chatLog').appendChild(div); 
     $('chatLog').scrollTop = $('chatLog').scrollHeight;
+});
+
+// PATCH: Handling kicks and room locking for viewers
+socket.on('kicked', () => {
+    alert("You have been removed from the room.");
+    window.location.href = "index.html";
+});
+
+socket.on('room-error', (err) => {
+    alert(err);
+    window.location.href = "index.html";
 });
 
 $('sendBtn').onclick = () => { 
@@ -77,3 +107,17 @@ $('sendBtn').onclick = () => {
     socket.emit('public-chat', {room:currentRoom, text:$('chatInput').value, name:myName, fromViewer:true}); 
     $('chatInput').value=''; 
 };
+
+// UI Helpers for Viewer Page
+if($('unmuteBtn')) {
+    $('unmuteBtn').onclick = () => {
+        $('viewerVideo').muted = !$('viewerVideo').muted;
+        $('unmuteBtn').textContent = $('viewerVideo').muted ? "🔇 Unmute" : "🔊 Muted";
+    };
+}
+
+if($('fullscreenBtn')) {
+    $('fullscreenBtn').onclick = () => {
+        if ($('viewerVideo').requestFullscreen) $('viewerVideo').requestFullscreen();
+    };
+}
