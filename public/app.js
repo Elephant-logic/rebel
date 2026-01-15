@@ -327,29 +327,49 @@ async function getDevices() {
         videoSource.innerHTML = '';
         if(audioSource2) audioSource2.innerHTML = '<option value="">-- None --</option>';
 
-        devices.forEach(device => {
-            const option = document.createElement('option');
-            option.value = device.deviceId;
-            option.text = device.label || `${device.kind}`;
+        devices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.text = d.label || `${d.kind} - ${d.deviceId.slice(0, 5)}`;
             
-            if (device.kind === 'audioinput') {
-                audioSource.appendChild(option);
-                if(audioSource2) audioSource2.appendChild(option.cloneNode(true));
-            } else if (device.kind === 'videoinput') {
-                videoSource.appendChild(option);
+            if (d.kind === 'audioinput') {
+                audioSource.appendChild(opt);
+                // Add to mixer
+                if(audioSource2) audioSource2.appendChild(opt.cloneNode(true));
+            }
+            if (d.kind === 'videoinput') {
+                videoSource.appendChild(opt);
             }
         });
-    } catch (err) {
-        console.error('Error fetching devices:', err);
+
+        // Try to select the currently active device
+        if (localStream) {
+            const at = localStream.getAudioTracks()[0];
+            const vt = localStream.getVideoTracks()[0];
+            if (at) audioSource.value = at.getSettings().deviceId;
+            if (vt) videoSource.value = vt.getSettings().deviceId;
+        }
+    } catch (e) { 
+        console.error(e); 
     }
 }
 
+// Update media when dropdown changes
+audioSource.onchange = startLocalMedia;
+if(audioSource2) audioSource2.onchange = startLocalMedia;
+videoSource.onchange = startLocalMedia;
+if(videoQuality) videoQuality.onchange = startLocalMedia;
+
+
 // ======================================================
-// 6. MEDIA HANDLING (Local + Screen Share + Audio Mix)
+// 6. MEDIA CONTROLS (CAMERA, MIC & MIXER ENGINE)
 // ======================================================
 
 async function startLocalMedia() {
-    if (localStream) return;
+    if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+    }
 
     const quality = videoQuality ? videoQuality.value : 'ideal';
     
@@ -368,10 +388,10 @@ async function startLocalMedia() {
         video: { 
             width: { ideal: width }, 
             height: { ideal: height },
-            deviceId: videoSource && videoSource.value ? { ideal: videoSource.value } : undefined
+            deviceId: videoSource && videoSource.value ? { exact: videoSource.value } : undefined
         },
         audio: {
-            deviceId: audioSource && audioSource.value ? { ideal: audioSource.value } : undefined
+            deviceId: audioSource && audioSource.value ? { exact: audioSource.value } : undefined
         }
     };
 
@@ -453,11 +473,6 @@ async function startScreenShare() {
             localVideo.srcObject = screenStream;
         }
 
-        // Replace the video track in canvas flow
-        canvasStream.getVideoTracks().forEach(track => track.stop());
-        const screenTrack = screenStream.getVideoTracks()[0];
-        // Re-capture stream from canvas using new underlying video? 
-        // For now, we just switch local video; the mixer still pulls from localVideo element.
         isScreenSharing = true;
         updateMediaButtons();
     } catch (err) {
@@ -608,7 +623,8 @@ function endPeerCall(targetId, silent = false) {
     if (el && el.parentNode) el.parentNode.removeChild(el);
 
     if (!silent) {
-        appendChat($('chatLogRoom'), 'System', `Call with ${targetId} ended.`, Date.now());
+        // You can hook a system message here if you like
+        // appendChat($('chatLogPrivate'), 'System', `Call with ${targetId} ended.`, Date.now());
     }
 }
 
@@ -650,94 +666,106 @@ function attachRemoteStream(peerId, stream) {
 }
 
 // ======================================================
-// 9. CHAT SYSTEM (Stream vs Room vs Files)
+// 9. CHAT SYSTEM (Public/Private/Emojis)
 // ======================================================
 
-// Chat Append Helper
-function appendChat(container, who, text, ts, highlight = false) {
-    if (!container) return;
-    const row = document.createElement('div');
-    row.className = 'chat-row';
-    if (highlight) row.classList.add('highlight');
-
-    const time = new Date(ts || Date.now());
-    const hh = String(time.getHours()).padStart(2, '0');
-    const mm = String(time.getMinutes()).padStart(2, '0');
-
-    row.innerHTML = `
-      <span class="chat-meta">[${hh}:${mm}] ${who}:</span>
-      <span class="chat-text">${text}</span>
-    `;
-    container.appendChild(row);
-    container.scrollTop = container.scrollHeight;
+function appendChat(log, name, text, ts) {
+    if (!log) return;
+    const d = document.createElement('div');
+    d.className = 'chat-line';
+    
+    const s = document.createElement('strong'); 
+    s.textContent = name;
+    const t = document.createElement('small'); 
+    t.textContent = new Date(ts || Date.now()).toLocaleTimeString();
+    const txt = document.createTextNode(`: ${text}`);
+    
+    d.appendChild(s); 
+    d.appendChild(document.createTextNode(' ')); 
+    d.appendChild(t); 
+    d.appendChild(txt);
+    log.appendChild(d); 
+    log.scrollTop = log.scrollHeight;
 }
 
-// --- STREAM CHAT SEND (Viewer-facing Chat) ---
-if ($('sendStreamChatBtn') && $('inputStreamChat')) {
-    $('sendStreamChatBtn').addEventListener('click', () => {
-        const txt = $('inputStreamChat').value.trim();
-        if (!txt || !currentRoom) return;
-        socket.emit('public-chat', { 
-            room: currentRoom, 
-            text: txt, 
-            name: userName, 
-            fromViewer: false 
-        });
-        $('inputStreamChat').value = '';
-    });
-    $('inputStreamChat').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            $('sendStreamChatBtn').click();
-        }
-    });
+// PUBLIC CHAT SEND
+function sendPublic() {
+    const inp = $('inputPublic');
+    if (!inp) return;
+    const text = inp.value.trim();
+    if(!text || !currentRoom) return;
+    socket.emit('public-chat', { room: currentRoom, name: userName, text });
+    inp.value = '';
 }
+if ($('btnSendPublic')) $('btnSendPublic').addEventListener('click', sendPublic);
+if ($('inputPublic')) $('inputPublic').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPublic(); });
 
-// --- ROOM CHAT SEND (Backstage / Guests / Host) ---
-if ($('sendRoomChatBtn') && $('inputRoomChat')) {
-    $('sendRoomChatBtn').addEventListener('click', () => {
-        const txt = $('inputRoomChat').value.trim();
-        if (!txt || !currentRoom) return;
-        socket.emit('private-chat', { 
-            room: currentRoom, 
-            text: txt, 
-            name: userName 
-        });
-        $('inputRoomChat').value = '';
-    });
-    $('inputRoomChat').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            $('sendRoomChatBtn').click();
-        }
-    });
+// PRIVATE CHAT SEND
+function sendPrivate() {
+    const inp = $('inputPrivate');
+    if (!inp) return;
+    const text = inp.value.trim();
+    if(!text || !currentRoom) return;
+    socket.emit('private-chat', { room: currentRoom, name: userName, text });
+    inp.value = '';
 }
+if ($('btnSendPrivate')) $('btnSendPrivate').addEventListener('click', sendPrivate);
+if ($('inputPrivate')) $('inputPrivate').addEventListener('keydown', (e) => { if(e.key === 'Enter') sendPrivate(); });
 
-// --- FILE SHARE (Classic, via Server up to 1MB) ---
+// RECEIVE PUBLIC CHAT
+socket.on('public-chat', ({ room, name, text, ts }) => {
+    appendChat($('chatLogPublic'), name, text, ts);
+});
+
+// RECEIVE PRIVATE CHAT
+socket.on('private-chat', ({ room, name, text, ts }) => {
+    appendChat($('chatLogPrivate'), name, text, ts);
+});
+
+// ======================================================
+// 10. FILE SHARE (classic via server up to 1MB)
+// ======================================================
+
 if ($('fileInput')) {
     $('fileInput').addEventListener('change', () => {
         const file = $('fileInput').files[0];
-        if (!file || !currentRoom) return;
-
-        if (file.size > 1 * 1024 * 1024) { // 1MB server-side limit
-            alert('File too large for classic share. Use Arcade for big tools/games.');
+        const label = $('fileNameLabel');
+        const sendBtn = $('sendFileBtn');
+        if (!file) {
+            if (label) label.textContent = 'No file selected';
+            if (sendBtn) sendBtn.disabled = true;
             return;
         }
+        if (label) label.textContent = file.name;
+        if (sendBtn) sendBtn.disabled = file.size > 1024 * 1024;
+
+        if (file.size > 1024 * 1024) {
+            alert('File too big for classic share (1MB max). Use Arcade for tools/games.');
+        }
+    });
+}
+
+if ($('sendFileBtn')) {
+    $('sendFileBtn').addEventListener('click', () => {
+        const fileInput = $('fileInput');
+        if (!fileInput || !fileInput.files[0] || !currentRoom) return;
+        const file = fileInput.files[0];
 
         const reader = new FileReader();
         reader.onload = () => {
-            const base64 = reader.result.split(',')[1];
+            const dataUrl = reader.result;
             socket.emit('file-share', {
                 room: currentRoom,
                 name: file.name,
-                mime: file.type,
                 size: file.size,
-                data: base64
+                mime: file.type,
+                dataUrl
             });
         };
         reader.readAsDataURL(file);
     });
 }
 
-// --- FILE SHARE RECEIVE ---
 socket.on('file-share', ({ from, name, size, mime, url }) => {
     const log = $('fileLog');
     if (!log) return;
@@ -758,25 +786,8 @@ socket.on('file-share', ({ from, name, size, mime, url }) => {
     }
 });
 
-// --- STREAM CHAT RECEIVE (Visible to Viewers + Host) ---
-socket.on('public-chat', ({ name, text, ts }) => {
-    appendChat($('chatLogStream'), name, text, ts);
-    if (!document.getElementById('contentStreamChat').classList.contains('active') && tabs.stream) {
-        tabs.stream.classList.add('has-new');
-    }
-});
-
-// --- ROOM CHAT RECEIVE (Host + Guests only) ---
-socket.on('private-chat', ({ name, text, ts }) => {
-    appendChat($('chatLogRoom'), name, text, ts);
-    if (!document.getElementById('contentRoomChat').classList.contains('active') && tabs.room) {
-        tabs.room.classList.add('has-new');
-    }
-});
-
-
 // ======================================================
-// 10. ARCADE (P2P TOOLBOX) - HOST SIDE UI
+// 11. ARCADE (P2P TOOLBOX) - HOST SIDE UI
 // ======================================================
 
 if ($('arcadeInput')) {
@@ -797,7 +808,7 @@ if ($('arcadeInput')) {
 
 
 // ======================================================
-// 11. SOCKET & ROOM LOGIC
+// 12. SOCKET & ROOM LOGIC
 // ======================================================
 
 socket.on('connect', () => { 
@@ -842,7 +853,7 @@ if ($('leaveBtn')) {
     });
 }
 
-// PATCH: Helper to generate QR Code
+// Helper to generate QR Code
 function generateQR(url) {
     const qrContainer = $('qrcode');
     if (qrContainer && typeof QRCode !== 'undefined') {
@@ -864,26 +875,21 @@ function updateLink(roomSlug) {
     const finalUrl = url.toString();
     if ($('streamLinkInput')) $('streamLinkInput').value = finalUrl;
     
-    // PATCH: Trigger QR update
     generateQR(finalUrl);
 }
 
 // New User Joined Logic
 socket.on('user-joined', ({ id, name }) => {
-    
-    // --- VIP BOUNCER CHECK ---
+    // VIP Bouncer check
     if (iAmHost && isPrivateMode) {
         const isAllowed = allowedGuests.some(g => g.toLowerCase() === name.toLowerCase());
         if (!isAllowed) {
             console.log(`[Bouncer] Kicking ${name}`);
             socket.emit('kick-user', id);
-            return; // Stop here, do not welcome
+            return;
         }
     }
-    // -------------------------
 
-    appendChat($('chatLogPrivate'), 'System', `${name} joined room`, Date.now());
-    
     // If I'm currently live, connect them to the stream
     if (iAmHost && isStreaming) {
         connectViewer(id);
@@ -898,7 +904,7 @@ socket.on('user-left', ({ id }) => {
     endPeerCall(id, true);
 });
 
-// Room Update (Handles Title, Locks, User List)
+// 🔧 ROOM UPDATE (title, lock, users, viewer count)
 socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     latestUserList = users;
     currentOwnerId = ownerId;
@@ -906,7 +912,6 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     // Sync Title from Server
     if (streamTitle && $('streamTitleInput')) {
         $('streamTitleInput').value = streamTitle;
-        // PATCH: If the title changed, we might want to refresh QR/Link context
         updateLink($('roomInput').value || currentRoom);
     }
 
@@ -914,13 +919,13 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     if ($('lockRoomBtn')) {
         $('lockRoomBtn').textContent = locked ? 'Unlock Room' : 'Lock Room';
         $('lockRoomBtn').onclick = () => { 
-            if (iAmHost) {
+            if(iAmHost) {
                 socket.emit('lock-room', !locked); 
             }
         };
     }
 
-    // Host-side Room + Viewer Count (top-right)
+    // ✅ Host-side Room + Viewer Count (top-right)
     if ($('roomInfo')) {
         const total = Array.isArray(latestUserList) ? latestUserList.length : 0;
         const viewers = Math.max(total - 1, 0); // assume 1 host
@@ -931,9 +936,9 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     renderUserList();
 });
 
-// PATCH: Authority Handover Logic
+// Role / host change
 socket.on('role', async ({ isHost }) => {
-    wasHost = iAmHost; // Store previous state
+    wasHost = iAmHost;
     iAmHost = isHost;
     
     if ($('localContainer')) {
@@ -941,21 +946,18 @@ socket.on('role', async ({ isHost }) => {
     }
     if ($('hostControls')) $('hostControls').style.display = isHost ? 'block' : 'none';
     
-    // AUTO-TAKEOVER: If we were a guest but now promoted (due to host leaving), start broadcasting.
     if (isHost && !wasHost && currentRoom) {
-        appendChat($('chatLogPrivate'), 'System', '⚠️ HOST MIGRATION: You are now the broadcaster.', Date.now());
         await handleStartStream();
     }
     
     renderUserList();
 });
 
-
 // ======================================================
-// 12. HOST CONTROLS (TITLE, SLUG, VIP)
+// 13. HOST CONTROLS (TITLE, SLUG, VIP)
 // ======================================================
 
-// --- UPDATE STREAM TITLE ---
+// UPDATE STREAM TITLE
 if ($('updateTitleBtn')) {
     $('updateTitleBtn').addEventListener('click', () => {
         const title = $('streamTitleInput').value.trim();
@@ -972,7 +974,7 @@ if ($('streamTitleInput')) {
     });
 }
 
-// --- UPDATE LINK NAME (SLUG) ---
+// UPDATE LINK SLUG
 if ($('updateSlugBtn')) {
     $('updateSlugBtn').addEventListener('click', () => {
         const slug = $('slugInput').value.trim();
@@ -980,7 +982,7 @@ if ($('updateSlugBtn')) {
     });
 }
 
-// --- VIP PRIVATE MODE TOGGLE ---
+// VIP PRIVATE MODE TOGGLE
 if ($('togglePrivateBtn')) {
     $('togglePrivateBtn').addEventListener('click', () => {
         isPrivateMode = !isPrivateMode;
@@ -989,7 +991,7 @@ if ($('togglePrivateBtn')) {
     });
 }
 
-// --- ADD GUEST NAME ---
+// ADD GUEST NAME
 if ($('addGuestBtn')) {
     $('addGuestBtn').addEventListener('click', () => {
         const name = $('guestNameInput').value.trim();
@@ -997,7 +999,7 @@ if ($('addGuestBtn')) {
         allowedGuests.push(name);
         $('guestNameInput').value = '';
         
-        const list = $('guestList');
+        const list = $('guestListDisplay');
         if (list) {
             const li = document.createElement('div');
             li.className = 'guest-tag';
@@ -1007,7 +1009,7 @@ if ($('addGuestBtn')) {
     });
 }
 
-// --- ROOM LOCK BUTTON ---
+// ROOM LOCK BUTTON
 if ($('lockRoomBtn')) {
     $('lockRoomBtn').addEventListener('click', () => {
         if (iAmHost) {
@@ -1016,7 +1018,7 @@ if ($('lockRoomBtn')) {
     });
 }
 
-// --- KICK USER / PROMOTE HOST (User List Buttons) ---
+// USER LIST RENDER
 function renderUserList() {
     const container = $('userList');
     if (!container) return;
@@ -1060,7 +1062,7 @@ function renderUserList() {
 }
 
 // ======================================================
-// 13. STREAM START / STOP / BUTTON HOOKS
+// 14. STREAM START / STOP / BUTTON HOOKS
 // ======================================================
 
 async function handleStartStream() {
@@ -1142,15 +1144,13 @@ function updateMediaButtons() {
     }
 }
 
-
 // ======================================================
-// 14. CALL SIGNALING (Incoming Offers/Answers)
+// 15. CALL SIGNALING (Incoming Offers/Answers)
 // ======================================================
 
 socket.on('webrtc-offer', async ({ sdp, from }) => {
-    const isCall = !!callPeers[from];
-    if (isCall) {
-        // Incoming offer for CALL
+    const forCall = !!callPeers[from];
+    if (forCall) {
         const pc = new RTCPeerConnection(iceConfig);
         callPeers[from] = { pc, stream: null };
 
@@ -1173,7 +1173,6 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
         await pc.setLocalDescription(ans);
         socket.emit('webrtc-answer', { targetId: from, sdp: ans });
     } else {
-        // Incoming offer for VIEWER connection
         const pc = new RTCPeerConnection(iceConfig);
         viewerPeers[from] = pc;
 
@@ -1188,7 +1187,6 @@ socket.on('webrtc-offer', async ({ sdp, from }) => {
         };
 
         pc.ondatachannel = (ev) => {
-            // Inbound Arcade not used on host side for now.
             console.log('Host got datachannel from viewer (not used):', ev.channel.label);
         };
 
