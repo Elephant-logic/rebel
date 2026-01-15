@@ -156,6 +156,7 @@
           <button id="toggleMicBtn" class="btn">Mute</button>
           <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
           <button id="shareScreenBtn" class="btn secondary">Share Screen</button>
+          <button id="previewStreamBtn" class="btn secondary">Preview Stream</button>
           <button id="hangupBtn" class="btn danger" disabled>End Call</button>
         </div>
 
@@ -222,6 +223,16 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <div id="streamPreviewModal" class="preview-modal">
+    <div class="preview-inner">
+        <div class="preview-header">
+            <span>Stream Preview (What Viewers See)</span>
+            <button id="closePreviewBtn" class="btn small">✕</button>
+        </div>
+        <video id="streamPreviewVideo" autoplay playsinline muted></video>
+    </div>
   </div>
   
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
