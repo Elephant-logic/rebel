@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
 
-// FIX: Increased buffer to 50MB for large arcade transfers and tight timeouts for migration
+// FIX: Increased buffer to 50MB for large arcade transfers
 const io = new Server(server, {
   cors: { origin: '*' },
   maxHttpBufferSize: 5e7, 
@@ -16,7 +16,6 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-// FIX: Pointing specifically to the public folder to resolve "Cannot GET /"
 app.use(express.static(path.join(__dirname, 'public')));
 
 // In-memory room state
@@ -92,7 +91,6 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // Authority Handover (Manual Promote Only - PATCHED)
   socket.on('promote-to-host', ({ targetId }) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -212,10 +210,8 @@ io.on('connection', (socket) => {
     if (!info) return;
     info.users.delete(socket.id);
 
-    // PATCH: REMOVED AUTO HOST MIGRATION (Broadcasters remain Broadcasters)
     if (info.ownerId === socket.id) {
       info.ownerId = null;
-      // Note: No automatic promotion of the next user in line.
     }
 
     socket.to(roomName).emit('user-left', { id: socket.id });
