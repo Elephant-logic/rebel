@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
 
-// FIX: 1MB limit prevents crashes. PingTimeout kills laggy connections.
 const io = new Server(server, {
   cors: { origin: '*' },
   maxHttpBufferSize: 1e6, 
@@ -18,9 +17,6 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ----------------------------------------------------
-// In-memory room state
-// ----------------------------------------------------
 const rooms = Object.create(null);
 
 function getRoomInfo(roomName) {
@@ -44,36 +40,29 @@ function broadcastRoomUpdate(roomName) {
     users.push({ id, name: u.name });
   }
 
+  // PATCH: Include viewerCount in the update
   io.to(roomName).emit('room-update', {
     users,
     ownerId: room.ownerId,
     locked: room.locked,
-    streamTitle: room.streamTitle
+    streamTitle: room.streamTitle,
+    viewerCount: users.length 
   });
 }
 
-// ----------------------------------------------------
-// Socket.io Events
-// ----------------------------------------------------
 io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
 
-  // --- JOIN ROOM ---
   socket.on('join-room', ({ room, name }) => {
-    if (!room || typeof room !== 'string') {
-      socket.emit('room-error', 'Invalid room');
-      return;
-    }
+    if (!room || typeof room !== 'string') return;
 
-    // FIX: Input Sanitization
     const roomName = room.trim().slice(0, 50); 
     const rawName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
     const displayName = rawName.slice(0, 30); 
 
     const info = getRoomInfo(roomName);
 
-    // SECURITY: If locked and user is not the owner, reject
     if (info.locked && info.ownerId && info.ownerId !== socket.id) {
       socket.emit('room-error', 'Room is locked by host');
       socket.disconnect();
@@ -84,14 +73,12 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
-    // If room has no owner, this user becomes Host
     if (!info.ownerId) {
       info.ownerId = socket.id;
     }
 
     info.users.set(socket.id, { name: displayName });
 
-    // Tell the user their role
     socket.emit('role', { 
       isHost: info.ownerId === socket.id,
       streamTitle: info.streamTitle
@@ -101,13 +88,27 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // --- HOST CONTROLS ---
-  socket.on('lock-room', (locked) => {
+  // PATCH: Manual Host Transfer Logic
+  socket.on('transfer-host', (targetId) => {
     const roomName = socket.data.room;
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info || info.ownerId !== socket.id) return;
 
+    if (info.users.has(targetId)) {
+        info.ownerId = targetId;
+        // Notify new host and old host of role changes
+        io.to(targetId).emit('role', { isHost: true, streamTitle: info.streamTitle });
+        socket.emit('role', { isHost: false, streamTitle: info.streamTitle });
+        broadcastRoomUpdate(roomName);
+    }
+  });
+
+  socket.on('lock-room', (locked) => {
+    const roomName = socket.data.room;
+    if (!roomName) return;
+    const info = rooms[roomName];
+    if (!info || info.ownerId !== socket.id) return;
     info.locked = !!locked;
     broadcastRoomUpdate(roomName);
   });
@@ -117,7 +118,6 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info || info.ownerId !== socket.id) return;
-
     info.streamTitle = (title || 'Untitled Stream').slice(0, 100);
     broadcastRoomUpdate(roomName);
   });
@@ -127,19 +127,16 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info || info.ownerId !== socket.id) return;
-
     const targetSocket = io.sockets.sockets.get(targetId);
     if (targetSocket) {
       targetSocket.emit('kicked');
       targetSocket.leave(roomName);
       targetSocket.disconnect();
     }
-    
     info.users.delete(targetId);
     broadcastRoomUpdate(roomName);
   });
 
-  // --- STREAMING SIGNALS (Host -> Viewer) ---
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
@@ -152,7 +149,6 @@ io.on('connection', (socket) => {
     if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
-  // --- CALLING SIGNALS (P2P) ---
   socket.on('ring-user', (targetId) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
@@ -173,12 +169,10 @@ io.on('connection', (socket) => {
     if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
   });
 
-  // --- CHAT & FILES ---
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
     const info = rooms[roomName];
-    
     io.to(roomName).emit('public-chat', {
       name: (name || socket.data.name || 'Anon').slice(0,30),
       text: String(text).slice(0, 500),
@@ -191,7 +185,6 @@ io.on('connection', (socket) => {
   socket.on('private-chat', ({ room, name, text }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
-    
     io.to(roomName).emit('private-chat', {
       name: (name || socket.data.name || 'Anon').slice(0,30),
       text: String(text).slice(0, 500),
@@ -202,7 +195,6 @@ io.on('connection', (socket) => {
   socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !fileName || !fileData) return;
-    
     io.to(roomName).emit('file-share', {
       name: (name || socket.data.name).slice(0,30),
       fileName: String(fileName).slice(0, 100),
@@ -211,17 +203,15 @@ io.on('connection', (socket) => {
     });
   });
 
-  // --- DISCONNECT ---
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
-
     const info = rooms[roomName];
     if (!info) return;
 
     info.users.delete(socket.id);
 
-    // Host Migration Logic
+    // Host Migration Logic (Auto-handover)
     if (info.ownerId === socket.id) {
       info.ownerId = null;
       info.locked = false;
