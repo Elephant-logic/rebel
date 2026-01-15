@@ -119,8 +119,8 @@
         <div class="mixer-controls">
            <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
            <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
-           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (PiP)</button>
-           <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (Inverted)</button>
+           <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split (Dynamic)</button>
         </div>
 
         <div id="videoGrid" class="video-grid">
@@ -207,7 +207,7 @@
   </div>
   
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-  <script src="ice.js"></script>
+  <script src="config/ice.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
