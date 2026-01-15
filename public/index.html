@@ -91,115 +91,109 @@
         <div id="settingsPanel" class="settings-panel">
           <h3>Pro Settings</h3>
           <div class="field">
-            <label>Video Resolution</label>
-            <select id="videoQuality">
-              <option value="ideal" selected>Balanced (720p)</option>
-              <option value="max">Studio (1080p)</option>
-              <option value="low">Speed (360p)</option>
+            <label>Video Input</label>
+            <select id="videoSelect"></select>
+          </div>
+          <div class="field">
+            <label>Audio Input</label>
+            <select id="audioSelect"></select>
+          </div>
+          <div class="field">
+            <label>Output Quality</label>
+            <select id="qualitySelect">
+              <option value="1080">1080p</option>
+              <option value="720" selected>720p</option>
+              <option value="480">480p</option>
             </select>
           </div>
-          <div class="field">
-            <label>Camera Source</label>
-            <select id="videoSource"></select>
-          </div>
-          <div class="field">
-            <label>Primary Audio (Mic)</label>
-            <select id="audioSource"></select>
-          </div>
-          <div class="field">
-            <label>Secondary Audio (Mixer)</label>
-            <select id="audioSource2">
-                <option value="">-- None --</option>
-            </select>
-            <p style="font-size:0.7rem; color:var(--muted);">Combine mic with Loopback/Music.</p>
-          </div>
-          <button id="closeSettingsBtn" class="btn small full-width">Close Settings</button>
         </div>
 
-        <div class="mixer-controls">
-           <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
-           <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
-           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (PiP)</button>
-           <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split</button>
-        </div>
-
-        <div id="videoGrid" class="video-grid">
-           <div class="video-container" id="localContainer">
-             <h2>You</h2>
-             <video id="localVideo" autoplay playsinline muted></video>
-           </div>
-        </div>
-
-        <div class="call-controls">
-          <div style="display:flex; gap:5px; border-right:1px solid var(--border); padding-right:10px; margin-right:5px;">
-             <button id="startStreamBtn" class="btn primary">Start Stream</button>
-          </div>
-          <button id="toggleCamBtn" class="btn">Camera Off</button>
-          <button id="toggleMicBtn" class="btn">Mute</button>
-          <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
-          <button id="shareScreenBtn" class="btn secondary">Share Screen</button>
-          <button id="hangupBtn" class="btn danger" disabled>End Call</button>
-        </div>
-
-        <div class="file-row" style="margin:10px 0; padding:10px; background: var(--panel-soft); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border);">
-           <div style="display:flex; align-items:center; gap:10px; width:100%;">
-               <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
-               <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
-               <button id="openStreamBtn" class="btn small">Open</button>
-           </div>
-           
-           <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px;">
-               <div style="font-size: 0.75rem; color: var(--accent); font-weight: bold;">Scan to Share Secure Stream:</div>
-               <div id="qrcode" style="padding:8px; background:#fff; border-radius:4px; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>
-           </div>
-        </div>
-
-        <div class="chat-panel">
-          <div class="tabs-header">
-            <button id="tabStreamChat" class="tab-btn active">Stream</button>
-            <button id="tabRoomChat" class="tab-btn">Room</button>
-            <button id="tabFiles" class="tab-btn">Files</button>
-            <button id="tabUsers" class="tab-btn">Users</button>
+        <div class="video-panel">
+          <div class="mixer-controls">
+            <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
+            <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
+            <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ Overlay (PiP)</button>
+            <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split</button>
           </div>
 
-          <div id="contentStreamChat" class="tab-content active">
-            <div id="chatLogPublic" class="chat-log"></div>
-            <div id="emojiStripPublic" class="emoji-strip">
-              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
+          <div id="videoGrid" class="video-grid">
+            <div class="video-container" id="localContainer">
+              <h2>You</h2>
+              <video id="localVideo" autoplay playsinline muted></video>
             </div>
-            <div class="chat-input-row">
-              <input id="inputPublic" type="text" placeholder="Message Stream (Public)..." />
-              <button id="btnSendPublic" class="btn primary">Send</button>
+            <!-- Remote guests will be appended here -->
+          </div>
+
+          <div class="call-controls">
+            <div style="display:flex; gap:5px; border-right:1px solid var(--border); padding-right:10px; margin-right:5px;">
+              <button id="startStreamBtn" class="btn primary">Start Stream</button>
+            </div>
+            <button id="toggleCamBtn" class="btn">Camera Off</button>
+            <button id="toggleMicBtn" class="btn">Mute</button>
+            <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
+            <button id="shareScreenBtn" class="btn secondary">Share Screen</button>
+            <button id="hangupBtn" class="btn danger" disabled>End Call</button>
+          </div>
+
+          <div class="file-row" style="margin:10px 0; padding:10px; background: var(--panel-soft); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border);">
+            <div style="display:flex; align-items:center; gap:10px; width:100%;">
+              <span class="file-label" style="background:var(--panel-soft); border-color:var(--border);">Viewer Link</span>
+              <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
+              <button id="openStreamBtn" class="btn small">Open</button>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px;">
+              <div style="font-size: 0.75rem; color: var(--accent); font-weight: bold;">Scan to Share Secure Stream:</div>
+              <div id="qrcode" style="padding:8px; background:#fff; border-radius:4px; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>
             </div>
           </div>
 
-          <div id="contentRoomChat" class="tab-content">
-            <div id="chatLogPrivate" class="chat-log"></div>
-            <div id="emojiStripPrivate" class="emoji-strip">
-              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
+          <div class="chat-panel">
+            <div class="tabs-header">
+              <button id="tabStreamChat" class="tab-btn active">Stream</button>
+              <button id="tabRoomChat" class="tab-btn">Room</button>
+              <button id="tabFiles" class="tab-btn">Files</button>
+              <button id="tabUsers" class="tab-btn">Users</button>
             </div>
-            <div class="chat-input-row">
-              <input id="inputPrivate" type="text" placeholder="Message Room (Private)..." />
-              <button id="btnSendPrivate" class="btn primary">Send</button>
-            </div>
-          </div>
 
-          <div id="contentFiles" class="tab-content">
-             <div class="file-upload-area">
+            <div id="contentStreamChat" class="tab-content active">
+              <div id="chatLogPublic" class="chat-log"></div>
+              <div id="emojiStripPublic" class="emoji-strip">
+                <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
+              </div>
+              <div class="chat-input-row">
+                <input id="inputPublic" type="text" placeholder="Message Stream (Public)..." />
+                <button id="btnSendPublic" class="btn primary">Send</button>
+              </div>
+            </div>
+
+            <div id="contentRoomChat" class="tab-content">
+              <div id="chatLogPrivate" class="chat-log"></div>
+              <div id="emojiStripPrivate" class="emoji-strip">
+                <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
+              </div>
+              <div class="chat-input-row">
+                <input id="inputPrivate" type="text" placeholder="Message Room (Private)..." />
+                <button id="btnSendPrivate" class="btn primary">Send</button>
+              </div>
+            </div>
+
+            <div id="contentFiles" class="tab-content">
+              <div class="file-upload-area">
                 <label class="btn secondary" style="flex:1;">
                   <input id="fileInput" type="file" hidden /> 📎 Choose File
                 </label>
                 <span id="fileNameLabel" style="font-size:0.8rem; margin:0 8px; color:var(--muted); flex:2; overflow:hidden; text-overflow:ellipsis;">No file selected</span>
                 <button id="sendFileBtn" class="btn primary" disabled>Send</button>
-             </div>
-             <div class="files-list">
+              </div>
+              <div class="files-list">
                 <div id="fileLog" class="file-log"></div>
-             </div>
-          </div>
+              </div>
+            </div>
 
-          <div id="contentUsers" class="tab-content">
-             <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;">Active Users</h3>
-             <div id="userList"></div>
+            <div id="contentUsers" class="tab-content">
+              <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;">Active Users</h3>
+              <div id="userList"></div>
+            </div>
           </div>
         </div>
       </section>
