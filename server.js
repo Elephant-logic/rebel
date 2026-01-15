@@ -77,6 +77,7 @@ io.on('connection', (socket) => {
     socket.data.room = roomName;
     socket.data.name = displayName;
 
+    // Only set owner if none exists
     if (!info.ownerId) {
       info.ownerId = socket.id;
     }
@@ -92,7 +93,7 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // Authority Handover (Manual Promote)
+  // Authority Handover (Manual Promote Only)
   socket.on('promote-to-host', ({ targetId }) => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -212,17 +213,10 @@ io.on('connection', (socket) => {
     if (!info) return;
     info.users.delete(socket.id);
 
-    // Host Migration: Automatically pass the crown if the host leaves
+    // PATCH: REMOVED AUTO HOST MIGRATION
+    // If owner leaves, ownerId is simply null until a manual promotion or room clear
     if (info.ownerId === socket.id) {
       info.ownerId = null;
-      if (info.users.size > 0) {
-          const nextId = info.users.keys().next().value;
-          info.ownerId = nextId;
-          const nextSocket = io.sockets.sockets.get(nextId);
-          if (nextSocket) {
-              nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
-          }
-      }
     }
 
     socket.to(roomName).emit('user-left', { id: socket.id });
