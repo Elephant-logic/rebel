@@ -43,11 +43,13 @@ function broadcastRoomUpdate(roomName) {
     users.push({ id, name: u.name });
   }
 
+  // PATCH: Send the room users size as viewerCount
   io.to(roomName).emit('room-update', {
     users,
     ownerId: room.ownerId,
     locked: room.locked,
-    streamTitle: room.streamTitle
+    streamTitle: room.streamTitle,
+    viewerCount: room.users.size 
   });
 }
 
