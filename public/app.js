@@ -89,14 +89,14 @@ let currentRoom = null;
 let userName = 'User';
 let myId = null;
 let iAmHost = false;
-let wasHost = false; // PATCH: Track role transition for migration
+let wasHost = false; // Track role transition for migration
 let latestUserList = [];
 let currentOwnerId = null;
 
 // --- VIP BOUNCER STATE ---
 let isPrivateMode = false;
 let allowedGuests = [];
-let mutedUsers = new Set(); // PATCH: Host Mute Capability
+let mutedUsers = new Set(); // PATCH: Host-side global mute capability
 
 // --- MEDIA STATE ---
 let localStream = null;
@@ -116,8 +116,13 @@ canvas.width = 1920;
 canvas.height = 1080;
 let ctx = canvas.getContext('2d');
 let canvasStream = null; 
-let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
+let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'PIP_INVERTED', 'SPLIT'
 let activeGuestId = null; // The ID of the guest currently selected for the mixer
+
+// --- OVERLAY SIDE-LOADER STATE ---
+let overlayActive = false;
+let overlayImage = new Image();
+let currentRawHTML = "";
 
 // --- CONNECTION STORAGE ---
 const viewerPeers = {}; // One-way connections (Broadcast)
@@ -181,7 +186,7 @@ function drawMixer() {
         });
 
         const count = participants.length;
-        const slotW = canvas.width / count;
+        const slotW = canvas.width / (count || 1);
         const vidH = slotW / (16/9);
         const yOffset = (1080 - vidH) / 2;
 
@@ -198,31 +203,42 @@ function drawMixer() {
         });
     }
     else if (mixerLayout === 'PIP') {
-        // --- PATCH: INVERTED PIP (Guest is Full, Host is Overlay) ---
+        // ORIGINAL PIP: Host is Full, Guest is Small Thumbnail
+        if (myVideo && myVideo.readyState === 4) {
+            ctx.drawImage(myVideo, 0, 0, canvas.width, canvas.height);
+        }
         
-        // Guest Base
+        if (guestVideo && guestVideo.readyState === 4) {
+            const pipW = 480, pipH = 270, padding = 30;
+            const x = canvas.width - pipW - padding;
+            const y = canvas.height - pipH - padding;
+            ctx.strokeStyle = "#4af3a3"; ctx.lineWidth = 5;
+            ctx.strokeRect(x, y, pipW, pipH);
+            ctx.drawImage(guestVideo, x, y, pipW, pipH);
+        }
+    }
+    else if (mixerLayout === 'PIP_INVERTED') {
+        // INVERTED PIP: Guest is Full, Host is Small Thumbnail
         if (guestVideo && guestVideo.readyState === 4) {
             ctx.drawImage(guestVideo, 0, 0, canvas.width, canvas.height);
         } else {
             ctx.fillStyle = '#111'; ctx.fillRect(0,0,canvas.width, canvas.height);
         }
         
-        // Host Overlay (Bottom Right)
         if (myVideo && myVideo.readyState === 4) {
-            const pipW = 480;
-            const pipH = 270;
-            const padding = 30;
+            const pipW = 480, pipH = 270, padding = 30;
             const x = canvas.width - pipW - padding;
             const y = canvas.height - pipH - padding;
-            
-            // Draw Border
-            ctx.strokeStyle = "#4af3a3";
-            ctx.lineWidth = 5;
+            ctx.strokeStyle = "#4af3a3"; ctx.lineWidth = 5;
             ctx.strokeRect(x, y, pipW, pipH);
-            
-            // Draw Video
             ctx.drawImage(myVideo, x, y, pipW, pipH);
         }
+    }
+
+    // --- 4. HTML OVERLAY LAYER ---
+    // Paints the side-loaded layout on top of all screens
+    if (overlayActive && overlayImage.complete) {
+        ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
     }
 
     // Loop
@@ -233,6 +249,25 @@ function drawMixer() {
 canvasStream = canvas.captureStream(30); // 30 FPS Broadcast Stream
 drawMixer();
 
+// --- NEW: HTML LAYOUT ENGINE ---
+function renderHTMLLayout(htmlString) {
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
+    
+    // Wrap HTML in a div that inherits the current mixer mode as a CSS class
+    const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
+            <foreignObject width="100%" height="100%">
+                <div xmlns="http://www.w3.org/1999/xhtml" class="layout-${mixerLayout}" style="width:100%; height:100%; margin:0; padding:0;">
+                    ${htmlString}
+                </div>
+            </foreignObject>
+        </svg>`;
+    
+    overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    overlayActive = true;
+}
+
 // --- MIXER CONTROLS EXPOSED TO WINDOW ---
 window.setMixerLayout = (mode) => {
     mixerLayout = mode;
@@ -241,15 +276,19 @@ window.setMixerLayout = (mode) => {
     // Update UI Buttons
     document.querySelectorAll('.mixer-btn').forEach(b => {
         b.classList.remove('active');
-        if (b.textContent.toUpperCase().includes(mode) || (mode==='PIP' && b.textContent.includes('Overlay'))) {
+        // Match buttons based on the mode argument passed to their onclick
+        if (b.getAttribute('onclick').includes(`'${mode}'`)) {
             b.classList.add('active');
         }
     });
+
+    // If an overlay is active, re-render it so it picks up the new layout class
+    if (overlayActive) renderHTMLLayout(currentRawHTML);
 };
 
 window.setActiveGuest = (id) => {
     activeGuestId = id;
-    alert(`Guest Selected! Click 'Overlay' or 'Split' to see them on stream.`);
+    console.log(`Guest ${id} selected for mixer.`);
 };
 
 
@@ -380,7 +419,6 @@ if(videoQuality) videoQuality.onchange = startLocalMedia;
 
 async function startLocalMedia() {
     // If sharing screen, we don't want to kill the screen stream logic.
-    // Screen sharing now feeds into "localStream" so the mixer picks it up automatically.
     if (isScreenSharing) {
         return; 
     }
@@ -436,7 +474,6 @@ async function startLocalMedia() {
         }
 
         // --- 3. SET LOCAL STREAM ---
-        // This 'localStream' is what YOU see in the "You" box.
         localStream = new MediaStream([
             mainStream.getVideoTracks()[0], 
             finalAudioTrack
@@ -447,9 +484,6 @@ async function startLocalMedia() {
         $('localVideo').muted = true; // Mute to prevent echo
 
         // --- 4. UPDATE VIEWERS (BROADCAST) ---
-        // Crucial: Viewers do NOT get localStream directly anymore.
-        // They get the CANVAS STREAM (The Mixed Output).
-        
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
 
         const updateViewerPC = (pc) => {
@@ -469,7 +503,6 @@ async function startLocalMedia() {
         Object.values(viewerPeers).forEach(updateViewerPC);
         
         // Update 1:1 Callers (Guests)
-        // Guests usually want to see your RAW camera, not the mixed stream
         Object.values(callPeers).forEach(p => {
              const senders = p.pc.getSenders();
              const vSender = senders.find(s => s.track && s.track.kind === 'video');
@@ -554,14 +587,9 @@ if ($('shareScreenBtn')) {
                 // Show screen locally in the 'You' box
                 $('localVideo').srcObject = screenStream;
                 
-                // Note: The CANVAS MIXER automatically reads from $('localVideo').
-                // So we don't need to manually replace tracks for viewers! 
-                // The drawMixer() loop will now paint the screen instead of the cam.
-
                 // *** FIX: Send Screen to All Peers (Guests) ***
-                // Guests don't see the Mixer, they see the direct track. So we must update them.
                 const screenTrack = screenStream.getVideoTracks()[0];
-                const screenAudio = screenStream.getAudioTracks()[0]; // Capture system audio if present
+                const screenAudio = screenStream.getAudioTracks()[0]; // Capture system audio
 
                 Object.values(callPeers).forEach(p => {
                     p.pc.getSenders().forEach(s => {
@@ -571,7 +599,7 @@ if ($('shareScreenBtn')) {
                 });
                 
                 // Handle native "Stop Sharing" bar
-                screenStream.getVideoTracks()[0].onended = stopScreenShare;
+                screenTrack.onended = stopScreenShare;
 
             } catch(e) { 
                 console.error("Screen share cancelled", e); 
@@ -757,10 +785,6 @@ async function connectViewer(targetId) {
     const pc = new RTCPeerConnection(iceConfig);
     viewerPeers[targetId] = pc;
     
-    // *** FIX: FORCE DATA CHANNEL FOR ARCADE ***
-    // This creates the pipe so games can be sent later
-    // Without this, SCTP is not negotiated until a file is actually sent, 
-    // which can cause the first file to fail.
     const controlChannel = pc.createDataChannel("control");
     controlChannel.onopen = () => console.log(`Control channel open for ${targetId}`);
 
@@ -771,7 +795,6 @@ async function connectViewer(targetId) {
     };
     
     // --- SEND MIXED CANVAS STREAM ---
-    // This is the "Patch": Viewers see the canvas, not raw cam.
     canvasStream.getTracks().forEach(t => pc.addTrack(t, canvasStream));
     
     // Add Audio (From the local mixed stream)
@@ -781,12 +804,10 @@ async function connectViewer(targetId) {
     }
     
     // --- ARCADE AUTO-PUSH ---
-    // If a tool is loaded, send it to the new viewer immediately
     if (activeToolboxFile) {
         console.log(`[Arcade] Auto-pushing tool to ${targetId}`);
         pushFileToPeer(pc, activeToolboxFile, null); 
     }
-    // ------------------------
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -874,7 +895,6 @@ function updateLink(roomSlug) {
     const finalUrl = url.toString();
     if ($('streamLinkInput')) $('streamLinkInput').value = finalUrl;
     
-    // Trigger QR update
     generateQR(finalUrl);
 }
 
@@ -885,12 +905,10 @@ socket.on('user-joined', ({ id, name }) => {
     if (iAmHost && isPrivateMode) {
         const isAllowed = allowedGuests.some(g => g.toLowerCase() === name.toLowerCase());
         if (!isAllowed) {
-            console.log(`[Bouncer] Kicking ${name}`);
             socket.emit('kick-user', id);
-            return; // Stop here, do not welcome
+            return; 
         }
     }
-    // -------------------------
 
     appendChat($('chatLogPrivate'), 'System', `${name} joined room`, Date.now());
     
@@ -913,14 +931,11 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     latestUserList = users;
     currentOwnerId = ownerId;
     
-    // Sync Title from Server
     if (streamTitle && $('streamTitleInput')) {
         $('streamTitleInput').value = streamTitle;
-        // If the title changed, we might want to refresh QR/Link context
         updateLink($('roomInput').value || currentRoom);
     }
 
-    // Sync Lock Button
     if ($('lockRoomBtn')) {
         $('lockRoomBtn').textContent = locked ? 'Unlock Room' : 'Lock Room';
         $('lockRoomBtn').onclick = () => { 
@@ -932,17 +947,15 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     renderUserList();
 });
 
-// PATCH: NO AUTO-TAKEOVER FOR VIEWERS
+// PATCH: AUTHORITY ENFORCEMENT (NO AUTO-TAKEOVER FOR VIEWERS)
 socket.on('role', async ({ isHost }) => {
-    wasHost = iAmHost; // Store previous state
+    wasHost = iAmHost; 
     iAmHost = isHost;
     
     if ($('localContainer')) {
         $('localContainer').querySelector('h2').textContent = isHost ? 'You (Host)' : 'You';
     }
     if ($('hostControls')) $('hostControls').style.display = isHost ? 'block' : 'none';
-    
-    // Removed Host Migration Auto-Broadcasting.
     
     renderUserList();
 });
@@ -952,7 +965,6 @@ socket.on('role', async ({ isHost }) => {
 // 12. HOST CONTROLS (TITLE, SLUG, VIP)
 // ======================================================
 
-// --- UPDATE STREAM TITLE ---
 if ($('updateTitleBtn')) {
     $('updateTitleBtn').addEventListener('click', () => {
         const title = $('streamTitleInput').value.trim();
@@ -969,7 +981,6 @@ if ($('streamTitleInput')) {
     });
 }
 
-// --- UPDATE LINK NAME (SLUG) ---
 if ($('updateSlugBtn')) {
     $('updateSlugBtn').addEventListener('click', () => {
         const slug = $('slugInput').value.trim();
@@ -987,18 +998,14 @@ if ($('slugInput')) {
 }
 
 // --- VIP GUEST LIST LOGIC ---
-const togglePrivateBtn = $('togglePrivateBtn');
-
 if ($('togglePrivateBtn')) {
     $('togglePrivateBtn').addEventListener('click', () => {
         isPrivateMode = !isPrivateMode;
         
-        // Update Button UI
         $('togglePrivateBtn').textContent = isPrivateMode ? "ON" : "OFF";
         $('togglePrivateBtn').className = isPrivateMode ? "btn small danger" : "btn small secondary";
         if ($('guestListPanel')) $('guestListPanel').style.display = isPrivateMode ? "block" : "none";
         
-        // If turned ON, kick everyone not on the list immediately
         if (isPrivateMode) {
             latestUserList.forEach(u => {
                 if (u.id !== myId) {
@@ -1078,7 +1085,7 @@ if ($('inputPrivate')) $('inputPrivate').addEventListener('keydown', (e) => { if
 
 // Receive Socket Messages
 socket.on('public-chat', d => { 
-    // PATCH: Local Mute Filter (Host side ban logic)
+    // PATCH: HOST LOCAL MUTE FILTER
     if (mutedUsers.has(d.name)) return;
     appendChat($('chatLogPublic'), d.name, d.text, d.ts); 
     if(tabs.stream && !tabs.stream.classList.contains('active')) tabs.stream.classList.add('has-new'); 
@@ -1119,7 +1126,6 @@ if ($('sendFileBtn')) {
     $('sendFileBtn').addEventListener('click', () => {
         const file = fileInput.files[0];
         
-        // CRASH PREVENTION (Limit Size)
         if(file.size > 1024 * 1024) {
             alert("File too large for chat share (Limit: 1MB). Use 'Arcade' for larger P2P transfers.");
             return;
@@ -1169,7 +1175,7 @@ socket.on('file-share', d => {
 
 
 // ======================================================
-// 15. ARCADE INPUT LOGIC
+// 15. ARCADE & HTML LAYOUT SIDE-LOADER
 // ======================================================
 
 const arcadeInput = $('arcadeInput');
@@ -1181,7 +1187,6 @@ if (arcadeInput) {
         activeToolboxFile = file;
         $('arcadeStatus').textContent = `Active Tool: ${file.name}`;
         
-        // ADD FORCE RESEND BUTTON DYNAMICALLY
         let resendBtn = document.getElementById('resendToolBtn');
         if(!resendBtn) {
             resendBtn = document.createElement('button');
@@ -1190,17 +1195,33 @@ if (arcadeInput) {
             resendBtn.className = 'btn small secondary full-width';
             resendBtn.style.marginTop = '5px';
             resendBtn.onclick = () => {
-                console.log("Forcing arcade resend...");
                 Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, activeToolboxFile));
                 alert("Tool resent to all connected viewers.");
             };
             $('arcadeStatus').parentNode.appendChild(resendBtn);
         }
         
-        // Push file to all currently connected peers
         Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, file));
     });
 }
+
+// --- NEW: HTML LAYOUT SIDE-LOADER ---
+const htmlOverlayInput = $('htmlOverlayInput');
+if (htmlOverlayInput) {
+    htmlOverlayInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => renderHTMLLayout(event.target.result);
+        reader.readAsText(file);
+    });
+}
+
+window.clearOverlay = () => { 
+    overlayActive = false; 
+    overlayImage = new Image(); 
+    if($('overlayStatus')) $('overlayStatus').textContent = "[Empty]";
+};
 
 
 // ======================================================
@@ -1210,26 +1231,24 @@ if (arcadeInput) {
 function renderUserList() {
     const list = $('userList'); 
     if (!list) return;
-    list.innerHTML = ''; // Clear list
+    list.innerHTML = ''; 
 
     latestUserList.forEach(u => {
-        if (u.id === myId) return; // Don't list myself
+        if (u.id === myId) return; 
 
         const div = document.createElement('div'); 
         div.className = 'user-item';
         
-        // Secure Name Rendering (No InnerHTML)
         const nameSpan = document.createElement('span');
         if (u.id === currentOwnerId) nameSpan.textContent = '👑 ';
         nameSpan.textContent += u.name;
 
-        // Action Buttons Container
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'user-actions';
 
         const isCalling = !!callPeers[u.id];
         
-        // PATCH: HOST CHAT-MUTE BUTTON
+        // PATCH: HOST LOCAL MUTE BUTTON
         if (iAmHost) {
             const mBtn = document.createElement('button');
             mBtn.className = 'action-btn';
@@ -1256,12 +1275,11 @@ function renderUserList() {
         }
         actionsDiv.appendChild(actionBtn);
 
-        // MIXER SELECT BUTTON (Director Mode)
+        // MIXER SELECT BUTTON
         if (isCalling && iAmHost) {
             const selBtn = document.createElement('button');
             selBtn.className = 'action-btn';
             selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Mix';
-            selBtn.title = "Select for Overlay/Split";
             selBtn.onclick = () => {
                 activeGuestId = u.id;
                 renderUserList(); 
@@ -1306,7 +1324,6 @@ function addRemoteVideo(id, stream) {
         v.playsInline = true;
         d.appendChild(v);
 
-        // Add Label
         const h2 = document.createElement('h2');
         h2.textContent = callPeers[id] ? callPeers[id].name : "Guest";
         d.appendChild(h2);
@@ -1321,7 +1338,6 @@ function removeRemoteVideo(id) {
     if(el) el.remove(); 
 }
 
-// Make functions available globally for HTML onclick events
 window.ringUser = (id) => socket.emit('ring-user', id);
 window.endPeerCall = endPeerCall;
 window.kickUser = (id) => socket.emit('kick-user', id);
