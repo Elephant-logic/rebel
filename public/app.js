@@ -1126,7 +1126,7 @@ if ($('sendFileBtn')) {
     $('sendFileBtn').addEventListener('click', () => {
         const file = fileInput.files[0];
         
-        if(file.size > 1024 * 1024) {
+        if (file.size > 10 * 1024 * 1024) {
             alert("File too large for chat share (Limit: 1MB). Use 'Arcade' for larger P2P transfers.");
             return;
         }
