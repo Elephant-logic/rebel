@@ -1,7 +1,3 @@
-/* ======================================================
-   REBEL STREAM STUDIO - FULL P2P ENGINE (COMPLETE & PATCHED)
-   ====================================================== */
-
 // ======================================================
 // 1. ARCADE ENGINE (P2P File Transfer)
 // ======================================================
@@ -15,6 +11,7 @@ async function pushFileToPeer(pc, file, onProgress) {
     if (!pc) return;
 
     // Create a specific data channel for the arcade
+    // This runs parallel to video/audio
     const channel = pc.createDataChannel("side-load-pipe");
 
     channel.onopen = async () => {
@@ -79,7 +76,7 @@ async function pushFileToPeer(pc, file, onProgress) {
 // 2. MAIN APP SETUP & VARIABLES
 // ======================================================
 
-console.log("Rebel Stream Host App Loaded"); 
+console.log("Rebel Stream Host App Loaded");
 
 // Initialize Socket.io (Manual connect)
 const socket = io({ autoConnect: false });
@@ -94,7 +91,7 @@ let myId = null;
 let iAmHost = false;
 let latestUserList = [];
 let currentOwnerId = null;
-let viewerCount = 0; // PATCH: Track viewer numbers from server
+let viewerCount = 0; // PATCH: Track viewer count from server update
 
 // --- VIP BOUNCER STATE ---
 let isPrivateMode = false;
@@ -113,11 +110,11 @@ let activeToolboxFile = null;
 // This allows you to mix cameras and overlays before sending to stream
 let audioContext = null;
 let audioDestination = null;
-let canvas = document.createElement('canvas'); 
-canvas.width = 1920; 
+let canvas = document.createElement('canvas');
+canvas.width = 1920;
 canvas.height = 1080;
 let ctx = canvas.getContext('2d');
-let canvasStream = null; 
+let canvasStream = null;
 let mixerLayout = 'SOLO'; // 'SOLO', 'GUEST', 'PIP', 'SPLIT'
 let activeGuestId = null; // The ID of the guest currently selected for the mixer
 
@@ -408,15 +405,18 @@ if(videoQuality) videoQuality.onchange = startLocalMedia;
 // ======================================================
 
 async function startLocalMedia() {
+    // If sharing screen, we don't want to kill the screen stream logic.
     if (isScreenSharing) {
         return; 
     }
 
+    // Stop previous tracks
     if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
     }
 
     try {
+        // --- 1. RESOLUTION LOGIC ---
         const quality = videoQuality ? videoQuality.value : 'ideal';
         let widthConstraint, heightConstraint;
 
@@ -439,6 +439,7 @@ async function startLocalMedia() {
 
         const mainStream = await navigator.mediaDevices.getUserMedia(constraints);
         
+        // --- 2. AUDIO MIXER LOGIC ---
         let finalAudioTrack = mainStream.getAudioTracks()[0];
         const secondaryId = audioSource2 ? audioSource2.value : null;
 
@@ -459,6 +460,7 @@ async function startLocalMedia() {
             finalAudioTrack = audioDestination.stream.getAudioTracks()[0];
         }
 
+        // --- 3. SET LOCAL STREAM ---
         localStream = new MediaStream([
             mainStream.getVideoTracks()[0], 
             finalAudioTrack
@@ -467,6 +469,7 @@ async function startLocalMedia() {
         $('localVideo').srcObject = localStream;
         $('localVideo').muted = true; 
 
+        // --- 4. UPDATE VIEWERS (BROADCAST) ---
         const mixedVideoTrack = canvasStream.getVideoTracks()[0];
 
         const updateViewerPC = (pc) => {
@@ -520,8 +523,8 @@ if ($('toggleMicBtn')) {
         if (!localStream) return;
         const track = localStream.getAudioTracks()[0];
         if (track) { 
-            track.enabled = !track.enabled; 
-            updateMediaButtons(); 
+            track.enabled = !track.enabled;
+            updateMediaButtons();
         }
     });
 }
@@ -531,8 +534,8 @@ if ($('toggleCamBtn')) {
         if (!localStream) return;
         const track = localStream.getVideoTracks()[0];
         if (track) { 
-            track.enabled = !track.enabled; 
-            updateMediaButtons(); 
+            track.enabled = !track.enabled;
+            updateMediaButtons();
         }
     });
 }
@@ -750,7 +753,7 @@ socket.on('user-left', ({ id }) => {
 socket.on('room-update', ({ locked, streamTitle, ownerId, users, viewerCount: count }) => {
     latestUserList = users;
     currentOwnerId = ownerId;
-    viewerCount = count || 0; // PATCH
+    viewerCount = count || 0; // PATCH: Viewer count from server
     if (streamTitle && $('streamTitleInput')) $('streamTitleInput').value = streamTitle;
     if ($('lockRoomBtn')) {
         $('lockRoomBtn').textContent = locked ? 'Unlock Room' : 'Lock Room';
@@ -937,6 +940,7 @@ function renderUserList() {
         actionBtn.onclick = () => isCalling ? endPeerCall(u.id) : window.ringUser(u.id);
         actionsDiv.appendChild(actionBtn);
 
+        // --- MIXER SELECT BUTTON (Director Mode) ---
         if (isCalling && iAmHost) {
             const selBtn = document.createElement('button'); selBtn.className = 'action-btn';
             selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Select';
@@ -944,11 +948,15 @@ function renderUserList() {
             actionsDiv.appendChild(selBtn);
         }
 
+        // PATCH: Pass Crown Button
         if (iAmHost) {
-            const crownBtn = document.createElement('button'); crownBtn.className = 'action-btn'; crownBtn.textContent = '👑';
+            const crownBtn = document.createElement('button'); crownBtn.className = 'action-btn';
+            crownBtn.textContent = '👑';
             crownBtn.onclick = () => confirm(`Make ${u.name} Host?`) && socket.emit('transfer-host', u.id);
             actionsDiv.appendChild(crownBtn);
-            const kickBtn = document.createElement('button'); kickBtn.className = 'action-btn kick'; kickBtn.textContent = 'Kick';
+
+            const kickBtn = document.createElement('button'); kickBtn.className = 'action-btn kick';
+            kickBtn.textContent = 'Kick';
             kickBtn.onclick = () => window.kickUser(u.id);
             actionsDiv.appendChild(kickBtn);
         }
