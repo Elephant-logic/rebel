@@ -7,18 +7,25 @@ let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random()*1000);
 
 // ==========================================
-// ARCADE RECEIVER (Game -> Chat Logic)
+// 1. ARCADE RECEIVER (Game -> Chat Logic)
 // ==========================================
 function setupReceiver(pc) {
     pc.ondatachannel = (e) => {
         if(e.channel.label !== "side-load-pipe") return; 
         const chan = e.channel;
         let chunks = [], total = 0, curr = 0, meta = null;
+
         chan.onmessage = (evt) => {
             if(typeof evt.data === 'string') {
-                try { meta = JSON.parse(evt.data); total = meta.size; } catch(e){}
+                try { 
+                    meta = JSON.parse(evt.data); 
+                    total = meta.size; 
+                    console.log(`[Arcade] Receiving: ${meta.name}`);
+                } catch(e){}
             } else {
-                chunks.push(evt.data); curr += evt.data.byteLength;
+                chunks.push(evt.data); 
+                curr += evt.data.byteLength;
+                
                 if(curr >= total) {
                     const blob = new Blob(chunks, {type: meta?meta.mime:'application/octet-stream'});
                     const url = URL.createObjectURL(blob);
@@ -32,27 +39,33 @@ function setupReceiver(pc) {
 
 function addGameToChat(url, name) {
     const log = $('chatLog');
+    if(!log) return;
     const div = document.createElement('div');
     div.className = 'chat-line system-msg';
-    div.innerHTML = `<div style="background:rgba(74,243,163,0.1);border:1px solid #4af3a3;padding:10px;border-radius:8px;text-align:center;">
-        <div style="color:#4af3a3;font-weight:bold;">🚀 TOOL RECEIVED: ${name}</div>
-        <a href="${url}" download="${name}" style="background:#4af3a3;color:#000;padding:6px;border-radius:4px;display:inline-block;margin-top:5px;text-decoration:none;font-weight:bold;">LAUNCH NOW</a>
-    </div>`;
-    log.appendChild(div); log.scrollTop = log.scrollHeight;
+    div.innerHTML = `
+        <div style="background:rgba(74,243,163,0.1); border:1px solid #4af3a3; padding:10px; border-radius:8px; text-align:center; margin: 10px 0;">
+            <div style="color:#4af3a3; font-weight:bold; margin-bottom:5px;">🚀 TOOL RECEIVED: ${name}</div>
+            <a href="${url}" download="${name}" style="background:#4af3a3; color:#000; padding:6px 12px; border-radius:4px; display:inline-block; text-decoration:none; font-weight:bold; font-size:0.8rem;">LAUNCH NOW</a>
+        </div>`;
+    log.appendChild(div); 
+    log.scrollTop = log.scrollHeight;
 }
 
+// ==========================================
+// 2. ROOM & CONNECTION LOGIC
+// ==========================================
 const params = new URLSearchParams(location.search);
 const room = params.get('room');
 if(room) { 
     currentRoom = room; 
-    myName = prompt("Name?") || myName;
+    myName = prompt("Enter your display name:") || myName;
     socket.connect(); 
     socket.emit('join-room', {room, name:myName}); 
 }
 
-// PATCH: Viewer will only receive stream if Host has clicked "Start Stream"
+// PATCH: The stream only connects when the Host manually clicks "Start Stream"
 socket.on('webrtc-offer', async ({sdp, from}) => {
-    // Kill old connection to ensure clean stream handover if host changes
+    // Kill old connection to ensure the new mixed stream takes over instantly
     if(pc) pc.close();
     
     pc = new RTCPeerConnection(iceConfig);
@@ -61,7 +74,10 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
     pc.ontrack = e => { 
         if($('viewerVideo').srcObject !== e.streams[0]) {
             $('viewerVideo').srcObject = e.streams[0];
-            if($('viewerStatus')) $('viewerStatus').textContent = "LIVE";
+            if($('viewerStatus')) {
+                $('viewerStatus').textContent = "LIVE";
+                $('viewerStatus').style.background = "var(--accent)";
+            }
         }
     };
     
@@ -79,21 +95,31 @@ socket.on('webrtc-ice-candidate', async ({candidate}) => {
     if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
 });
 
+// ==========================================
+// 3. CHAT & UI LOGIC
+// ==========================================
 socket.on('public-chat', d => { 
+    const log = $('chatLog');
+    if(!log) return;
+    
     const div = document.createElement('div'); 
     div.className = 'chat-line';
-    // Anti-XSS Secure Rendering
-    const name = document.createElement('strong'); name.textContent = d.name;
-    const msg = document.createElement('span'); msg.textContent = `: ${d.text}`;
+    
+    // Secure rendering to prevent XSS
+    const name = document.createElement('strong');
+    name.textContent = d.name;
+    const msg = document.createElement('span');
+    msg.textContent = `: ${d.text}`;
+    
     div.appendChild(name);
     div.appendChild(msg);
-    $('chatLog').appendChild(div); 
-    $('chatLog').scrollTop = $('chatLog').scrollHeight;
+    log.appendChild(div); 
+    log.scrollTop = log.scrollHeight;
 });
 
-// PATCH: Handling kicks and room locking for viewers
+// Handling kicks or room errors
 socket.on('kicked', () => {
-    alert("You have been removed from the room.");
+    alert("You have been kicked from the room by the host.");
     window.location.href = "index.html";
 });
 
@@ -102,22 +128,50 @@ socket.on('room-error', (err) => {
     window.location.href = "index.html";
 });
 
+// Chat Input
 $('sendBtn').onclick = () => { 
-    if(!$('chatInput').value.trim()) return;
-    socket.emit('public-chat', {room:currentRoom, text:$('chatInput').value, name:myName, fromViewer:true}); 
-    $('chatInput').value=''; 
+    const inp = $('chatInput');
+    if(!inp || !inp.value.trim()) return;
+    socket.emit('public-chat', {room:currentRoom, text:inp.value, name:myName, fromViewer:true}); 
+    inp.value=''; 
 };
 
-// UI Helpers for Viewer Page
+if($('chatInput')) {
+    $('chatInput').onkeydown = (e) => {
+        if(e.key === 'Enter') $('sendBtn').onclick();
+    };
+}
+
+// Emoji Strip
+if($('emojiStrip')) {
+    $('emojiStrip').onclick = (e) => {
+        if(e.target.classList.contains('emoji')) {
+            $('chatInput').value += e.target.textContent;
+        }
+    };
+}
+
+// UI Controls
 if($('unmuteBtn')) {
     $('unmuteBtn').onclick = () => {
-        $('viewerVideo').muted = !$('viewerVideo').muted;
-        $('unmuteBtn').textContent = $('viewerVideo').muted ? "🔇 Unmute" : "🔊 Muted";
+        const v = $('viewerVideo');
+        v.muted = !v.muted;
+        $('unmuteBtn').textContent = v.muted ? "🔇 Unmute" : "🔊 Muted";
     };
 }
 
 if($('fullscreenBtn')) {
     $('fullscreenBtn').onclick = () => {
-        if ($('viewerVideo').requestFullscreen) $('viewerVideo').requestFullscreen();
+        const v = $('viewerVideo');
+        if (v.requestFullscreen) v.requestFullscreen();
+        else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
+        else if (v.msRequestFullscreen) v.msRequestFullscreen();
+    };
+}
+
+if($('toggleChatBtn')) {
+    $('toggleChatBtn').onclick = () => {
+        const box = $('chatBox');
+        box.classList.toggle('hidden');
     };
 }
