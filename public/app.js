@@ -249,7 +249,50 @@ function drawMixer() {
 canvasStream = canvas.captureStream(30); // 30 FPS Broadcast Stream
 drawMixer();
 
-// --- NEW: HTML LAYOUT ENGINE ---
+// --- NEW: STREAM PREVIEW POPUP (HOST MONITOR) ---
+const previewModal = $('streamPreviewModal');
+const previewVideo = $('streamPreviewVideo');
+const previewBtn = $('previewStreamBtn');
+const closePreviewBtn = $('closePreviewBtn');
+
+function openStreamPreview() {
+    if (!canvasStream) {
+        alert("Stream engine not initialized.");
+        return;
+    }
+    if (previewVideo) {
+        previewVideo.srcObject = canvasStream; // Monitors the mixed broadcast canvas
+        previewVideo.muted = true;
+        previewVideo.play().catch(() => {});
+    }
+    if (previewModal) {
+        previewModal.classList.add('active');
+    }
+}
+
+function closeStreamPreview() {
+    if (previewModal) {
+        previewModal.classList.remove('active');
+    }
+    if (previewVideo) {
+        previewVideo.srcObject = null;
+    }
+}
+
+if (previewBtn) {
+    previewBtn.addEventListener('click', openStreamPreview);
+}
+if (closePreviewBtn) {
+    closePreviewBtn.addEventListener('click', closeStreamPreview);
+}
+if (previewModal) {
+    // Close when clicking the dark background overlay
+    previewModal.addEventListener('click', (e) => {
+        if (e.target === previewModal) closeStreamPreview();
+    });
+}
+
+// --- HTML LAYOUT ENGINE ---
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
     currentRawHTML = htmlString;
