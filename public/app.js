@@ -1,3 +1,14 @@
+// REBEL MESSENGER / STREAM HOST APP
+// =================================
+// This is the main host-side logic for:
+// - Room + role management (host / guest / viewer)
+// - Stream mixer (canvas compositing)
+// - Calls (1:1 via WebRTC)
+// - Viewer broadcast (WebRTC to view.html)
+// - Chat (public & private)
+// - Arcade (tool/file push)
+// - HTML overlay engine (title/stats/chat for stream)
+
 // ======================================================
 // 1. ARCADE ENGINE (P2P File Transfer)
 // ======================================================
@@ -105,32 +116,6 @@ let activeGuestId = null; //
 let overlayActive = false; //
 let overlayImage = new Image(); //
 let currentRawHTML = ""; //
-
-// Overlay chat buffer for HTML overlays ({{chat}})
-let overlayChatLines = []; // { name, text, ts }
-const MAX_OVERLAY_LINES = 30; // keep the last 30 lines for overlay
-
-function escapeHTML(str) {
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
-function buildOverlayChatHTML() {
-    return overlayChatLines.map(msg => {
-        const time = new Date(msg.ts).toLocaleTimeString();
-        return `
-            <div class="ov-chat-line">
-                <span class="ov-chat-name">${escapeHTML(msg.name)}</span>
-                <span class="ov-chat-time">${escapeHTML(time)}</span>
-                <span class="ov-chat-text">${escapeHTML(msg.text)}</span>
-            </div>
-        `;
-    }).join("");
-}
 
 const viewerPeers = {}; //
 const callPeers = {}; //
@@ -285,7 +270,41 @@ if (previewModal) {
     });
 }
 
-// --- HTML LAYOUT ENGINE WITH DYNAMIC STATS ---
+// --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
+function buildChatHTMLFromLogs(maxLines = 12) {
+    const log = $('chatLogPublic'); //
+    if (!log) return ''; //
+
+    const nodes = Array.from(log.querySelectorAll('.chat-line')); //
+    const last = nodes.slice(-maxLines); //
+
+    return last.map(line => {
+        const nameEl = line.querySelector('strong'); //
+        const timeEl = line.querySelector('small'); //
+        let textNode = null; //
+        for (const n of line.childNodes) {
+            if (n.nodeType === Node.TEXT_NODE && n.textContent.includes(':')) {
+                textNode = n; //
+                break;
+            }
+        }
+
+        const name = nameEl ? nameEl.textContent.trim() : ''; //
+        const time = timeEl ? timeEl.textContent.trim() : ''; //
+        const text = textNode
+            ? textNode.textContent.replace(/^:\s*/, '').trim()
+            : line.textContent.replace(name, '').trim(); //
+
+        return `
+            <div class="ov-chat-line">
+               <span class="ov-chat-name">${name}</span>
+               <span class="ov-chat-time">${time}</span>
+               <span class="ov-chat-text">${text}</span>
+            </div>
+        `;
+    }).join('');
+}
+
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return; //
     currentRawHTML = htmlString; //
@@ -295,13 +314,14 @@ function renderHTMLLayout(htmlString) {
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
 
-    const chatHTML = buildOverlayChatHTML(); // build overlay chat markup
+    // Build chat HTML block from current public chat
+    const chatHTML = buildChatHTMLFromLogs(14); //
 
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
-        .replace(/{{chat}}/g, chatHTML); // inject chat overlay
+        .replace(/{{chat}}/g, chatHTML); //
 
     const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
@@ -312,15 +332,19 @@ function renderHTMLLayout(htmlString) {
             </foreignObject>
         </svg>`; //
 
-    overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
-    overlayActive = true; //
+    try {
+        overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
+        overlayActive = true; //
+    } catch (e) {
+        console.error("[Overlay] Failed to encode SVG", e); //
+    }
 }
 
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
     document.querySelectorAll('.mixer-btn').forEach(b => {
         b.classList.remove('active'); //
-        if (b.getAttribute('onclick').includes(`'${mode}'`)) {
+        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${mode}'`)) {
             b.classList.add('active'); //
         }
     });
@@ -391,8 +415,8 @@ async function getDevices() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return; //
     try {
         const devices = await navigator.mediaDevices.enumerateDevices(); //
-        audioSource.innerHTML = ''; 
-        videoSource.innerHTML = ''; //
+        if (audioSource)  audioSource.innerHTML = ''; 
+        if (videoSource)  videoSource.innerHTML = ''; //
         if (audioSource2) audioSource2.innerHTML = '<option value="">-- None --</option>'; //
 
         devices.forEach(d => {
@@ -400,17 +424,17 @@ async function getDevices() {
             opt.value = d.deviceId; //
             opt.text = d.label || `${d.kind} - ${d.deviceId.slice(0, 5)}`; //
             if (d.kind === 'audioinput') {
-                audioSource.appendChild(opt); //
+                if (audioSource)  audioSource.appendChild(opt); //
                 if (audioSource2) audioSource2.appendChild(opt.cloneNode(true)); //
             }
-            if (d.kind === 'videoinput') videoSource.appendChild(opt); //
+            if (d.kind === 'videoinput' && videoSource) videoSource.appendChild(opt); //
         });
 
         if (localStream) {
             const at = localStream.getAudioTracks()[0]; //
             const vt = localStream.getVideoTracks()[0]; //
-            if (at && at.getSettings().deviceId) audioSource.value = at.getSettings().deviceId; //
-            if (vt && vt.getSettings().deviceId) videoSource.value = vt.getSettings().deviceId; //
+            if (at && at.getSettings().deviceId && audioSource) audioSource.value = at.getSettings().deviceId; //
+            if (vt && vt.getSettings().deviceId && videoSource) videoSource.value = vt.getSettings().deviceId; //
         }
     } catch (e) {
         console.error(e); //
@@ -721,6 +745,15 @@ socket.on('call-request-received', ({ id, name }) => {
         privateLog.appendChild(div); //
         privateLog.scrollTop = privateLog.scrollHeight; //
     }
+
+    // NEW: behave like a call – give you a choice to ring them now
+    const doRing = confirm(
+        `${name} has requested to join the stream.\n\nRing them now?`
+    ); //
+    if (doRing && window.ringUser) {
+        window.ringUser(id); //
+    }
+
     renderUserList(); //
 });
 
@@ -1220,19 +1253,9 @@ socket.on('public-chat', d => {
         tabs.stream.classList.add('has-new'); //
     }
 
-    // Feed overlay chat buffer for HTML overlays that use {{chat}}
-    overlayChatLines.push({
-        name: d.name,
-        text: d.text,
-        ts: d.ts
-    });
-    if (overlayChatLines.length > MAX_OVERLAY_LINES) {
-        overlayChatLines.shift(); // keep buffer small
-    }
-
-    // If an overlay is active, re-render it so chat updates live
+    // When public chat updates & overlay is active, re-render layout
     if (overlayActive) {
-        renderHTMLLayout(currentRawHTML); // re-apply HTML with updated {{chat}}
+        renderHTMLLayout(currentRawHTML); //
     }
 });
 
