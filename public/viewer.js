@@ -103,7 +103,7 @@ function setupReceiver(pcInstance) {
                     const a = document.createElement("a");
                     a.href = url;
                     a.download = meta.name || "download.bin";
-                    a.className = "btn-ctrl pulse-primary"; // Added pulse-primary for high visibility
+                    a.className = "btn-ctrl pulse-primary"; // GUIDANCE PULSE PATCH
                     a.textContent = "Download";
 
                     actions.appendChild(a);
@@ -113,9 +113,7 @@ function setupReceiver(pcInstance) {
                 }
 
                 console.log("[Arcade] Complete:", meta.name);
-                meta = null;
-                chunks = [];
-                received = 0;
+                meta = null; chunks = []; received = 0;
                 chan.close();
             }
         };
@@ -160,7 +158,7 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
             const status = $("viewerStatus");
             if (status) {
                 status.textContent = "LIVE";
-                status.classList.add('live'); // Green indicator
+                status.classList.add('live');
             }
         };
 
@@ -182,8 +180,7 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
             sdp: answer
         });
 
-        // NEW: Initiate stats polling
-        startStatsReporting(pc);
+        startStatsReporting(pc); // INITIATE POLLING PATCH
 
     } catch (err) {
         console.error("[Viewer] webrtc-offer failed", err);
@@ -406,7 +403,7 @@ window.addEventListener("load", () => {
     if (requestBtn) {
         requestBtn.onclick = () => {
             socket.emit("request-to-call");
-            document.body.classList.add('hand-active'); // Visual patch
+            document.body.classList.add('hand-active'); // VISUAL FEEDBACK PATCH
             requestBtn.textContent = "Request Sent ✋";
             requestBtn.disabled = true;
         };
@@ -425,7 +422,7 @@ window.addEventListener("load", () => {
             if (willUnmute) {
                 v.play().catch(() => {});
                 unmuteBtn.textContent = "🔊 Mute";
-                unmuteBtn.classList.remove('pulse-primary'); // End guidance pulse
+                unmuteBtn.classList.remove('pulse-primary'); // GUIDANCE END PATCH
             } else {
                 unmuteBtn.textContent = "🔇 Unmute";
             }
