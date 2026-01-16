@@ -1,18 +1,7 @@
-// =============================================================
-// ICE CONFIGURATION (STUN + TURN + TURNS)
-// =============================================================
-// 1. STUN: Finds your IP (WiFi).
-// 2. TURN: Relays video over UDP/TCP.
-// 3. TURNS: Relays video over TLS 443 (Vital for Mobile 4G/5G).
-
+// REBEL STREAM - SECURE ICE BRIDGE
 const ICE_SERVERS = [
-  // 1. Fast Google STUN (First check)
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-
-  // 2. Standard TURN (OpenRelay Free Tier)
   {
-    urls: 'turn:openrelay.metered.ca:80',
+    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
     username: 'openrelayproject',
     credential: 'openrelayproject'
   },
@@ -21,18 +10,11 @@ const ICE_SERVERS = [
     username: 'openrelayproject',
     credential: 'openrelayproject'
   },
-  {
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  },
-
-  // 3. SECURE TURNS (The "Mobile Fix")
-  // Uses TLS on Port 443 to look like regular HTTPS web traffic.
-  // This bypasses strict mobile carrier firewalls.
-  {
-    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  }
+  { urls: 'stun:stun.l.google.com:19302' }
 ];
+
+const rtcConfig = {
+  iceServers: ICE_SERVERS,
+  iceTransportPolicy: 'all',
+  bundlePolicy: 'max-bundle'
+};
