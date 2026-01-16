@@ -83,8 +83,6 @@ let isPrivateMode = false; //
 let allowedGuests = []; //
 let mutedUsers = new Set(); //
 
-let publicChatBuffer = []; // Buffer of recent PUBLIC chat messages for overlays
-
 let localStream = null; //
 let screenStream = null; //
 let isScreenSharing = false; //
@@ -107,6 +105,33 @@ let activeGuestId = null; //
 let overlayActive = false; //
 let overlayImage = new Image(); //
 let currentRawHTML = ""; //
+
+// Overlay chat buffer for HTML layouts ({{chat}})
+let overlayChatLines = []; // { name, text, ts }
+const MAX_OVERLAY_LINES = 30;
+
+function escapeHTML(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function buildOverlayChatHTML() {
+    return overlayChatLines.map(msg => {
+        const time = new Date(msg.ts).toLocaleTimeString();
+        return `
+            <div class="ov-chat-line">
+                <span class="ov-chat-name">${escapeHTML(msg.name)}</span>
+                <span class="ov-chat-time">${escapeHTML(time)}</span>
+                <span class="ov-chat-text">${escapeHTML(msg.text)}</span>
+            </div>
+        `;
+    }).join('');
+}
+
 
 const viewerPeers = {}; //
 const callPeers = {}; //
@@ -262,16 +287,6 @@ if (previewModal) {
 }
 
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS ---
-
-function escapeHTML(str) {
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return; //
     currentRawHTML = htmlString; //
@@ -281,21 +296,7 @@ function renderHTMLLayout(htmlString) {
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
 
-    // Build chat HTML from recent PUBLIC messages
-    let chatHTML = "";
-    if (publicChatBuffer.length) {
-        const recent = publicChatBuffer.slice(-25); // last 25 messages
-        chatHTML = recent.map(msg => {
-            const timeStr = new Date(msg.ts).toLocaleTimeString();
-            return `
-                <div class="ov-chat-line">
-                    <span class="ov-chat-name">${escapeHTML(msg.name)}</span>
-                    <span class="ov-chat-time">${escapeHTML(timeStr)}</span>
-                    <span class="ov-chat-text">${escapeHTML(msg.text)}</span>
-                </div>
-            `;
-        }).join("");
-    }
+    const chatHTML = buildOverlayChatHTML(); //
 
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
@@ -1140,14 +1141,6 @@ function renderGuestList() {
 function appendChat(log, name, text, ts) {
     if (!log) return; //
 
-    // If this is the PUBLIC chat log, keep a light buffer for overlays
-    if (log.id === 'chatLogPublic') {
-        publicChatBuffer.push({ name, text, ts }); //
-        if (publicChatBuffer.length > 50) {
-            publicChatBuffer.shift(); // keep last 50
-        }
-    }
-
     const d = document.createElement('div'); //
     d.className = 'chat-line'; //
 
@@ -1226,6 +1219,20 @@ socket.on('public-chat', d => {
     appendChat(log, d.name, d.text, d.ts); //
     if (tabs.stream && !tabs.stream.classList.contains('active')) {
         tabs.stream.classList.add('has-new'); //
+    }
+
+    // Feed overlay chat buffer for HTML layouts
+    overlayChatLines.push({
+        name: d.name,
+        text: d.text,
+        ts: d.ts
+    });
+    if (overlayChatLines.length > MAX_OVERLAY_LINES) {
+        overlayChatLines.shift(); //
+    }
+
+    if (overlayActive) {
+        renderHTMLLayout(currentRawHTML); //
     }
 });
 
