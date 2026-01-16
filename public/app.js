@@ -103,6 +103,7 @@ let activeToolboxFile = null; //
 
 let audioContext = null; //
 let audioDestination = null; //
+const audioAnalysers = {}; // NEW: Professional Audio Analysis state
 
 // Canvas for mixing
 let canvas = document.createElement('canvas'); //
@@ -125,10 +126,20 @@ const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
     : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }; //
 
 // ======================================================
-// 3. CANVAS MIXER ENGINE (The "Broadcast" Logic)
+// 3. CANVAS MIXER ENGINE (UPDATED: CPU Optimization)
 // ======================================================
 
-function drawMixer() {
+let lastDrawTime = 0;
+const fpsInterval = 1000 / 30; // NEW: Target 30 FPS Lock
+
+function drawMixer(timestamp) {
+    requestAnimationFrame(drawMixer);
+
+    // NEW: Frame Throttling Logic
+    const elapsed = timestamp - lastDrawTime;
+    if (elapsed < fpsInterval) return;
+    lastDrawTime = timestamp - (elapsed % fpsInterval);
+
     if (!ctx) return; //
     
     ctx.fillStyle = '#000'; //
@@ -225,12 +236,62 @@ function drawMixer() {
     if (overlayActive && overlayImage.complete) {
         ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height); //
     }
-
-    requestAnimationFrame(drawMixer); //
 }
 
+// ======================================================
+// AUDIO ANALYSIS HELPERS (NEW PATCH)
+// ======================================================
+function setupAudioAnalysis(id, stream) {
+    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        audioAnalysers[id] = {
+            analyser,
+            data: new Uint8Array(analyser.frequencyBinCount),
+            vol: 0
+        };
+    } catch (e) { console.warn("Audio analysis init failed", e); }
+}
+
+// ======================================================
+// BITRATE & STATS HELPERS (NEW PATCH)
+// ======================================================
+async function applyBitrateConstraints(pc) {
+    const senders = pc.getSenders();
+    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+    if (videoSender) {
+        try {
+            const parameters = videoSender.getParameters();
+            if (!parameters.encodings) parameters.encodings = [{}];
+            parameters.encodings[0].maxBitrate = 2500 * 1000; // 2.5 Mbps cap
+            await videoSender.setParameters(parameters);
+        } catch (e) { console.error("Bitrate cap failed", e); }
+    }
+}
+
+setInterval(async () => {
+    for (const id in viewerPeers) {
+        const pc = viewerPeers[id];
+        if (pc.connectionState !== 'connected') continue;
+        const stats = await pc.getStats();
+        stats.forEach(report => {
+            if (report.type === 'remote-inbound-rtp') {
+                const badge = document.getElementById(`stats-${id}`);
+                if (badge) {
+                    const rtt = report.roundTripTime ? Math.round(report.roundTripTime * 1000) : 0;
+                    const loss = report.fractionLost ? (report.fractionLost * 100).toFixed(1) : 0;
+                    badge.innerHTML = `⏱️ ${rtt}ms | 📉 ${loss}%`;
+                }
+            }
+        });
+    }
+}, 2000);
+
 canvasStream = canvas.captureStream(30); //
-drawMixer(); //
+requestAnimationFrame(drawMixer); //
 
 // --- STREAM PREVIEW POPUP (HOST MONITOR) ---
 const previewModal = $('streamPreviewModal'); //
@@ -447,7 +508,7 @@ if (videoSource)  videoSource.onchange  = startLocalMedia; //
 if (videoQuality) videoQuality.onchange = startLocalMedia; //
 
 // ======================================================
-// 6. MEDIA CONTROLS
+// 6. MEDIA CONTROLS (UPDATED: High-Stability Constraints)
 // ======================================================
 
 async function startLocalMedia() {
@@ -476,18 +537,24 @@ async function startLocalMedia() {
             audio: {
                 deviceId: audioSource && audioSource.value
                     ? { exact: audioSource.value }
-                    : undefined
+                    : undefined,
+                echoCancellation: true,    // Professional stability patch
+                noiseSuppression: true,
+                autoGainControl: true
             },
             video: {
                 deviceId: videoSource && videoSource.value
                     ? { exact: videoSource.value }
                     : undefined,
                 width:  widthConstraint,
-                height: heightConstraint
+                height: heightConstraint,
+                frameRate: { max: 30 }
             }
         }; //
 
         const mainStream = await navigator.mediaDevices.getUserMedia(constraints); //
+        setupAudioAnalysis('local', mainStream); // Audio Patch
+
         let finalAudioTrack = mainStream.getAudioTracks()[0]; //
 
         const secondaryId = audioSource2 ? audioSource2.value : null; //
@@ -854,7 +921,7 @@ function endPeerCall(id, isIncomingSignal) {
 }
 
 // ======================================================
-// 10. VIEWER CONNECTION & ARCADE PUSH
+// 10. VIEWER CONNECTION & ARCADE PUSH (UPDATED: Bitrate Patch)
 // ======================================================
 
 async function connectViewer(targetId) {
@@ -887,6 +954,9 @@ async function connectViewer(targetId) {
 
     const offer = await pc.createOffer(); //
     await pc.setLocalDescription(offer); //
+
+    // NEW: Apply Bitrate Patch before signaling
+    await applyBitrateConstraints(pc);
 
     socket.emit('webrtc-offer', { targetId, sdp: offer }); //
 }
@@ -1408,7 +1478,7 @@ window.clearOverlay = () => {
 };
 
 // ======================================================
-// 16. USER LIST & MIXER SELECTION
+// 16. USER LIST & MIXER SELECTION (UPDATED: Stats Support)
 // ======================================================
 
 function renderUserList() {
@@ -1444,6 +1514,12 @@ function renderUserList() {
             if (u.requestingCall) {
                 nameSpan.innerHTML += ' <span title="Requesting to Join Stream">✋</span>'; //
             }
+
+            // NEW: Stats badge container for real-time monitoring
+            const statsBadge = document.createElement('small');
+            statsBadge.id = `stats-${u.id}`;
+            statsBadge.style.cssText = "margin-left:8px; font-size:0.6rem; opacity:0.7;";
+            nameSpan.appendChild(statsBadge);
 
             const actions = document.createElement('div'); //
             actions.className = 'user-actions'; //
@@ -1543,12 +1619,14 @@ function addRemoteVideo(id, stream) {
     const v = d.querySelector('video'); //
     if (v && v.srcObject !== stream) {
         v.srcObject = stream; //
+        setupAudioAnalysis(id, stream); // NEW: Remote audio tracking
     }
 }
 
 function removeRemoteVideo(id) {
     const el = document.getElementById(`vid-${id}`); //
     if (el) el.remove(); //
+    if (audioAnalysers[id]) delete audioAnalysers[id]; // Cleanup analyser
 }
 
 window.ringUser = (id) => socket.emit('ring-user', id); //
