@@ -184,6 +184,33 @@ async function ensureLocalCallStream() {
     }
 }
 
+/**
+ * Throttle the viewer's outgoing "on-stage" call video
+ * so it doesn't hammer the host / network.
+ */
+function applyCallThrottling(pcInstance) {
+    if (!pcInstance || !pcInstance.getSenders) return;
+    try {
+        const senders = pcInstance.getSenders();
+        senders.forEach((sender) => {
+            if (!sender.track || sender.track.kind !== "video") return;
+
+            const params = sender.getParameters();
+            params.encodings = params.encodings || [{}];
+
+            // ~800 kbps at 30fps – enough for stage cam, not too heavy.
+            params.encodings[0].maxBitrate = 800 * 1000;
+            params.encodings[0].maxFramerate = 30;
+
+            sender.setParameters(params).catch(() => {
+                // some browsers might ignore this – that's fine.
+            });
+        });
+    } catch (e) {
+        console.warn("[Viewer] call throttle failed", e);
+    }
+}
+
 // Host presses “Accept & Call” → server sends ring-alert to this viewer
 socket.on("ring-alert", async ({ from, fromId }) => {
     const ok = confirm(
@@ -228,6 +255,9 @@ async function startCallToHost(targetId) {
     };
 
     localCallStream.getTracks().forEach(t => pc2.addTrack(t, localCallStream));
+
+    // 🔻 NEW: apply gentle bitrate/framerate cap to viewer's outgoing stage cam
+    applyCallThrottling(pc2);
 
     const offer = await pc2.createOffer();
     await pc2.setLocalDescription(offer);
