@@ -1,133 +1,243 @@
 const $ = id => document.getElementById(id);
 const socket = io({ autoConnect: false });
-const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
+    ? { iceServers: ICE_SERVERS }
+    : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-let pc = null;
+let pc = null;              // stream PC (host → viewer)
 let currentRoom = null;
-let myName = "Viewer-" + Math.floor(Math.random()*1000);
+let myName = "Viewer-" + Math.floor(Math.random() * 1000);
 
 // ==========================================
 // 1. ARCADE RECEIVER (Game -> Chat Logic)
 // ==========================================
 function setupReceiver(pc) {
     pc.ondatachannel = (e) => {
-        if(e.channel.label !== "side-load-pipe") return; 
+        if (e.channel.label !== "side-load-pipe") return;
         const chan = e.channel;
         let chunks = [], total = 0, curr = 0, meta = null;
 
-        chan.onmessage = (evt) => {
-            if(typeof evt.data === 'string') {
-                try { 
-                    meta = JSON.parse(evt.data); 
-                    total = meta.size; 
-                    console.log(`[Arcade] Receiving: ${meta.name}`);
-                } catch(e){}
-            } else {
-                chunks.push(evt.data); 
-                curr += evt.data.byteLength;
-                
-                if(curr >= total) {
-                    const blob = new Blob(chunks, {type: meta?meta.mime:'application/octet-stream'});
-                    const url = URL.createObjectURL(blob);
-                    addGameToChat(url, meta?meta.name:'Tool');
-                    chan.close();
+        chan.onmessage = (ev) => {
+            if (!meta) {
+                try {
+                    meta = JSON.parse(ev.data);
+                    if (meta.type !== 'meta') meta = null;
+                    return;
+                } catch {
+                    meta = null;
+                    return;
                 }
+            }
+
+            const chunk = ev.data;
+            chunks.push(chunk);
+            curr += chunk.byteLength;
+
+            if (curr >= meta.size) {
+                const blob = new Blob(chunks, { type: meta.mime || 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+
+                const toolbox = $('toolboxContainer');
+                if (toolbox) {
+                    const card = document.createElement('div');
+                    card.className = 'toolbox-card';
+
+                    const title = document.createElement('div');
+                    title.className = 'toolbox-title';
+                    title.textContent = meta.name || 'Received Tool';
+
+                    const actions = document.createElement('div');
+                    actions.className = 'toolbox-actions';
+
+                    const download = document.createElement('a');
+                    download.href = url;
+                    download.download = meta.name || 'download.bin';
+                    download.textContent = 'Download';
+                    download.className = 'btn-ctrl';
+
+                    actions.appendChild(download);
+                    card.appendChild(title);
+                    card.appendChild(actions);
+                    toolbox.appendChild(card);
+                }
+
+                meta = null;
+                chunks = [];
+                curr = 0;
             }
         };
     };
 }
 
-function addGameToChat(url, name) {
-    const log = $('chatLog');
-    if(!log) return;
-    const div = document.createElement('div');
-    div.className = 'chat-line system-msg';
-    div.innerHTML = `
-        <div style="background:rgba(74,243,163,0.1); border:1px solid #4af3a3; padding:10px; border-radius:8px; text-align:center; margin: 10px 0;">
-            <div style="color:#4af3a3; font-weight:bold; margin-bottom:5px;">🚀 TOOL RECEIVED: ${name}</div>
-            <a href="${url}" download="${name}" style="background:#4af3a3; color:#000; padding:6px 12px; border-radius:4px; display:inline-block; text-decoration:none; font-weight:bold; font-size:0.8rem;">LAUNCH NOW</a>
-        </div>`;
-    log.appendChild(div); 
-    log.scrollTop = log.scrollHeight;
+// ==========================================
+// 2. STREAM SETUP (Host → Viewer Video)
+// ==========================================
+async function joinAsViewer(room) {
+    currentRoom = room;
+    socket.connect();
+    socket.emit('join-room', { room, name: myName, isViewer: true });
 }
 
-// ==========================================
-// 2. ROOM & CONNECTION LOGIC
-// ==========================================
-const params = new URLSearchParams(location.search);
-const room = params.get('room');
-if(room) { 
-    currentRoom = room; 
-    myName = prompt("Enter your display name:") || myName;
-    socket.connect(); 
-    // Join specifically as a viewer
-    socket.emit('join-room', {room, name:myName, isViewer: true}); 
-}
-
-socket.on('webrtc-offer', async ({sdp, from}) => {
-    if(pc) pc.close();
-    
-    pc = new RTCPeerConnection(iceConfig);
-    setupReceiver(pc);
-    
-    pc.ontrack = e => { 
-        if($('viewerVideo').srcObject !== e.streams[0]) {
-            $('viewerVideo').srcObject = e.streams[0];
-            if($('viewerStatus')) {
-                $('viewerStatus').textContent = "LIVE";
-                $('viewerStatus').style.background = "var(--accent)";
-            }
-        }
-    };
-    
-    pc.onicecandidate = e => { 
-        if(e.candidate) socket.emit('webrtc-ice-candidate', {targetId:from, candidate:e.candidate}); 
-    };
-    
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const ans = await pc.createAnswer();
-    await pc.setLocalDescription(ans);
-    socket.emit('webrtc-answer', {targetId:from, sdp:ans});
-});
-
-socket.on('webrtc-ice-candidate', async ({candidate}) => { 
-    if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
-});
-
-// ==========================================
-// 3. CHAT & UI LOGIC
-// ==========================================
-
-// Handle call accept if the host calls the viewer
-socket.on('ring-alert', async ({ from }) => {
-    if (confirm(`Host ${from} is calling you on stage! Click OK to switch to Guest Mode and enable your camera.`)) {
-       joinAsGuest();
+socket.on('connect', () => {
+    const status = $('viewerStatus');
+    if (status) {
+        status.textContent = 'CONNECTED';
+        status.classList.remove('status-offline');
+        status.classList.add('status-online');
     }
 });
 
-function joinAsGuest() {
-    const mainAppUrl = new URL(window.location.href);
-    mainAppUrl.pathname = mainAppUrl.pathname.replace('view.html', 'index.html');
-    mainAppUrl.searchParams.set('room', currentRoom);
-    mainAppUrl.searchParams.set('name', myName);
-    window.location.href = mainAppUrl.toString();
+socket.on('disconnect', () => {
+    const status = $('viewerStatus');
+    if (status) {
+        status.textContent = 'OFFLINE';
+        status.classList.remove('status-online');
+        status.classList.add('status-offline');
+    }
+});
+
+socket.on('webrtc-offer', async ({ sdp }) => {
+    if (pc) {
+        try { pc.close(); } catch (e) { }
+        pc = null;
+    }
+    pc = new RTCPeerConnection(iceConfig);
+    setupReceiver(pc);
+
+    pc.ontrack = (e) => {
+        const v = $('viewerVideo');
+        if (v && !v.srcObject) {
+            v.srcObject = e.streams[0];
+            v.play().catch(() => { });
+        }
+    };
+
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('webrtc-answer', { sdp: answer });
+});
+
+socket.on('webrtc-ice-candidate', async ({ candidate }) => {
+    if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+});
+
+// ==========================================
+// 3. CHAT & CALL REQUEST LOGIC
+// ==========================================
+
+// Separate peer for stage call (host <-> viewer)
+let callPc = null;
+let localCallStream = null;
+
+// Handle call accept if the host calls the viewer
+// A-mode: viewer stays on this page, sends camera/mic up,
+// host can then mix them like any other guest call.
+socket.on('ring-alert', async ({ from, fromId }) => {
+    const ok = confirm(
+        `Host ${from} is calling you on stage! Click OK to share your camera and join the mix.`
+    );
+    if (!ok) return;
+    try {
+        await startStageCall(fromId);
+    } catch (err) {
+        console.error('Stage call failed:', err);
+        alert('Could not start call – check camera/mic permissions.');
+    }
+});
+
+async function startStageCall(targetId) {
+    // Get media if not already grabbed
+    if (!localCallStream) {
+        localCallStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+        });
+
+        // Optional: if you add <video id="selfCamPreview"> to view.html,
+        // you get a little local preview of your own cam.
+        const selfVideo = $('selfCamPreview');
+        if (selfVideo) {
+            selfVideo.srcObject = localCallStream;
+            selfVideo.muted = true;
+            selfVideo.play().catch(() => { });
+        }
+    }
+
+    // Close any old call
+    if (callPc) {
+        try { callPc.close(); } catch (e) { }
+        callPc = null;
+    }
+
+    callPc = new RTCPeerConnection(iceConfig);
+
+    // ICE → host
+    callPc.onicecandidate = (e) => {
+        if (e.candidate) {
+            socket.emit('call-ice', {
+                targetId,
+                candidate: e.candidate
+            });
+        }
+    };
+
+    // Optional: if host sends a separate direct cam back, we just log it.
+    callPc.ontrack = (e) => {
+        console.log('Stage call remote track from host:', e.streams[0]);
+    };
+
+    // Attach our cam/mic to the peer connection
+    localCallStream.getTracks().forEach(t => callPc.addTrack(t, localCallStream));
+
+    const offer = await callPc.createOffer();
+    await callPc.setLocalDescription(offer);
+
+    socket.emit('call-offer', { targetId, offer });
 }
 
-socket.on('public-chat', d => { 
+// Answer / ICE from host for the stage call
+socket.on('call-answer', async ({ from, answer }) => {
+    if (!callPc) return;
+    try {
+        await callPc.setRemoteDescription(new RTCSessionDescription(answer));
+    } catch (e) {
+        console.error('Failed to apply stage call answer:', e);
+    }
+});
+
+socket.on('call-ice', async ({ from, candidate }) => {
+    if (!callPc || !candidate) return;
+    try {
+        await callPc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (e) {
+        console.error('Failed to add stage ICE candidate:', e);
+    }
+});
+
+socket.on('call-end', ({ from }) => {
+    if (!callPc) return;
+    try { callPc.close(); } catch (e) { }
+    callPc = null;
+});
+
+// === Chat display ===
+socket.on('public-chat', d => {
     const log = $('chatLog');
-    if(!log) return;
-    
-    const div = document.createElement('div'); 
+    if (!log) return;
+
+    const div = document.createElement('div');
     div.className = 'chat-line';
-    
+
     const name = document.createElement('strong');
-    name.textContent = d.name;
+    name.textContent = d.name + ': ';
+
     const msg = document.createElement('span');
-    msg.textContent = `: ${d.text}`;
-    
+    msg.textContent = d.text;
+
     div.appendChild(name);
     div.appendChild(msg);
-    log.appendChild(div); 
+    log.appendChild(div);
     log.scrollTop = log.scrollHeight;
 });
 
@@ -141,58 +251,75 @@ socket.on('room-error', (err) => {
     window.location.href = "index.html";
 });
 
-// Chat Input
-$('sendBtn').onclick = () => { 
-    const inp = $('chatInput');
-    if(!inp || !inp.value.trim()) return;
-    socket.emit('public-chat', {room:currentRoom, text:inp.value, name:myName, fromViewer:true}); 
-    inp.value=''; 
-};
+// ==========================================
+// 4. VIEWER UI WIRING
+// ==========================================
+window.addEventListener('load', () => {
+    const url = new URL(window.location.href);
+    const room = url.searchParams.get('room') || 'lobby';
+    const name = url.searchParams.get('name');
 
-if($('chatInput')) {
-    $('chatInput').onkeydown = (e) => {
-        if(e.key === 'Enter') $('sendBtn').onclick();
-    };
-}
+    if (name) myName = name;
 
-// Hand Raise Button logic
-if($('requestCallBtn')) {
-    $('requestCallBtn').onclick = () => {
-        socket.emit('request-to-call');
-        $('requestCallBtn').textContent = "Request Sent ✋";
-        $('requestCallBtn').disabled = true;
-    };
-}
+    const nameLabel = $('viewerNameLabel');
+    if (nameLabel) nameLabel.textContent = myName;
 
-if($('emojiStrip')) {
-    $('emojiStrip').onclick = (e) => {
-        if(e.target.classList.contains('emoji')) {
-            $('chatInput').value += e.target.textContent;
-        }
-    };
-}
+    joinAsViewer(room);
 
-// UI Controls
-if($('unmuteBtn')) {
-    $('unmuteBtn').onclick = () => {
-        const v = $('viewerVideo');
-        v.muted = !v.muted;
-        $('unmuteBtn').textContent = v.muted ? "🔇 Unmute" : "🔊 Muted";
-    };
-}
+    if ($('requestCallBtn')) {
+        $('requestCallBtn').onclick = () => {
+            socket.emit('request-to-call');
+            $('requestCallBtn').textContent = "Request Sent ✋";
+            $('requestCallBtn').disabled = true;
+        };
+    }
 
-if($('fullscreenBtn')) {
-    $('fullscreenBtn').onclick = () => {
-        const v = $('viewerVideo');
-        if (v.requestFullscreen) v.requestFullscreen();
-        else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
-        else if (v.msRequestFullscreen) v.msRequestFullscreen();
-    };
-}
+    if ($('unmuteBtn')) {
+        $('unmuteBtn').onclick = () => {
+            const v = $('viewerVideo');
+            if (!v) return;
+            v.muted = !v.muted;
+            $('unmuteBtn').textContent = v.muted ? '🔇 Unmute' : '🔊 Mute';
+        };
+    }
 
-if($('toggleChatBtn')) {
-    $('toggleChatBtn').onclick = () => {
-        const box = $('chatBox');
-        box.classList.toggle('hidden');
-    };
+    if ($('fullscreenBtn')) {
+        $('fullscreenBtn').onclick = () => {
+            const v = $('viewerVideo');
+            if (v.requestFullscreen) v.requestFullscreen();
+            else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
+            else if (v.msRequestFullscreen) v.msRequestFullscreen();
+        };
+    }
+
+    if ($('toggleChatBtn')) {
+        $('toggleChatBtn').onclick = () => {
+            const box = $('chatBox');
+            if (box) box.classList.toggle('hidden');
+        };
+    }
+
+    if ($('chatInput') && $('chatSendBtn')) {
+        $('chatSendBtn').onclick = () => sendChat();
+        $('chatInput').onkeydown = (e) => {
+            if (e.key === 'Enter') sendChat();
+        };
+    }
+});
+
+// Viewer chat send (to be relayed as fromViewer)
+function sendChat() {
+    const input = $('chatInput');
+    if (!input || !currentRoom) return;
+    const text = input.value.trim();
+    if (!text) return;
+
+    socket.emit('public-chat', {
+        room: currentRoom,
+        name: myName,
+        text,
+        fromViewer: true
+    });
+
+    input.value = '';
 }
