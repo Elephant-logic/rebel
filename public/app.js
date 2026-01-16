@@ -106,17 +106,17 @@ let overlayActive = false; //
 let overlayImage = new Image(); //
 let currentRawHTML = ""; //
 
-// Overlay chat buffer for HTML layouts ({{chat}})
+// Overlay chat buffer for HTML overlays ({{chat}})
 let overlayChatLines = []; // { name, text, ts }
-const MAX_OVERLAY_LINES = 30;
+const MAX_OVERLAY_LINES = 30; // keep the last 30 lines for overlay
 
 function escapeHTML(str) {
     return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 
 function buildOverlayChatHTML() {
@@ -129,9 +129,8 @@ function buildOverlayChatHTML() {
                 <span class="ov-chat-text">${escapeHTML(msg.text)}</span>
             </div>
         `;
-    }).join('');
+    }).join("");
 }
-
 
 const viewerPeers = {}; //
 const callPeers = {}; //
@@ -296,13 +295,13 @@ function renderHTMLLayout(htmlString) {
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
 
-    const chatHTML = buildOverlayChatHTML(); //
+    const chatHTML = buildOverlayChatHTML(); // build overlay chat markup
 
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
-        .replace(/{{chat}}/g, chatHTML); //
+        .replace(/{{chat}}/g, chatHTML); // inject chat overlay
 
     const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
@@ -1221,18 +1220,19 @@ socket.on('public-chat', d => {
         tabs.stream.classList.add('has-new'); //
     }
 
-    // Feed overlay chat buffer for HTML layouts
+    // Feed overlay chat buffer for HTML overlays that use {{chat}}
     overlayChatLines.push({
         name: d.name,
         text: d.text,
         ts: d.ts
     });
     if (overlayChatLines.length > MAX_OVERLAY_LINES) {
-        overlayChatLines.shift(); //
+        overlayChatLines.shift(); // keep buffer small
     }
 
+    // If an overlay is active, re-render it so chat updates live
     if (overlayActive) {
-        renderHTMLLayout(currentRawHTML); //
+        renderHTMLLayout(currentRawHTML); // re-apply HTML with updated {{chat}}
     }
 });
 
