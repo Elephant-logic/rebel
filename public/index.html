@@ -55,6 +55,9 @@
 
           <div class="field" style="margin-top:15px; border-top:1px solid var(--border); padding-top:10px;">
             <label style="color:var(--accent);">🎨 HTML Layout Side-Loader</label>
+            <p style="font-size:0.7rem; color:var(--muted); margin-bottom:5px;">
+              Upload HTML to overlay graphics across all screens.
+            </p>
             <div style="display:flex; gap:5px;">
               <label class="btn primary small" style="cursor: pointer; flex:1; text-align: center;">
                 <input id="htmlOverlayInput" type="file" accept=".html" hidden /> 
@@ -87,6 +90,9 @@
 
           <div class="field" style="margin-top:20px; border-top:1px solid var(--border); padding-top:10px;">
             <label style="color:var(--accent);">🕹️ Arcade / Toolbox</label>
+            <p style="font-size:0.7rem; color:var(--muted); margin-bottom:5px;">
+              Load a Game/Tool. Everyone gets it automatically.
+            </p>
             <label class="btn primary full-width" style="cursor: pointer; text-align: center;">
               <input id="arcadeInput" type="file" hidden /> 
               <span>📂 Load to Arcade</span>
@@ -122,6 +128,7 @@
             <select id="audioSource2">
                 <option value="">-- None --</option>
             </select>
+            <p style="font-size:0.7rem; color:var(--muted);">Combine mic with Loopback/Music.</p>
           </div>
           <button id="closeSettingsBtn" class="btn small full-width">Close Settings</button>
         </div>
@@ -129,9 +136,9 @@
         <div class="mixer-controls">
            <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
            <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
-           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ PiP</button>
-           <button class="mixer-btn" onclick="setMixerLayout('PIP_INVERTED')">🔄 Inverted PiP</button>
-           <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ PiP (Guest Sm)</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP_INVERTED')">🔄 Inverted PiP (You Sm)</button>
+           <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split (Dynamic)</button>
         </div>
 
         <div id="videoGrid" class="video-grid">
@@ -142,12 +149,14 @@
         </div>
 
         <div class="call-controls">
-          <button id="startStreamBtn" class="btn primary">Start Stream</button>
+          <div style="display:flex; gap:5px; border-right:1px solid var(--border); padding-right:10px; margin-right:5px;">
+             <button id="startStreamBtn" class="btn primary">Start Stream</button>
+          </div>
           <button id="toggleCamBtn" class="btn">Camera Off</button>
           <button id="toggleMicBtn" class="btn">Mute</button>
           <button id="settingsBtn" class="btn secondary">⚙️ Settings</button>
           <button id="shareScreenBtn" class="btn secondary">Share Screen</button>
-          <button id="previewStreamBtn" class="btn secondary">Preview</button>
+          <button id="previewStreamBtn" class="btn secondary">Preview Stream</button>
           <button id="hangupBtn" class="btn danger" disabled>End Call</button>
         </div>
 
@@ -157,7 +166,11 @@
                <input id="streamLinkInput" class="file-name" readonly style="flex:1; background:transparent; border:none; color:var(--muted); padding-left:10px;" />
                <button id="openStreamBtn" class="btn small">Open</button>
            </div>
-           <div id="qrcode" style="align-self: flex-end; padding:8px; background:#fff; border-radius:4px;"></div>
+           
+           <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px;">
+               <div style="font-size: 0.75rem; color: var(--accent); font-weight: bold;">Scan to Share Secure Stream:</div>
+               <div id="qrcode" style="padding:8px; background:#fff; border-radius:4px; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>
+           </div>
         </div>
 
         <div class="chat-panel">
@@ -170,31 +183,41 @@
 
           <div id="contentStreamChat" class="tab-content active">
             <div id="chatLogPublic" class="chat-log"></div>
+            <div id="emojiStripPublic" class="emoji-strip">
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
+            </div>
             <div class="chat-input-row">
-              <input id="inputPublic" type="text" placeholder="Message Stream..." />
+              <input id="inputPublic" type="text" placeholder="Message Stream (Public)..." />
               <button id="btnSendPublic" class="btn primary">Send</button>
             </div>
           </div>
 
           <div id="contentRoomChat" class="tab-content">
             <div id="chatLogPrivate" class="chat-log"></div>
+            <div id="emojiStripPrivate" class="emoji-strip">
+              <span class="emoji">😀</span><span class="emoji">😂</span><span class="emoji">👍</span><span class="emoji">🔥</span><span class="emoji">💀</span><span class="emoji">❤️</span>
+            </div>
             <div class="chat-input-row">
-              <input id="inputPrivate" type="text" placeholder="Message Room..." />
+              <input id="inputPrivate" type="text" placeholder="Message Room (Private)..." />
               <button id="btnSendPrivate" class="btn primary">Send</button>
             </div>
           </div>
 
           <div id="contentFiles" class="tab-content">
-             <div class="file-upload-area" style="display:flex; gap:10px;">
-                <input id="fileInput" type="file" hidden /> 
-                <label for="fileInput" class="btn secondary" style="flex:1;">📎 Choose File</label>
-                <span id="fileNameLabel" style="flex:2; color:var(--muted);">No file selected</span>
+             <div class="file-upload-area">
+                <label class="btn secondary" style="flex:1;">
+                  <input id="fileInput" type="file" hidden /> 📎 Choose File
+                </label>
+                <span id="fileNameLabel" style="font-size:0.8rem; margin:0 8px; color:var(--muted); flex:2; overflow:hidden; text-overflow:ellipsis;">No file selected</span>
                 <button id="sendFileBtn" class="btn primary" disabled>Send</button>
              </div>
-             <div id="fileLog" class="files-list"></div>
+             <div class="files-list">
+                <div id="fileLog" class="file-log"></div>
+             </div>
           </div>
 
           <div id="contentUsers" class="tab-content">
+             <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;">Active Users</h3>
              <div id="userList"></div>
           </div>
         </div>
@@ -205,7 +228,7 @@
   <div id="streamPreviewModal" class="preview-modal">
     <div class="preview-inner">
         <div class="preview-header">
-            <span>Stream Preview (Mixed Feed)</span>
+            <span>Stream Preview (What Viewers See)</span>
             <button id="closePreviewBtn" class="btn small">✕</button>
         </div>
         <video id="streamPreviewVideo" autoplay playsinline muted></video>
@@ -216,7 +239,7 @@
   <script src="config/ice.js"></script>
   <script src="app.js"></script>
   <script>
-    // AUTO-FILL LOGIC: Handles guests coming from view.html
+    // AUTO-FILL GUEST LOGIC
     window.addEventListener('load', () => {
       const params = new URLSearchParams(window.location.search);
       if (params.has('room')) document.getElementById('roomInput').value = params.get('room');
