@@ -39,7 +39,12 @@ function broadcastRoomUpdate(roomName) {
 
   const users = [];
   for (const [id, u] of room.users.entries()) {
-    users.push({ id, name: u.name });
+    users.push({ 
+        id, 
+        name: u.name, 
+        isViewer: u.isViewer, 
+        requestingCall: u.requestingCall 
+    });
   }
 
   io.to(roomName).emit('room-update', {
@@ -54,7 +59,7 @@ io.on('connection', (socket) => {
   socket.data.room = null;
   socket.data.name = null;
 
-  socket.on('join-room', ({ room, name }) => {
+  socket.on('join-room', ({ room, name, isViewer }) => {
     if (!room || typeof room !== 'string') {
       socket.emit('room-error', 'Invalid room');
       return;
@@ -75,12 +80,18 @@ io.on('connection', (socket) => {
     socket.join(roomName);
     socket.data.room = roomName;
     socket.data.name = displayName;
+    socket.data.isViewer = !!isViewer;
 
-    if (!info.ownerId) {
+    // Only assign host if they aren't a passive viewer
+    if (!info.ownerId && !isViewer) {
       info.ownerId = socket.id;
     }
 
-    info.users.set(socket.id, { name: displayName });
+    info.users.set(socket.id, { 
+        name: displayName, 
+        isViewer: !!isViewer,
+        requestingCall: false 
+    });
 
     socket.emit('role', { 
       isHost: info.ownerId === socket.id,
@@ -89,6 +100,26 @@ io.on('connection', (socket) => {
 
     socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
     broadcastRoomUpdate(roomName);
+  });
+
+  // Signal for viewers to request a call
+  socket.on('request-to-call', () => {
+    const roomName = socket.data.room;
+    if (!roomName) return;
+    const info = rooms[roomName];
+    const user = info?.users.get(socket.id);
+    
+    if (user) {
+        user.requestingCall = true;
+        // Notify host specifically
+        if (info.ownerId) {
+            io.to(info.ownerId).emit('call-request-received', { 
+                id: socket.id, 
+                name: socket.data.name 
+            });
+        }
+        broadcastRoomUpdate(roomName);
+    }
   });
 
   socket.on('promote-to-host', ({ targetId }) => {
