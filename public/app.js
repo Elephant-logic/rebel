@@ -264,7 +264,7 @@ function renderHTMLLayout(htmlString) {
     if (!htmlString) return; //
     currentRawHTML = htmlString; //
 
-    // Inject live stats into the overlay
+    // Separate Viewers from Guests for stats
     const viewerCount = latestUserList.filter(u => u.isViewer).length; //
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
@@ -972,7 +972,7 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
 
     renderUserList(); //
     
-    // Auto-update overlay stats when room state changes
+    // Auto-update overlay stats when user count changes
     if (overlayActive) {
         renderHTMLLayout(currentRawHTML); //
     }
