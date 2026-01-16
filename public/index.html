@@ -130,6 +130,7 @@
            <button class="mixer-btn active" onclick="setMixerLayout('SOLO')">👤 Solo</button>
            <button class="mixer-btn" onclick="setMixerLayout('GUEST')">👤 Guest</button>
            <button class="mixer-btn" onclick="setMixerLayout('PIP')">🖼️ PiP</button>
+           <button class="mixer-btn" onclick="setMixerLayout('PIP_INVERTED')">🔄 Inverted PiP</button>
            <button class="mixer-btn" onclick="setMixerLayout('SPLIT')">🌗 Split</button>
         </div>
 
@@ -215,6 +216,7 @@
   <script src="config/ice.js"></script>
   <script src="app.js"></script>
   <script>
+    // AUTO-FILL LOGIC: Handles guests coming from view.html
     window.addEventListener('load', () => {
       const params = new URLSearchParams(window.location.search);
       if (params.has('room')) document.getElementById('roomInput').value = params.get('room');
