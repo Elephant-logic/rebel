@@ -12,7 +12,7 @@
       .video-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: flex; align-items: center; justify-content: center; background: #000; }
       video { width: 100%; height: 100%; object-fit: contain; }
 
-      /* NEW: Visual Feedback for Hand Raising */
+      /* Visual feedback for hand raise */
       .hand-active #requestCallBtn {
           background: var(--accent);
           color: #000;
@@ -59,7 +59,7 @@
       }
       .btn-ctrl { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: 0.2s; }
       
-      /* NEW: Pulsing Animation for Unmute Bypass */
+      /* Pulsing Unmute */
       .btn-ctrl.pulse-primary {
           background: var(--accent);
           color: #000;
@@ -73,8 +73,6 @@
       }
 
       .status-pill { margin-right: auto; background: var(--danger); padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 0.8rem; }
-      
-      /* NEW: Live Status state */
       .status-pill.live { background: var(--accent); color: #000; }
     </style>
   </head>
@@ -110,14 +108,13 @@
 
             <button id="requestCallBtn" class="btn-ctrl">✋ Request to Join</button>
             <button id="toggleChatBtn" class="btn-ctrl">Toggle Chat</button>
-            
             <button id="unmuteBtn" class="btn-ctrl pulse-primary">🔇 Unmute</button>
-            
             <button id="fullscreenBtn" class="btn-ctrl">⛶ Fullscreen</button>
         </div>
     </div>
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
     <script src="config/ice.js"></script>
-    <script src="viewer.js"></script>
+    <!-- IMPORTANT: cache-bust so you actually get the new viewer.js -->
+    <script src="viewer.js?v=3"></script>
   </body>
 </html>
