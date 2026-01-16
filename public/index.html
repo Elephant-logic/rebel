@@ -215,7 +215,6 @@
   <script src="config/ice.js"></script>
   <script src="app.js"></script>
   <script>
-    // AUTO-FILL GUEST LOGIC
     window.addEventListener('load', () => {
       const params = new URLSearchParams(window.location.search);
       if (params.has('room')) document.getElementById('roomInput').value = params.get('room');
