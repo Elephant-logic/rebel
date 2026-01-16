@@ -4,8 +4,8 @@
  * Chunks files into 16KB packets to bypass server limits.
  */
 
-const CHUNK_SIZE = 16 * 1024; // 16KB (Safe WebRTC limit)
-const MAX_BUFFER = 256 * 1024; // 256KB Max Buffer before pausing
+const CHUNK_SIZE = 4 * 1024;   // 4KB (more gentle for streaming)
+const MAX_BUFFER = 64 * 1024;  // 64KB Max Buffer before pausing
 
 // --- HOST: SENDING LOGIC ---
 export async function pushFileToPeer(pc, file, onProgress) {
@@ -29,9 +29,9 @@ export async function pushFileToPeer(pc, file, onProgress) {
         let offset = 0;
 
         const sendLoop = () => {
-            // BACKPRESSURE: If buffer is full, wait 10ms and try again
+            // BACKPRESSURE: If buffer is full, wait and try again
             if (channel.bufferedAmount > MAX_BUFFER) {
-                setTimeout(sendLoop, 10);
+                setTimeout(sendLoop, 50);  // was 10ms
                 return;
             }
 
@@ -51,7 +51,8 @@ export async function pushFileToPeer(pc, file, onProgress) {
 
             // Continue or Close
             if (offset < buffer.byteLength) {
-                setTimeout(sendLoop, 0); // Unblock UI thread
+                // small delay so video has breathing room (was 0ms)
+                setTimeout(sendLoop, 10);
             } else {
                 // Done - wait a moment for flush before closing
                 console.log(`[SideLoader] Sent ${file.name}`);
@@ -103,8 +104,16 @@ export function setupReceiver(pc, onComplete, onProgress) {
 
                 // 3. Reassembly & Finish
                 if (currentSize >= totalSize) {
-                    const blob = new Blob(receivedChunks, { type: meta ? meta.mime : 'application/octet-stream' });
-                    if (onComplete) onComplete({ blob, name: meta ? meta.name : 'download.bin' });
+                    const blob = new Blob(
+                        receivedChunks,
+                        { type: meta ? meta.mime : 'application/octet-stream' }
+                    );
+                    if (onComplete) {
+                        onComplete({
+                            blob,
+                            name: meta ? meta.name : 'download.bin'
+                        });
+                    }
                     
                     // Close channel from receiver side
                     channel.close();
