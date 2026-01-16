@@ -12,13 +12,13 @@ let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random() * 1000);
 
 // separate PC for 1-to-1 “on-stage” call
-let callPc = null;
-let localCallStream = null;
+let callPc = null;           //
+let localCallStream = null;  //
 
 // ======================================================
 // NEW: REAL-TIME HEALTH REPORTING (Professional Patch)
 // ======================================================
-let statsInterval = null;
+let statsInterval = null; //
 
 function startStatsReporting(peer) {
     if (statsInterval) clearInterval(statsInterval);
@@ -53,7 +53,7 @@ function startStatsReporting(peer) {
 // ======================================================
 function setupReceiver(pcInstance) {
     pcInstance.ondatachannel = (e) => {
-        if (e.channel.label !== "side-load-pipe") return;
+        if (e.channel.label !== "side-load-pipe") return; //
 
         const chan = e.channel;
         let chunks = [];
@@ -65,7 +65,7 @@ function setupReceiver(pcInstance) {
                 try {
                     const parsed = JSON.parse(evt.data);
                     if (parsed && parsed.type === "meta") {
-                        meta = parsed;
+                        meta = parsed; //
                         received = 0;
                         chunks = [];
                         console.log("[Arcade] Receiving:", meta.name, meta.size);
@@ -103,7 +103,7 @@ function setupReceiver(pcInstance) {
                     const a = document.createElement("a");
                     a.href = url;
                     a.download = meta.name || "download.bin";
-                    a.className = "btn-ctrl pulse-primary"; // GUIDANCE PULSE PATCH
+                    a.className = "btn-ctrl pulse-primary"; // GUIDANCE PULSE
                     a.textContent = "Download";
 
                     actions.appendChild(a);
@@ -113,7 +113,9 @@ function setupReceiver(pcInstance) {
                 }
 
                 console.log("[Arcade] Complete:", meta.name);
-                meta = null; chunks = []; received = 0;
+                meta = null;
+                chunks = [];
+                received = 0;
                 chan.close();
             }
         };
@@ -125,13 +127,13 @@ function setupReceiver(pcInstance) {
 // ======================================================
 socket.on("connect", () => {
     const status = $("viewerStatus");
-    if (status) status.textContent = "CONNECTED";
+    if (status) status.textContent = "CONNECTED"; //
 });
 
 socket.on("disconnect", () => {
     const status = $("viewerStatus");
     if (status) {
-        status.textContent = "OFFLINE";
+        status.textContent = "OFFLINE"; //
         status.classList.remove('live');
     }
 });
@@ -145,19 +147,19 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
             pc = null;
         }
 
-        pc = new RTCPeerConnection(iceConfig);
+        pc = new RTCPeerConnection(iceConfig); //
         setupReceiver(pc);
 
         pc.ontrack = (e) => {
             const v = $("viewerVideo");
             if (!v) return;
             if (v.srcObject !== e.streams[0]) {
-                v.srcObject = e.streams[0];
+                v.srcObject = e.streams[0]; //
                 v.play().catch(() => {});
             }
             const status = $("viewerStatus");
             if (status) {
-                status.textContent = "LIVE";
+                status.textContent = "LIVE"; //
                 status.classList.add('live');
             }
         };
@@ -171,7 +173,7 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
             }
         };
 
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp)); //
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -180,7 +182,8 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
             sdp: answer
         });
 
-        startStatsReporting(pc); // INITIATE POLLING PATCH
+        // INITIATE STATS POLLING
+        startStatsReporting(pc);
 
     } catch (err) {
         console.error("[Viewer] webrtc-offer failed", err);
@@ -190,7 +193,7 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
 socket.on("webrtc-ice-candidate", async ({ candidate }) => {
     if (!pc || !candidate) return;
     try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        await pc.addIceCandidate(new RTCIceCandidate(candidate)); //
     } catch (err) {
         console.error("[Viewer] addIceCandidate failed", err);
     }
@@ -204,7 +207,7 @@ async function ensureLocalCallStream() {
         localCallStream &&
         localCallStream.getTracks().some(t => t.readyState === "live")
     ) {
-        return;
+        return; //
     }
 
     // PATCH: Professional audio constraints for stage calls
@@ -215,7 +218,7 @@ async function ensureLocalCallStream() {
 
     const prev = $("selfCamPreview");
     if (prev) {
-        prev.srcObject = localCallStream;
+        prev.srcObject = localCallStream; //
         prev.muted = true;
         prev.play().catch(() => {});
     }
@@ -228,7 +231,7 @@ socket.on("ring-alert", async ({ from, fromId }) => {
     if (!ok) return;
 
     try {
-        await ensureLocalCallStream();
+        await ensureLocalCallStream(); //
         await startCallToHost(fromId);
     } catch (err) {
         console.error("[Viewer] stage call failed", err);
@@ -246,7 +249,7 @@ async function startCallToHost(targetId) {
         callPc = null;
     }
 
-    const pc2 = new RTCPeerConnection(iceConfig);
+    const pc2 = new RTCPeerConnection(iceConfig); //
     callPc = pc2;
 
     pc2.onicecandidate = (e) => {
@@ -264,7 +267,7 @@ async function startCallToHost(targetId) {
 
     localCallStream.getTracks().forEach(t => pc2.addTrack(t, localCallStream));
 
-    const offer = await pc2.createOffer();
+    const offer = await pc2.createOffer(); //
     await pc2.setLocalDescription(offer);
 
     socket.emit("call-offer", {
@@ -276,7 +279,7 @@ async function startCallToHost(targetId) {
 socket.on("call-answer", async ({ from, answer }) => {
     if (!callPc || !answer) return;
     try {
-        await callPc.setRemoteDescription(new RTCSessionDescription(answer));
+        await callPc.setRemoteDescription(new RTCSessionDescription(answer)); //
     } catch (err) {
         console.error("[Viewer] remote answer failed", err);
     }
@@ -285,7 +288,7 @@ socket.on("call-answer", async ({ from, answer }) => {
 socket.on("call-ice", async ({ from, candidate }) => {
     if (!callPc || !candidate) return;
     try {
-        await callPc.addIceCandidate(new RTCIceCandidate(candidate));
+        await callPc.addIceCandidate(new RTCIceCandidate(candidate)); //
     } catch (err) {
         console.error("[Viewer] call ICE failed", err);
     }
@@ -293,7 +296,7 @@ socket.on("call-ice", async ({ from, candidate }) => {
 
 socket.on("call-end", ({ from }) => {
     if (callPc) {
-        try { callPc.close(); } catch (e) {}
+        try { callPc.close(); } catch (e) {} //
         callPc = null;
     }
 });
@@ -309,7 +312,7 @@ function appendChat(name, text) {
     div.className = "chat-line";
 
     const strong = document.createElement("strong");
-    strong.textContent = name;
+    strong.textContent = name; //
 
     const span = document.createElement("span");
     span.textContent = `: ${text}`;
@@ -321,17 +324,17 @@ function appendChat(name, text) {
 }
 
 socket.on("public-chat", (d) => {
-    appendChat(d.name, d.text);
+    appendChat(d.name, d.text); //
 });
 
 socket.on("kicked", () => {
     alert("You have been kicked from the room by the host.");
-    window.location.href = "index.html";
+    window.location.href = "index.html"; //
 });
 
 socket.on("room-error", (err) => {
     alert(err || "Room error");
-    window.location.href = "index.html";
+    window.location.href = "index.html"; //
 });
 
 // ======================================================
@@ -349,7 +352,7 @@ function sendChat() {
         name: myName,
         text,
         fromViewer: true
-    });
+    }); //
 
     input.value = "";
 }
@@ -364,7 +367,7 @@ window.addEventListener("load", () => {
     } else {
         const entered = prompt("Enter your display name:", myName);
         if (entered && entered.trim()) {
-            myName = entered.trim().slice(0, 30);
+            myName = entered.trim().slice(0, 30); //
         }
     }
 
@@ -378,7 +381,7 @@ window.addEventListener("load", () => {
         room,
         name: myName,
         isViewer: true
-    });
+    }); //
 
     const sendBtn = $("sendBtn");
     const chatInput = $("chatInput");
@@ -402,8 +405,8 @@ window.addEventListener("load", () => {
     const requestBtn = $("requestCallBtn");
     if (requestBtn) {
         requestBtn.onclick = () => {
-            socket.emit("request-to-call");
-            document.body.classList.add('hand-active'); // VISUAL FEEDBACK PATCH
+            socket.emit("request-to-call"); //
+            document.body.classList.add('hand-active'); 
             requestBtn.textContent = "Request Sent ✋";
             requestBtn.disabled = true;
         };
@@ -416,13 +419,13 @@ window.addEventListener("load", () => {
             if (!v) return;
             const willUnmute = v.muted;
 
-            v.muted = !v.muted;
+            v.muted = !v.muted; //
             v.volume = v.muted ? 0.0 : 1.0;
 
             if (willUnmute) {
                 v.play().catch(() => {});
                 unmuteBtn.textContent = "🔊 Mute";
-                unmuteBtn.classList.remove('pulse-primary'); // GUIDANCE END PATCH
+                unmuteBtn.classList.remove('pulse-primary'); 
             } else {
                 unmuteBtn.textContent = "🔇 Unmute";
             }
@@ -434,7 +437,7 @@ window.addEventListener("load", () => {
         fsBtn.onclick = () => {
             const v = $("viewerVideo");
             if (!v) return;
-            if (v.requestFullscreen) v.requestFullscreen();
+            if (v.requestFullscreen) v.requestFullscreen(); //
             else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
             else if (v.msRequestFullscreen) v.msRequestFullscreen();
         };
@@ -444,7 +447,7 @@ window.addEventListener("load", () => {
     if (toggleChatBtn) {
         toggleChatBtn.onclick = () => {
             const box = $("chatBox");
-            if (!box) return;
+            if (!box) return; //
             box.classList.toggle("hidden");
         };
     }
