@@ -8,12 +8,15 @@ const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
 
-// FIX: Increased buffer to 50MB for large arcade transfers
+// ======================================================
+// UPGRADED: HIGH-STABILITY SOCKET CONFIG
+// ======================================================
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 5e7, 
-  pingTimeout: 10000,     
-  pingInterval: 25000
+  maxHttpBufferSize: 5e7, // Preserved 50MB for large arcade transfers
+  pingTimeout: 15000,     // PATCH: Improved mobile network jitter fix
+  pingInterval: 10000,    // PATCH: Faster drop detection for stability
+  transports: ['websocket', 'polling']
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -43,7 +46,8 @@ function broadcastRoomUpdate(roomName) {
         id, 
         name: u.name, 
         isViewer: u.isViewer, 
-        requestingCall: u.requestingCall 
+        requestingCall: u.requestingCall,
+        latency: u.latency || 0 // NEW: STATS PATCH SUPPORT
     });
   }
 
@@ -89,7 +93,8 @@ io.on('connection', (socket) => {
     info.users.set(socket.id, { 
         name: displayName, 
         isViewer: !!isViewer,
-        requestingCall: false 
+        requestingCall: false,
+        latency: 0 // NEW: STATS PATCH
     });
 
     socket.emit('role', { 
@@ -99,6 +104,18 @@ io.on('connection', (socket) => {
 
     socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
     broadcastRoomUpdate(roomName);
+  });
+
+  // ======================================================
+  // NEW: HEALTH STATS LISTENER (Professional Patch)
+  // ======================================================
+  socket.on('report-stats', ({ latency }) => {
+    const room = socket.data.room;
+    if (room && rooms[room]?.users.has(socket.id)) {
+      rooms[room].users.get(socket.id).latency = latency;
+      // We don't broadcast on every stat report to save bandwidth; 
+      // the next regular room update will include it.
+    }
   });
 
   socket.on('request-to-call', () => {
