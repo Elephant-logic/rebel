@@ -83,6 +83,8 @@ let isPrivateMode = false; //
 let allowedGuests = []; //
 let mutedUsers = new Set(); //
 
+let publicChatBuffer = []; // Buffer of recent PUBLIC chat messages for overlays
+
 let localStream = null; //
 let screenStream = null; //
 let isScreenSharing = false; //
@@ -260,6 +262,16 @@ if (previewModal) {
 }
 
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS ---
+
+function escapeHTML(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return; //
     currentRawHTML = htmlString; //
@@ -269,10 +281,27 @@ function renderHTMLLayout(htmlString) {
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
 
+    // Build chat HTML from recent PUBLIC messages
+    let chatHTML = "";
+    if (publicChatBuffer.length) {
+        const recent = publicChatBuffer.slice(-25); // last 25 messages
+        chatHTML = recent.map(msg => {
+            const timeStr = new Date(msg.ts).toLocaleTimeString();
+            return `
+                <div class="ov-chat-line">
+                    <span class="ov-chat-name">${escapeHTML(msg.name)}</span>
+                    <span class="ov-chat-time">${escapeHTML(timeStr)}</span>
+                    <span class="ov-chat-text">${escapeHTML(msg.text)}</span>
+                </div>
+            `;
+        }).join("");
+    }
+
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
-        .replace(/{{title}}/g, streamTitle); //
+        .replace(/{{title}}/g, streamTitle)
+        .replace(/{{chat}}/g, chatHTML); //
 
     const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
@@ -1110,6 +1139,14 @@ function renderGuestList() {
 
 function appendChat(log, name, text, ts) {
     if (!log) return; //
+
+    // If this is the PUBLIC chat log, keep a light buffer for overlays
+    if (log.id === 'chatLogPublic') {
+        publicChatBuffer.push({ name, text, ts }); //
+        if (publicChatBuffer.length > 50) {
+            publicChatBuffer.shift(); // keep last 50
+        }
+    }
 
     const d = document.createElement('div'); //
     d.className = 'chat-line'; //
