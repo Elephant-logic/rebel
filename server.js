@@ -82,7 +82,6 @@ io.on('connection', (socket) => {
     socket.data.name = displayName;
     socket.data.isViewer = !!isViewer;
 
-    // Only assign host if they aren't a passive viewer
     if (!info.ownerId && !isViewer) {
       info.ownerId = socket.id;
     }
@@ -102,7 +101,6 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // Signal for viewers to request a call
   socket.on('request-to-call', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
@@ -111,7 +109,6 @@ io.on('connection', (socket) => {
     
     if (user) {
         user.requestingCall = true;
-        // Notify host specifically
         if (info.ownerId) {
             io.to(info.ownerId).emit('call-request-received', { 
                 id: socket.id, 
@@ -171,7 +168,6 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
-  // WEBRTC SIGNALING
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
@@ -182,7 +178,6 @@ io.on('connection', (socket) => {
     if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
-  // CALLING SIGNALS
   socket.on('ring-user', (targetId) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
@@ -199,7 +194,6 @@ io.on('connection', (socket) => {
     if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
   });
 
-  // CHAT & FILES
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
