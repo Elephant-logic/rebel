@@ -6,6 +6,9 @@ let pc = null;
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random()*1000);
 
+// ==========================================
+// 1. ARCADE RECEIVER (Game -> Chat Logic)
+// ==========================================
 function setupReceiver(pc) {
     pc.ondatachannel = (e) => {
         if(e.channel.label !== "side-load-pipe") return; 
@@ -48,12 +51,16 @@ function addGameToChat(url, name) {
     log.scrollTop = log.scrollHeight;
 }
 
+// ==========================================
+// 2. ROOM & CONNECTION LOGIC
+// ==========================================
 const params = new URLSearchParams(location.search);
 const room = params.get('room');
 if(room) { 
     currentRoom = room; 
     myName = prompt("Enter your display name:") || myName;
     socket.connect(); 
+    // Join specifically as a viewer
     socket.emit('join-room', {room, name:myName, isViewer: true}); 
 }
 
@@ -87,8 +94,13 @@ socket.on('webrtc-ice-candidate', async ({candidate}) => {
     if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
 });
 
+// ==========================================
+// 3. CHAT & UI LOGIC
+// ==========================================
+
+// Handle call accept if the host calls the viewer
 socket.on('ring-alert', async ({ from }) => {
-    if (confirm(`Host ${from} is calling you on stage! Switch to Guest Mode to enable your camera?`)) {
+    if (confirm(`Host ${from} is calling you on stage! Click OK to switch to Guest Mode and enable your camera.`)) {
        joinAsGuest();
     }
 });
@@ -129,6 +141,7 @@ socket.on('room-error', (err) => {
     window.location.href = "index.html";
 });
 
+// Chat Input
 $('sendBtn').onclick = () => { 
     const inp = $('chatInput');
     if(!inp || !inp.value.trim()) return;
@@ -142,6 +155,7 @@ if($('chatInput')) {
     };
 }
 
+// Hand Raise Button logic
 if($('requestCallBtn')) {
     $('requestCallBtn').onclick = () => {
         socket.emit('request-to-call');
@@ -158,6 +172,7 @@ if($('emojiStrip')) {
     };
 }
 
+// UI Controls
 if($('unmuteBtn')) {
     $('unmuteBtn').onclick = () => {
         const v = $('viewerVideo');
