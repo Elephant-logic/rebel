@@ -60,12 +60,11 @@ if(room) {
     currentRoom = room; 
     myName = prompt("Enter your display name:") || myName;
     socket.connect(); 
-    socket.emit('join-room', {room, name:myName}); 
+    // Join specifically as a viewer
+    socket.emit('join-room', {room, name:myName, isViewer: true}); 
 }
 
-// PATCH: The stream only connects when the Host manually clicks "Start Stream"
 socket.on('webrtc-offer', async ({sdp, from}) => {
-    // Kill old connection to ensure the new mixed stream takes over instantly
     if(pc) pc.close();
     
     pc = new RTCPeerConnection(iceConfig);
@@ -98,6 +97,14 @@ socket.on('webrtc-ice-candidate', async ({candidate}) => {
 // ==========================================
 // 3. CHAT & UI LOGIC
 // ==========================================
+
+// Handle call accept if the host calls the viewer
+socket.on('ring-alert', async ({ from }) => {
+    if (confirm(`Host ${from} is calling you on stage. Please join the Room via the Main App to enable your camera.`)) {
+       // Optional: Redirect to index.html with auto-fill
+    }
+});
+
 socket.on('public-chat', d => { 
     const log = $('chatLog');
     if(!log) return;
@@ -105,7 +112,6 @@ socket.on('public-chat', d => {
     const div = document.createElement('div'); 
     div.className = 'chat-line';
     
-    // Secure rendering to prevent XSS
     const name = document.createElement('strong');
     name.textContent = d.name;
     const msg = document.createElement('span');
@@ -117,7 +123,6 @@ socket.on('public-chat', d => {
     log.scrollTop = log.scrollHeight;
 });
 
-// Handling kicks or room errors
 socket.on('kicked', () => {
     alert("You have been kicked from the room by the host.");
     window.location.href = "index.html";
@@ -142,7 +147,15 @@ if($('chatInput')) {
     };
 }
 
-// Emoji Strip
+// Hand Raise Button
+if($('requestCallBtn')) {
+    $('requestCallBtn').onclick = () => {
+        socket.emit('request-to-call');
+        $('requestCallBtn').textContent = "Request Sent ✋";
+        $('requestCallBtn').disabled = true;
+    };
+}
+
 if($('emojiStrip')) {
     $('emojiStrip').onclick = (e) => {
         if(e.target.classList.contains('emoji')) {
