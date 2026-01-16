@@ -325,14 +325,21 @@ window.addEventListener("load", () => {
     const room = params.get("room") || "lobby";
     const nameParam = params.get("name");
 
-    if (nameParam) {
-        myName = nameParam;
+    // 🟢 NAME LOGIC: if URL has ?name= use that; else prompt
+    if (nameParam && nameParam.trim()) {
+        myName = nameParam.trim().slice(0, 30);
+    } else {
+        const entered = prompt("Enter your display name:", myName);
+        if (entered && entered.trim()) {
+            myName = entered.trim().slice(0, 30);
+        }
     }
+
+    currentRoom = room;
 
     const nameLabel = $("viewerNameLabel");
     if (nameLabel) nameLabel.textContent = myName;
 
-    currentRoom = room;
     socket.connect();
     socket.emit("join-room", {
         room,
