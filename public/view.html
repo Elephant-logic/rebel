@@ -51,6 +51,13 @@
       }
       .btn-ctrl { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
       .status-pill { margin-right: auto; background: var(--danger); padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 0.8rem; }
+
+      .self-video {
+          position: absolute; right: 16px; bottom: 80px; width: 160px; height: 90px;
+          object-fit: cover; border: 2px solid rgba(255,255,255,0.6); border-radius: 8px;
+          z-index: 102; background: #000;
+      }
+      .self-video.hidden { display: none; }
     </style>
   </head>
   <body>
@@ -58,6 +65,8 @@
         <div class="video-layer">
             <video id="viewerVideo" autoplay playsinline muted></video>
         </div>
+
+        <video id="viewerSelfVideo" class="self-video hidden" autoplay playsinline muted></video>
         
         <div id="toolboxContainer"></div>
         
