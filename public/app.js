@@ -520,11 +520,7 @@ async function startLocalMedia() {
         if (localVideo) {
             localVideo.srcObject = localStream; //
             localVideo.muted = true; //
-            try {
-                await localVideo.play(); //
-            } catch (err) {
-                console.warn('localVideo.play() blocked or failed:', err); //
-            }
+            localVideo.play().catch(() => {}); //
         }
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
@@ -1561,18 +1557,10 @@ function renderUserList() {
                     callBtn.textContent = 'End'; //
                     callBtn.style.color = 'var(--danger)'; //
                     callBtn.onclick = () => endPeerCall(u.id); //
-                } else if (u.requestingCall) {
-                    callBtn.textContent = 'Accept & Call'; //
-                    callBtn.style.borderColor = "var(--accent)"; //
-                    callBtn.onclick = async () => {
-                        socket.emit('respond-to-call-request', { targetId: u.id, approved: true }); //
-                        await callPeer(u.id); //
-                    };
                 } else {
-                    callBtn.textContent = 'Call'; //
-                    callBtn.onclick = async () => {
-                        await callPeer(u.id); //
-                    };
+                    callBtn.textContent = u.requestingCall ? 'Accept & Call' : 'Call'; //
+                    if (u.requestingCall) callBtn.style.borderColor = "var(--accent)"; //
+                    callBtn.onclick = () => window.ringUser(u.id); //
                 }
                 actions.appendChild(callBtn); //
             }

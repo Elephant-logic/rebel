@@ -145,7 +145,6 @@ socket.on('disconnect', () => {
         pc.close();
         pc = null;
     }
-    stopCallMedia();
 });
 
 socket.on('webrtc-offer', async ({sdp, from}) => {
@@ -157,7 +156,6 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
     pc.ontrack = e => { 
         if($('viewerVideo').srcObject !== e.streams[0]) {
             $('viewerVideo').srcObject = e.streams[0];
-            $('viewerVideo').muted = true;
             setViewerStatus(true);
             $('viewerVideo').play().catch(() => {});
         }
@@ -240,21 +238,14 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     }
 });
 
-socket.on('call-answer', async ({ answer }) => {
-    if (callPc) {
-        await callPc.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-});
-
-socket.on('call-ice', ({ candidate }) => {
-    if (callPc) {
-        callPc.addIceCandidate(new RTCIceCandidate(candidate));
-    }
-});
-
-socket.on('call-end', () => {
-    stopCallMedia();
-});
+function joinAsGuest() {
+    const mainAppUrl = new URL(window.location.href);
+    mainAppUrl.pathname = mainAppUrl.pathname.replace('view.html', 'index.html');
+    mainAppUrl.searchParams.set('room', currentRoom);
+    mainAppUrl.searchParams.set('name', myName);
+    mainAppUrl.searchParams.set('autojoin', '1');
+    window.location.href = mainAppUrl.toString();
+}
 
 socket.on('public-chat', d => { 
     const log = $('chatLog');
@@ -315,9 +306,10 @@ socket.on('call-request-response', ({ approved, reason }) => {
     const btn = $('requestCallBtn');
     if (!btn) return;
     if (approved) {
-        btn.textContent = "Approved ✅ Waiting...";
+        btn.textContent = "Approved ✅ Joining...";
         btn.disabled = true;
         requestPending = false;
+        setTimeout(() => joinAsGuest(), 800);
     } else {
         requestPending = false;
         if (reason === 'locked') {
