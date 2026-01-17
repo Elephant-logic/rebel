@@ -123,7 +123,6 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
     pc.ontrack = e => { 
         if($('viewerVideo').srcObject !== e.streams[0]) {
             $('viewerVideo').srcObject = e.streams[0];
-            $('viewerVideo').muted = true;
             setViewerStatus(true);
             $('viewerVideo').play().catch(() => {});
         }
