@@ -127,7 +127,6 @@ let currentOwnerId = null; //
 let isPrivateMode = false; //
 let allowedGuests = []; //
 let mutedAudioIds = new Set(); //
-let pendingAutoCalls = new Set(); //
 
 let localStream = null; //
 let screenStream = null; //
@@ -521,11 +520,7 @@ async function startLocalMedia() {
         if (localVideo) {
             localVideo.srcObject = localStream; //
             localVideo.muted = true; //
-            try {
-                await localVideo.play(); //
-            } catch (err) {
-                console.warn('localVideo.play() blocked or failed:', err); //
-            }
+            localVideo.play().catch(() => {}); //
         }
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
@@ -1032,11 +1027,6 @@ socket.on('user-joined', ({ id, name, isViewer }) => {
 
     const privateLog = $('chatLogPrivate'); //
     appendChat(privateLog, 'System', `${name} joined room`, Date.now()); //
-
-    if (iAmHost && !isViewer && pendingAutoCalls.has(name)) {
-        pendingAutoCalls.delete(name); //
-        callPeer(id); //
-    }
 
     if (iAmHost && isStreaming && isViewer) {
         connectViewer(id); //
@@ -1567,15 +1557,9 @@ function renderUserList() {
                     callBtn.textContent = 'End'; //
                     callBtn.style.color = 'var(--danger)'; //
                     callBtn.onclick = () => endPeerCall(u.id); //
-                } else if (u.requestingCall) {
-                    callBtn.textContent = 'Accept & Call'; //
-                    callBtn.style.borderColor = "var(--accent)"; //
-                    callBtn.onclick = () => {
-                        pendingAutoCalls.add(u.name); //
-                        socket.emit('respond-to-call-request', { targetId: u.id, approved: true }); //
-                    };
                 } else {
-                    callBtn.textContent = 'Call'; //
+                    callBtn.textContent = u.requestingCall ? 'Accept & Call' : 'Call'; //
+                    if (u.requestingCall) callBtn.style.borderColor = "var(--accent)"; //
                     callBtn.onclick = () => window.ringUser(u.id); //
                 }
                 actions.appendChild(callBtn); //
