@@ -62,6 +62,51 @@ async function pushFileToPeer(pc, file, onProgress) {
     };
 }
 
+function setupArcadeReceiver(pc) {
+    pc.ondatachannel = (e) => {
+        if (e.channel.label !== "side-load-pipe") return; //
+        const chan = e.channel; //
+        let chunks = []; //
+        let total = 0; //
+        let curr = 0; //
+        let meta = null; //
+
+        chan.onmessage = (evt) => {
+            if (typeof evt.data === 'string') {
+                try {
+                    meta = JSON.parse(evt.data); //
+                    total = meta.size; //
+                } catch (e) {
+                    console.error(e); //
+                }
+            } else {
+                chunks.push(evt.data); //
+                curr += evt.data.byteLength; //
+                if (curr >= total) {
+                    const blob = new Blob(chunks, { type: meta ? meta.mime : 'application/octet-stream' }); //
+                    const url = URL.createObjectURL(blob); //
+                    addToolToChat(url, meta ? meta.name : 'Tool'); //
+                    chan.close(); //
+                }
+            }
+        };
+    };
+}
+
+function addToolToChat(url, name) {
+    const log = $('chatLogPublic'); //
+    if (!log) return; //
+    const div = document.createElement('div'); //
+    div.className = 'chat-line system-msg'; //
+    div.innerHTML = `
+        <div style="background:rgba(74,243,163,0.1); border:1px solid #4af3a3; padding:10px; border-radius:8px; text-align:center; margin: 10px 0;">
+            <div style="color:#4af3a3; font-weight:bold; margin-bottom:5px;">🚀 TOOL RECEIVED: ${name}</div>
+            <a href="${url}" download="${name}" style="background:#4af3a3; color:#000; padding:6px 12px; border-radius:4px; display:inline-block; text-decoration:none; font-weight:bold; font-size:0.8rem;">DOWNLOAD</a>
+        </div>`; //
+    log.appendChild(div); //
+    log.scrollTop = log.scrollHeight; //
+}
+
 // ======================================================
 // 2. MAIN APP SETUP & VARIABLES
 // ======================================================
@@ -81,7 +126,7 @@ let currentOwnerId = null; //
 
 let isPrivateMode = false; //
 let allowedGuests = []; //
-let mutedUsers = new Set(); //
+let mutedAudioIds = new Set(); //
 
 let localStream = null; //
 let screenStream = null; //
@@ -220,6 +265,19 @@ function drawMixer() {
 
 canvasStream = canvas.captureStream(30); //
 drawMixer(); //
+
+function updateRoomInfo() {
+    const roomInfo = $('roomInfo'); //
+    if (!roomInfo) return; //
+    if (!currentRoom) {
+        roomInfo.textContent = ''; //
+        return; //
+    }
+    const viewers = latestUserList.filter(u => u.isViewer).length; //
+    const guests = latestUserList.filter(u => !u.isViewer).length; //
+    const hostName = latestUserList.find(u => u.id === currentOwnerId)?.name; //
+    roomInfo.textContent = `Room: ${currentRoom} • Viewers: ${viewers} • Guests: ${guests}${hostName ? ` • Host: ${hostName}` : ''}`; //
+}
 
 // --- STREAM PREVIEW POPUP (HOST MONITOR) ---
 const previewModal = $('streamPreviewModal'); //
@@ -636,10 +694,12 @@ async function handleStartStream() {
     }
 
     latestUserList.forEach(u => {
-        if (u.id !== myId) {
+        if (u.id !== myId && u.isViewer) {
             connectViewer(u.id); //
         }
     });
+
+    socket.emit('stream-status', { room: currentRoom, live: true }); //
 }
 
 const startStreamBtn = $('startStreamBtn'); //
@@ -658,6 +718,7 @@ if (startStreamBtn) {
             for (const k in viewerPeers) {
                 delete viewerPeers[k]; //
             }
+            socket.emit('stream-status', { room: currentRoom, live: false }); //
         } else {
             await handleStartStream(); //
         }
@@ -701,6 +762,7 @@ async function callPeer(targetId) {
     }
 
     const pc = new RTCPeerConnection(iceConfig); //
+    setupArcadeReceiver(pc); //
     callPeers[targetId] = { pc, name: "Peer" }; //
 
     pc.onicecandidate = e => {
@@ -730,6 +792,7 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     }
 
     const pc = new RTCPeerConnection(iceConfig); //
+    setupArcadeReceiver(pc); //
     callPeers[from] = { pc, name }; //
 
     pc.onicecandidate = e => {
@@ -783,6 +846,11 @@ function endPeerCall(id, isIncomingSignal) {
     }
     delete callPeers[id]; //
     removeRemoteVideo(id); //
+    mutedAudioIds.delete(id); //
+    if (activeGuestId === id) {
+        activeGuestId = null; //
+        window.setMixerLayout('SOLO'); //
+    }
 
     if (!isIncomingSignal) {
         socket.emit('call-end', { targetId: id }); //
@@ -856,6 +924,9 @@ socket.on('connect', () => {
         signalStatus.textContent = 'Connected'; //
     }
     myId = socket.id; //
+    if (currentRoom) {
+        socket.emit('join-room', { room: currentRoom, name: userName, isViewer: false }); //
+    }
 });
 
 socket.on('disconnect', () => {
@@ -864,29 +935,48 @@ socket.on('disconnect', () => {
         signalStatus.className = 'status-dot status-disconnected'; //
         signalStatus.textContent = 'Disconnected'; //
     }
+    Object.values(viewerPeers).forEach(pc => pc.close()); //
+    for (const k in viewerPeers) {
+        delete viewerPeers[k]; //
+    }
+    Object.keys(callPeers).forEach(id => {
+        try {
+            callPeers[id].pc.close(); //
+        } catch (e) {
+            console.error(e); //
+        }
+        removeRemoteVideo(id); //
+        delete callPeers[id]; //
+    });
+    updateRoomInfo(); //
 });
+
+function joinRoom(room, name) {
+    if (!room) return; //
+    currentRoom = room; //
+    userName = name && name.trim() ? name.trim() : 'Host'; //
+
+    if (!socket.connected) {
+        socket.connect(); //
+    }
+    socket.emit('join-room', { room, name: userName, isViewer: false }); //
+
+    if (joinBtn) joinBtn.disabled = true; //
+    const leaveBtn = $('leaveBtn'); //
+    if (leaveBtn) leaveBtn.disabled = false; //
+
+    updateLink(room); //
+    updateRoomInfo(); //
+    startLocalMedia(); //
+}
 
 const joinBtn = $('joinBtn'); //
 if (joinBtn) {
     joinBtn.onclick = () => {
         const room = $('roomInput').value.trim(); //
         if (!room) return;
-
-        currentRoom = room; //
         const nameInput = $('nameInput'); //
-        userName = nameInput && nameInput.value.trim()
-            ? nameInput.value.trim()
-            : 'Host'; //
-
-        socket.connect(); //
-        socket.emit('join-room', { room, name: userName, isViewer: false }); //
-
-        joinBtn.disabled = true; //
-        const leaveBtn = $('leaveBtn'); //
-        if (leaveBtn) leaveBtn.disabled = false; //
-
-        updateLink(room); //
-        startLocalMedia(); //
+        joinRoom(room, nameInput ? nameInput.value : 'Host'); //
     };
 }
 
@@ -923,7 +1013,7 @@ function updateLink(roomSlug) {
     generateQR(finalUrl); //
 }
 
-socket.on('user-joined', ({ id, name }) => {
+socket.on('user-joined', ({ id, name, isViewer }) => {
     if (iAmHost && isPrivateMode) {
         const allowed = allowedGuests.some(
             g => g.toLowerCase() === name.toLowerCase()
@@ -937,7 +1027,7 @@ socket.on('user-joined', ({ id, name }) => {
     const privateLog = $('chatLogPrivate'); //
     appendChat(privateLog, 'System', `${name} joined room`, Date.now()); //
 
-    if (iAmHost && isStreaming) {
+    if (iAmHost && isStreaming && isViewer) {
         connectViewer(id); //
     }
 });
@@ -971,6 +1061,15 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
     }
 
     renderUserList(); //
+    updateRoomInfo(); //
+
+    if (iAmHost && isStreaming) {
+        latestUserList.forEach(u => {
+            if (u.id !== myId && u.isViewer) {
+                connectViewer(u.id); //
+            }
+        }); //
+    }
     
     // Auto-update overlay stats when user count changes
     if (overlayActive) {
@@ -997,6 +1096,23 @@ socket.on('role', async ({ isHost }) => {
 
     renderUserList(); //
 });
+
+const params = new URLSearchParams(window.location.search); //
+const autoRoom = params.get('room'); //
+const autoName = params.get('name'); //
+const autoJoin = ['1', 'true', 'yes'].includes((params.get('autojoin') || '').toLowerCase()); //
+
+if (autoRoom) {
+    const roomInput = $('roomInput'); //
+    if (roomInput) roomInput.value = autoRoom; //
+    const nameInput = $('nameInput'); //
+    if (nameInput && autoName) nameInput.value = autoName; //
+    updateLink(autoRoom); //
+}
+
+if (autoRoom && autoJoin) {
+    joinRoom(autoRoom, autoName || 'Guest'); //
+}
 
 // ======================================================
 // 12. HOST CONTROLS
@@ -1034,7 +1150,15 @@ if (updateSlugBtn) {
         const slugInput = $('slugInput'); //
         if (!slugInput) return;
         const s = slugInput.value.trim(); //
-        if (s) updateLink(s); //
+        if (!s) return; //
+        if (currentRoom && socket.connected && currentRoom !== s) {
+            alert("Room is live. Leave and rejoin to change the slug."); //
+            return; //
+        }
+        const roomInput = $('roomInput'); //
+        if (roomInput) roomInput.value = s; //
+        currentRoom = s; //
+        updateLink(s); //
     };
 }
 
@@ -1043,7 +1167,15 @@ if (slugInput) {
     slugInput.onkeydown = (e) => {
         if (e.key === 'Enter') {
             const s = slugInput.value.trim(); //
-            if (s) updateLink(s); //
+            if (!s) return; //
+            if (currentRoom && socket.connected && currentRoom !== s) {
+                alert("Room is live. Leave and rejoin to change the slug."); //
+                return; //
+            }
+            const roomInput = $('roomInput'); //
+            if (roomInput) roomInput.value = s; //
+            currentRoom = s; //
+            updateLink(s); //
         }
     };
 }
@@ -1184,7 +1316,6 @@ if (inputPrivate) {
 }
 
 socket.on('public-chat', d => {
-    if (mutedUsers.has(d.name)) return; //
     const log = $('chatLogPublic'); //
     appendChat(log, d.name, d.text, d.ts); //
     if (tabs.stream && !tabs.stream.classList.contains('active')) {
@@ -1311,9 +1442,15 @@ if (arcadeInput) {
             arcadeStatus.textContent = `Active: ${f.name}`; //
         }
 
-        Object.values(viewerPeers).forEach(pc => {
-            pushFileToPeer(pc, f); //
-        }); //
+        sendArcadeToAll(); //
+    };
+}
+
+const arcadeStatus = $('arcadeStatus'); //
+if (arcadeStatus) {
+    arcadeStatus.onclick = () => {
+        if (!activeToolboxFile) return; //
+        sendArcadeToAll(); //
     };
 }
 
@@ -1368,14 +1505,27 @@ function renderUserList() {
             div.className = 'user-item'; //
 
             const nameSpan = document.createElement('span'); //
+            const roleTags = []; //
             if (u.id === currentOwnerId) {
                 nameSpan.textContent = '👑 '; //
+                roleTags.push('Host'); //
+            } else if (u.isViewer) {
+                roleTags.push('Viewer'); //
+            } else {
+                roleTags.push('Guest'); //
+            }
+            if (activeGuestId === u.id) {
+                roleTags.push('Live'); //
             }
             nameSpan.textContent += u.name; //
-            
-            // Show hand icon if requesting call
+            if (roleTags.length) {
+                nameSpan.textContent += ` (${roleTags.join(', ')})`; //
+            }
             if (u.requestingCall) {
-                nameSpan.innerHTML += ' <span title="Requesting to Join Stream">✋</span>'; //
+                const requestBadge = document.createElement('span'); //
+                requestBadge.title = 'Requesting to Join Stream'; //
+                requestBadge.textContent = ' ✋'; //
+                nameSpan.appendChild(requestBadge); //
             }
 
             const actions = document.createElement('div'); //
@@ -1386,41 +1536,45 @@ function renderUserList() {
             if (iAmHost) {
                 const mBtn = document.createElement('button'); //
                 mBtn.className = 'action-btn'; //
-                mBtn.textContent = mutedUsers.has(u.name) ? 'Unmute' : 'Mute'; //
+                const isMuted = mutedAudioIds.has(u.id); //
+                mBtn.textContent = isMuted ? 'Unmute Audio' : 'Mute Audio'; //
                 mBtn.onclick = () => {
-                    if (mutedUsers.has(u.name)) {
-                        mutedUsers.delete(u.name); //
+                    if (isMuted) {
+                        mutedAudioIds.delete(u.id); //
+                        setRemoteAudioMuted(u.id, false); //
                     } else {
-                        mutedUsers.add(u.name); //
+                        mutedAudioIds.add(u.id); //
+                        setRemoteAudioMuted(u.id, true); //
                     }
                     renderUserList(); //
                 };
                 actions.appendChild(mBtn); //
-            }
 
-            const callBtn = document.createElement('button'); //
-            callBtn.className = 'action-btn'; //
-
-            if (isCalling) {
-                callBtn.textContent = 'End'; //
-                callBtn.style.color = 'var(--danger)'; //
-                callBtn.onclick = () => endPeerCall(u.id); //
-            } else {
-                // If viewer is requesting call, highlight button
-                callBtn.textContent = u.requestingCall ? 'Accept & Call' : 'Call'; //
-                if (u.requestingCall) callBtn.style.borderColor = "var(--accent)"; //
-                callBtn.onclick = () => window.ringUser(u.id); //
+                const callBtn = document.createElement('button'); //
+                callBtn.className = 'action-btn'; //
+                if (isCalling) {
+                    callBtn.textContent = 'End'; //
+                    callBtn.style.color = 'var(--danger)'; //
+                    callBtn.onclick = () => endPeerCall(u.id); //
+                } else {
+                    callBtn.textContent = u.requestingCall ? 'Accept & Call' : 'Call'; //
+                    if (u.requestingCall) callBtn.style.borderColor = "var(--accent)"; //
+                    callBtn.onclick = () => window.ringUser(u.id); //
+                }
+                actions.appendChild(callBtn); //
             }
-            actions.appendChild(callBtn); //
 
             if (isCalling && iAmHost) {
                 const selBtn = document.createElement('button'); //
                 selBtn.className = 'action-btn'; //
-                selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Mix'; //
+                selBtn.textContent = (activeGuestId === u.id) ? 'Unmix' : 'Mix'; //
                 selBtn.onclick = () => {
-                    activeGuestId = u.id; //
+                    activeGuestId = (activeGuestId === u.id) ? null : u.id; //
                     renderUserList(); //
-                    window.setActiveGuest(u.id); //
+                    window.setActiveGuest(activeGuestId); //
+                    if (!activeGuestId) {
+                        window.setMixerLayout('SOLO'); //
+                    }
                 };
                 actions.appendChild(selBtn); //
             }
@@ -1441,6 +1595,24 @@ function renderUserList() {
                 kBtn.textContent = 'Kick'; //
                 kBtn.onclick = () => window.kickUser(u.id); //
                 actions.appendChild(kBtn); //
+
+                if (u.requestingCall) {
+                    const dBtn = document.createElement('button'); //
+                    dBtn.className = 'action-btn kick'; //
+                    dBtn.textContent = 'Decline'; //
+                    dBtn.onclick = () => {
+                        socket.emit('respond-to-call-request', { targetId: u.id, approved: false }); //
+                    };
+                    actions.appendChild(dBtn); //
+                }
+
+                if (activeToolboxFile) {
+                    const tBtn = document.createElement('button'); //
+                    tBtn.className = 'action-btn'; //
+                    tBtn.textContent = 'Send Tool'; //
+                    tBtn.onclick = () => sendArcadeToUser(u.id, u.name); //
+                    actions.appendChild(tBtn); //
+                }
             }
 
             div.appendChild(nameSpan); //
@@ -1477,11 +1649,57 @@ function addRemoteVideo(id, stream) {
     if (v && v.srcObject !== stream) {
         v.srcObject = stream; //
     }
+    if (mutedAudioIds.has(id)) {
+        v.muted = true; //
+    }
 }
 
 function removeRemoteVideo(id) {
     const el = document.getElementById(`vid-${id}`); //
     if (el) el.remove(); //
+}
+
+function setRemoteAudioMuted(id, muted) {
+    const el = document.getElementById(`vid-${id}`); //
+    if (!el) return; //
+    const video = el.querySelector('video'); //
+    if (video) video.muted = muted; //
+}
+
+function sendArcadeToAll() {
+    if (!activeToolboxFile) return; //
+    Object.keys(viewerPeers).forEach(id => {
+        pushFileToPeer(viewerPeers[id], activeToolboxFile); //
+    }); //
+    Object.keys(callPeers).forEach(id => {
+        pushFileToPeer(callPeers[id].pc, activeToolboxFile); //
+    }); //
+    if (currentRoom) {
+        socket.emit('public-chat', {
+            room: currentRoom,
+            name: userName,
+            text: `📦 Sent tool to everyone: ${activeToolboxFile.name}`
+        }); //
+    }
+}
+
+function sendArcadeToUser(targetId, targetName) {
+    if (!activeToolboxFile) return; //
+    const viewerPc = viewerPeers[targetId]; //
+    const callPc = callPeers[targetId]?.pc; //
+    const pc = viewerPc || callPc; //
+    if (!pc) {
+        alert("User is not connected for toolbox transfer yet."); //
+        return;
+    }
+    pushFileToPeer(pc, activeToolboxFile); //
+    if (currentRoom) {
+        socket.emit('public-chat', {
+            room: currentRoom,
+            name: userName,
+            text: `📦 Sent tool to ${targetName}: ${activeToolboxFile.name}`
+        }); //
+    }
 }
 
 window.ringUser = (id) => socket.emit('ring-user', id); //
@@ -1492,6 +1710,10 @@ const openStreamBtn = $('openStreamBtn'); //
 if (openStreamBtn) {
     openStreamBtn.onclick = () => {
         const u = $('streamLinkInput') && $('streamLinkInput').value; //
-        if (u) window.open(u, '_blank'); //
+        if (!u) return; //
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(u).catch(() => {}); //
+        }
+        window.open(u, '_blank'); //
     };
 }
