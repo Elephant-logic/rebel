@@ -103,7 +103,7 @@ let activeToolboxFile = null; //
 
 let audioContext = null; //
 let audioDestination = null; //
-const audioAnalysers = {}; //
+const audioAnalysers = {}; // NEW: Professional Audio Analysis state
 
 // Canvas for mixing
 let canvas = document.createElement('canvas'); //
@@ -130,12 +130,12 @@ const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
 // ======================================================
 
 let lastDrawTime = 0;
-const fpsInterval = 1000 / 30; //
+const fpsInterval = 1000 / 30; // NEW: Target 30 FPS Lock
 
 function drawMixer(timestamp) {
     requestAnimationFrame(drawMixer);
 
-    // Frame Throttling Logic
+    // NEW: Frame Throttling Logic
     const elapsed = timestamp - lastDrawTime;
     if (elapsed < fpsInterval) return;
     lastDrawTime = timestamp - (elapsed % fpsInterval);
@@ -579,11 +579,11 @@ async function startLocalMedia() {
         ]); //
 
         const localVideo = $('localVideo'); //
-if (localVideo) {
-    localVideo.srcObject = localStream; //
-    localVideo.muted = true; //
-    localVideo.play().catch(() => {}); // <-- IMPORTANT LINE
-}
+        if (localVideo) {
+            localVideo.srcObject = localStream; //
+            localVideo.muted = true; //
+            localVideo.play().catch(() => {}); // CRITICAL FIX: Ensure playback starts
+        }
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
 
@@ -956,8 +956,8 @@ async function connectViewer(targetId) {
     const offer = await pc.createOffer(); //
     await pc.setLocalDescription(offer); //
 
-    // Apply Bitrate Patch before signaling
-    await applyBitrateConstraints(pc); //
+    // CRITICAL: Apply Bitrate constraints BEFORE signaling
+    await applyBitrateConstraints(pc);
 
     socket.emit('webrtc-offer', { targetId, sdp: offer }); //
 }
@@ -1479,131 +1479,127 @@ window.clearOverlay = () => {
 };
 
 // ======================================================
-// 16. USER LIST & MIXER SELECTION (FULLY PATCHED)
+// 16. USER LIST & MIXER SELECTION (UPDATED: Stats Support)
 // ======================================================
-function renderUserList() {
-    const list = $('userList'); 
-    if (!list) return; 
 
-    list.innerHTML = ''; 
+function renderUserList() {
+    const list = $('userList'); //
+    if (!list) return; //
+
+    list.innerHTML = ''; //
     
     // Separate In-Room Guests from Stream Viewers
-    const guests = latestUserList.filter(u => !u.isViewer); 
-    const viewers = latestUserList.filter(u => u.isViewer); 
+    const guests = latestUserList.filter(u => !u.isViewer); //
+    const viewers = latestUserList.filter(u => u.isViewer); //
 
     const renderGroup = (label, users) => {
-        if (users.length === 0) return; 
-        
-        const h = document.createElement('h4'); 
-        h.style.cssText = "font-size:0.7rem; color:var(--muted); margin:10px 0 5px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:4px;"; 
-        h.textContent = label; 
-        list.appendChild(h); 
+        if (users.length === 0) return; //
+        const h = document.createElement('h4'); //
+        h.style.cssText = "font-size:0.7rem; color:var(--muted); margin:10px 0 5px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:4px;"; //
+        h.textContent = label; //
+        list.appendChild(h); //
 
         users.forEach(u => {
-            if (u.id === myId) return; 
+            if (u.id === myId) return; //
 
-            const div = document.createElement('div'); 
-            div.className = 'user-item'; 
+            const div = document.createElement('div'); //
+            div.className = 'user-item'; //
 
-            const nameSpan = document.createElement('span'); 
-            nameSpan.textContent = (u.id === currentOwnerId ? '👑 ' : '') + u.name; 
+            const nameSpan = document.createElement('span'); //
+            if (u.id === currentOwnerId) {
+                nameSpan.textContent = '👑 '; //
+            }
+            nameSpan.textContent += u.name; //
             
-            // ✋ Visual indicator for Hand Raising (Stage Requests)
+            // Show hand icon if requesting call
             if (u.requestingCall) {
-                nameSpan.innerHTML += ' <span style="color:var(--accent); margin-left:5px;">✋</span>'; 
+                nameSpan.innerHTML += ' <span style="color:var(--accent)">✋</span>'; // CRITICAL: Restore hand emoji for requests
             }
 
             // Stats badge container for real-time monitoring
-            const statsBadge = document.createElement('small');
-            statsBadge.id = `stats-${u.id}`;
-            statsBadge.style.cssText = "margin-left:8px; font-size:0.6rem; opacity:0.7;";
-            nameSpan.appendChild(statsBadge);
+            const statsBadge = document.createElement('small'); //
+            statsBadge.id = `stats-${u.id}`; //
+            statsBadge.style.cssText = "margin-left:8px; font-size:0.6rem; opacity:0.7;"; //
+            nameSpan.appendChild(statsBadge); //
 
-            const actions = document.createElement('div'); 
-            actions.className = 'user-actions'; 
+            const actions = document.createElement('div'); //
+            actions.className = 'user-actions'; //
 
-            const isCalling = !!callPeers[u.id]; 
+            const isCalling = !!callPeers[u.id]; //
 
-            // --- MUTE BUTTON (HOST ONLY) ---
             if (iAmHost) {
-                const mBtn = document.createElement('button'); 
-                mBtn.className = 'action-btn'; 
-                mBtn.textContent = mutedUsers.has(u.name) ? 'Unmute' : 'Mute'; 
+                const mBtn = document.createElement('button'); //
+                mBtn.className = 'action-btn'; //
+                mBtn.textContent = mutedUsers.has(u.name) ? 'Unmute' : 'Mute'; //
                 mBtn.onclick = () => {
                     if (mutedUsers.has(u.name)) {
-                        mutedUsers.delete(u.name); 
+                        mutedUsers.delete(u.name); //
                     } else {
-                        mutedUsers.add(u.name); 
+                        mutedUsers.add(u.name); //
                     }
-                    renderUserList(); 
+                    renderUserList(); //
                 };
-                actions.appendChild(mBtn); 
+                actions.appendChild(mBtn); //
             }
 
-            // --- CALL / ACCEPT BUTTON ---
-            const callBtn = document.createElement('button'); 
-            callBtn.className = 'action-btn'; 
+            const callBtn = document.createElement('button'); //
+            callBtn.className = 'action-btn'; //
 
             if (isCalling) {
-                callBtn.textContent = 'End'; 
-                callBtn.style.color = 'var(--danger)'; 
-                callBtn.onclick = () => endPeerCall(u.id); 
+                callBtn.textContent = 'End'; //
+                callBtn.style.color = 'var(--danger)'; //
+                callBtn.onclick = () => endPeerCall(u.id); //
             } else {
-                // If viewer is requesting call, button says "Accept" and highlights green
-                callBtn.textContent = u.requestingCall ? 'Accept' : 'Call'; 
+                // If viewer is requesting call, highlight button
+                callBtn.textContent = u.requestingCall ? 'Accept' : 'Call'; //
                 if (u.requestingCall) {
                     callBtn.style.borderColor = "var(--accent)";
                     callBtn.style.background = "rgba(74, 243, 163, 0.1)";
                 }
-                callBtn.onclick = () => window.ringUser(u.id); 
+                callBtn.onclick = () => window.ringUser(u.id); //
             }
-            actions.appendChild(callBtn); 
+            actions.appendChild(callBtn); //
 
-            // --- MIX BUTTON (RESTORED) ---
-            // Only show if the user is in an active 1-to-1 call
+            // RESTORED: MIX BUTTON logic
             if (isCalling && iAmHost) {
-                const selBtn = document.createElement('button'); 
-                selBtn.className = 'action-btn'; 
-                // Highlights if this specific user is currently the active guest in the mixer
-                selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Mix'; 
+                const selBtn = document.createElement('button'); //
+                selBtn.className = 'action-btn'; //
+                selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Mix'; //
                 if (activeGuestId === u.id) selBtn.style.color = "var(--accent)";
-                
                 selBtn.onclick = () => {
-                    activeGuestId = u.id; 
-                    renderUserList(); 
-                    if (window.setActiveGuest) window.setActiveGuest(u.id); 
+                    activeGuestId = u.id; //
+                    renderUserList(); //
+                    window.setActiveGuest(u.id); //
                 };
-                actions.appendChild(selBtn); 
+                actions.appendChild(selBtn); //
             }
 
-            // --- HOST PRIVILEGES (KICK/PROMOTE) ---
             if (iAmHost) {
-                const pBtn = document.createElement('button'); 
-                pBtn.className = 'action-btn'; 
-                pBtn.textContent = '👑'; 
-                pBtn.title = "Promote to Host";
+                const pBtn = document.createElement('button'); //
+                pBtn.className = 'action-btn'; //
+                pBtn.textContent = '👑'; //
                 pBtn.onclick = () => {
                     if (confirm(`Hand over Host to ${u.name}?`)) {
-                        socket.emit('promote-to-host', { targetId: u.id }); 
+                        socket.emit('promote-to-host', { targetId: u.id }); //
                     }
                 };
-                actions.appendChild(pBtn); 
+                actions.appendChild(pBtn); //
 
-                const kBtn = document.createElement('button'); 
-                kBtn.className = 'action-btn kick'; 
-                kBtn.textContent = 'Kick'; 
-                kBtn.onclick = () => window.kickUser(u.id); 
-                actions.appendChild(kBtn); 
+                const kBtn = document.createElement('button'); //
+                kBtn.className = 'action-btn kick'; //
+                kBtn.textContent = 'Kick'; //
+                kBtn.onclick = () => window.kickUser(u.id); //
+                actions.appendChild(kBtn); //
             }
 
-            div.appendChild(nameSpan); 
-            div.appendChild(actions); 
-            list.appendChild(div); 
+            div.appendChild(nameSpan); //
+            div.appendChild(actions); //
+            list.appendChild(div); //
         });
     };
 
-    renderGroup("In-Room Guests", guests); 
-    renderGroup("Stream Viewers", viewers); 
+    renderGroup("In-Room Guests", guests); //
+    renderGroup("Stream Viewers", viewers); //
 }
 
 function addRemoteVideo(id, stream) {
@@ -1629,19 +1625,29 @@ function addRemoteVideo(id, stream) {
     const v = d.querySelector('video'); //
     if (v && v.srcObject !== stream) {
         v.srcObject = stream; //
-        setupAudioAnalysis(id, stream); // Remote audio tracking
+        v.play().catch(() => {}); // CRITICAL FIX: Ensure playback starts
+        setupAudioAnalysis(id, stream); // NEW: Remote audio tracking
     }
 }
 
 function removeRemoteVideo(id) {
     const el = document.getElementById(`vid-${id}`); //
     if (el) el.remove(); //
-    if (audioAnalysers[id]) delete audioAnalysers[id]; //
+    if (audioAnalysers[id]) delete audioAnalysers[id]; // Cleanup analyser
 }
 
-window.ringUser = (id) => socket.emit('ring-user', id); //
+window.ringUser = (id) => {
+    activeGuestId = id; // CRITICAL FIX: Set active guest on call
+    socket.emit('ring-user', id); 
+    callPeer(id);
+    renderUserList();
+}; 
 window.endPeerCall = endPeerCall; //
-window.kickUser = (id) => socket.emit('kick-user', id); //
+window.kickUser = (id) => { 
+    if (confirm("Kick user?")) {
+        socket.emit('kick-user', id); 
+    }
+};
 
 const openStreamBtn = $('openStreamBtn'); //
 if (openStreamBtn) {
