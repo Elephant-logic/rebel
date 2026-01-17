@@ -73,11 +73,8 @@ io.on('connection', (socket) => {
 
     const info = getRoomInfo(roomName);
 
-    if (info.locked && !isViewer && info.ownerId !== socket.id) {
-      const isOwnerRejoin = info.ownerName && info.ownerName === displayName;
-      if (isOwnerRejoin) {
-        // allow host to reclaim the room even while locked
-      } else if (info.approvedGuests.has(displayName)) {
+    if (info.locked && !isViewer && info.ownerId && info.ownerId !== socket.id) {
+      if (info.approvedGuests.has(displayName)) {
         info.approvedGuests.delete(displayName);
       } else {
         socket.emit('room-error', 'Room is locked by host');
@@ -227,11 +224,11 @@ io.on('connection', (socket) => {
       const roomName = socket.data.room;
       const info = rooms[roomName];
       const user = info?.users.get(targetId);
-      if (user && user.requestingCall) {
+      if (user) {
         user.requestingCall = false;
-        io.to(targetId).emit('call-request-response', { approved: true });
         broadcastRoomUpdate(roomName);
       }
+      io.to(targetId).emit('call-request-response', { approved: true });
       io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
     }
   });
