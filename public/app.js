@@ -512,10 +512,11 @@ async function startLocalMedia() {
         ]); //
 
         const localVideo = $('localVideo'); //
-        if (localVideo) {
-            localVideo.srcObject = localStream; //
-            localVideo.muted = true; //
-        }
+if (localVideo) {
+    localVideo.srcObject = localStream; //
+    localVideo.muted = true; //
+    localVideo.play().catch(() => {}); // <-- IMPORTANT LINE
+}
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
 
