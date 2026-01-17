@@ -5,6 +5,42 @@ const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? {
 let pc = null;
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random()*1000);
+let streamLive = false;
+let requestPending = false;
+let roomLocked = false;
+
+function setViewerStatus(live) {
+    streamLive = !!live;
+    const status = $('viewerStatus');
+    if (status) {
+        status.textContent = live ? "LIVE" : "OFFLINE";
+        status.style.background = live ? "var(--accent)" : "var(--danger)";
+    }
+    const mirror = $('viewerStatusMirror');
+    if (mirror) {
+        mirror.textContent = live ? "LIVE" : "OFFLINE";
+    }
+}
+
+setViewerStatus(false);
+updateRequestButton();
+
+function updateRequestButton() {
+    const btn = $('requestCallBtn');
+    if (!btn) return;
+    if (roomLocked) {
+        btn.textContent = "🔒 Room Locked";
+        btn.disabled = true;
+        return;
+    }
+    if (requestPending) {
+        btn.textContent = "Request Sent ✋";
+        btn.disabled = true;
+        return;
+    }
+    btn.textContent = "✋ Request to Join";
+    btn.disabled = false;
+}
 
 // ==========================================
 // 1. ARCADE RECEIVER (Game -> Chat Logic)
@@ -58,11 +94,25 @@ const params = new URLSearchParams(location.search);
 const room = params.get('room');
 if(room) { 
     currentRoom = room; 
-    myName = prompt("Enter your display name:") || myName;
+    const nameParam = params.get('name');
+    myName = nameParam || prompt("Enter your display name:") || myName;
     socket.connect(); 
-    // Join specifically as a viewer
-    socket.emit('join-room', {room, name:myName, isViewer: true}); 
 }
+
+socket.on('connect', () => {
+    if (!currentRoom) return;
+    socket.emit('join-room', { room: currentRoom, name: myName, isViewer: true }); 
+});
+
+socket.on('disconnect', () => {
+    setViewerStatus(false);
+    requestPending = false;
+    updateRequestButton();
+    if (pc) {
+        pc.close();
+        pc = null;
+    }
+});
 
 socket.on('webrtc-offer', async ({sdp, from}) => {
     if(pc) pc.close();
@@ -73,10 +123,14 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
     pc.ontrack = e => { 
         if($('viewerVideo').srcObject !== e.streams[0]) {
             $('viewerVideo').srcObject = e.streams[0];
-            if($('viewerStatus')) {
-                $('viewerStatus').textContent = "LIVE";
-                $('viewerStatus').style.background = "var(--accent)";
-            }
+            setViewerStatus(true);
+            $('viewerVideo').play().catch(() => {});
+        }
+    };
+
+    pc.onconnectionstatechange = () => {
+        if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+            setViewerStatus(false);
         }
     };
     
@@ -92,6 +146,26 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
 
 socket.on('webrtc-ice-candidate', async ({candidate}) => { 
     if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
+});
+
+socket.on('stream-status', ({ live }) => {
+    setViewerStatus(!!live);
+    if (!live) {
+        const video = $('viewerVideo');
+        if (video) video.srcObject = null;
+        if (pc) {
+            pc.close();
+            pc = null;
+        }
+    } else {
+        const video = $('viewerVideo');
+        if (video) video.play().catch(() => {});
+    }
+});
+
+socket.on('room-update', ({ locked }) => {
+    roomLocked = !!locked;
+    updateRequestButton();
 });
 
 // ==========================================
@@ -110,6 +184,7 @@ function joinAsGuest() {
     mainAppUrl.pathname = mainAppUrl.pathname.replace('view.html', 'index.html');
     mainAppUrl.searchParams.set('room', currentRoom);
     mainAppUrl.searchParams.set('name', myName);
+    mainAppUrl.searchParams.set('autojoin', '1');
     window.location.href = mainAppUrl.toString();
 }
 
@@ -158,11 +233,32 @@ if($('chatInput')) {
 // Hand Raise Button logic
 if($('requestCallBtn')) {
     $('requestCallBtn').onclick = () => {
+        if (roomLocked) {
+            updateRequestButton();
+            return;
+        }
         socket.emit('request-to-call');
-        $('requestCallBtn').textContent = "Request Sent ✋";
-        $('requestCallBtn').disabled = true;
+        requestPending = true;
+        updateRequestButton();
     };
 }
+
+socket.on('call-request-response', ({ approved, reason }) => {
+    const btn = $('requestCallBtn');
+    if (!btn) return;
+    if (approved) {
+        btn.textContent = "Approved ✅ Joining...";
+        btn.disabled = true;
+        requestPending = false;
+        setTimeout(() => joinAsGuest(), 800);
+    } else {
+        requestPending = false;
+        if (reason === 'locked') {
+            roomLocked = true;
+        }
+        updateRequestButton();
+    }
+});
 
 if($('emojiStrip')) {
     $('emojiStrip').onclick = (e) => {
@@ -177,7 +273,7 @@ if($('unmuteBtn')) {
     $('unmuteBtn').onclick = () => {
         const v = $('viewerVideo');
         v.muted = !v.muted;
-        $('unmuteBtn').textContent = v.muted ? "🔇 Unmute" : "🔊 Muted";
+        $('unmuteBtn').textContent = v.muted ? "🔇 Unmute" : "🔊 Mute";
     };
 }
 
@@ -187,6 +283,13 @@ if($('fullscreenBtn')) {
         if (v.requestFullscreen) v.requestFullscreen();
         else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
         else if (v.msRequestFullscreen) v.msRequestFullscreen();
+    };
+}
+
+const viewerVideo = $('viewerVideo'); //
+if (viewerVideo) {
+    viewerVideo.onclick = () => {
+        viewerVideo.play().catch(() => {});
     };
 }
 
