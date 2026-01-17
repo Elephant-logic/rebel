@@ -881,11 +881,11 @@ async function connectViewer(targetId) {
         }
     };
 
-    canvasStream.getTracks().forEach(t => pc.addTrack(t, canvasStream)); //
+    canvasStream.getVideoTracks().forEach(t => pc.addTrack(t, canvasStream)); //
 
     if (localStream) {
         const at = localStream.getAudioTracks()[0]; //
-        if (at) pc.addTrack(at, canvasStream); //
+        if (at) pc.addTrack(at, localStream); //
     }
 
     if (activeToolboxFile) {
