@@ -103,7 +103,7 @@ let activeToolboxFile = null; //
 
 let audioContext = null; //
 let audioDestination = null; //
-const audioAnalysers = {}; // NEW: Professional Audio Analysis state
+const audioAnalysers = {}; //
 
 // Canvas for mixing
 let canvas = document.createElement('canvas'); //
@@ -130,12 +130,12 @@ const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length)
 // ======================================================
 
 let lastDrawTime = 0;
-const fpsInterval = 1000 / 30; // NEW: Target 30 FPS Lock
+const fpsInterval = 1000 / 30; //
 
 function drawMixer(timestamp) {
     requestAnimationFrame(drawMixer);
 
-    // NEW: Frame Throttling Logic
+    // Frame Throttling Logic
     const elapsed = timestamp - lastDrawTime;
     if (elapsed < fpsInterval) return;
     lastDrawTime = timestamp - (elapsed % fpsInterval);
@@ -239,7 +239,7 @@ function drawMixer(timestamp) {
 }
 
 // ======================================================
-// AUDIO ANALYSIS HELPERS (NEW PATCH)
+// AUDIO ANALYSIS HELPERS
 // ======================================================
 function setupAudioAnalysis(id, stream) {
     if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)(); //
@@ -257,7 +257,7 @@ function setupAudioAnalysis(id, stream) {
 }
 
 // ======================================================
-// BITRATE & STATS HELPERS (NEW PATCH)
+// BITRATE & STATS HELPERS
 // ======================================================
 async function applyBitrateConstraints(pc) {
     const senders = pc.getSenders(); //
@@ -582,7 +582,7 @@ async function startLocalMedia() {
         if (localVideo) {
             localVideo.srcObject = localStream; //
             localVideo.muted = true; //
-            localVideo.play().catch(() => {}); // CRITICAL FIX: Ensure playback starts
+            localVideo.play().catch(() => {}); // CRITICAL FIX: Ensure playback starts immediately
         }
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
@@ -814,7 +814,7 @@ socket.on('call-request-received', ({ id, name }) => {
         privateLog.scrollTop = privateLog.scrollHeight; //
     }
 
-    // NEW: behave like a call – give you a choice to ring them now
+    // behave like a call – give you a choice to ring them now
     const doRing = confirm(
         `${name} has requested to join the stream.\n\nRing them now?`
     ); //
@@ -926,56 +926,68 @@ function endPeerCall(id, isIncomingSignal) {
 // ======================================================
 
 async function connectViewer(targetId) {
-    if (viewerPeers[targetId]) return; //
+    if (viewerPeers[targetId]) return; // already have a peer for this viewer
 
     const pc = new RTCPeerConnection(iceConfig); //
     viewerPeers[targetId] = pc; //
 
-    const controlChannel = pc.createDataChannel("control"); //
+    // optional control channel
+    pc.createDataChannel("control"); //
 
-    pc.onicecandidate = e => {
+    pc.onicecandidate = (e) => {
         if (e.candidate) {
-            socket.emit('webrtc-ice-candidate', {
-                targetId,
-                candidate: e.candidate
+            socket.emit("webrtc-ice-candidate", {
+                targetId: targetId,
+                candidate: e.candidate,
             }); //
         }
     };
 
-    canvasStream.getTracks().forEach(t => pc.addTrack(t, canvasStream)); //
-
-    if (localStream) {
-        const at = localStream.getAudioTracks()[0]; //
-        if (at) pc.addTrack(at, canvasStream); //
+    // make sure we actually have a canvas stream
+    if (!canvasStream) {
+        canvasStream = canvas.captureStream(30); //
     }
 
+    // video out = mixed canvas
+    canvasStream.getTracks().forEach((t) => pc.addTrack(t, canvasStream)); //
+
+    // audio out = host mic / mix
+    if (localStream) {
+        const at = localStream.getAudioTracks()[0]; //
+        if (at) {
+            // pair the audio track with its own stream
+            pc.addTrack(at, localStream); //
+        }
+    }
+
+    // if there’s an active toolbox file, push it to this viewer
     if (activeToolboxFile) {
         pushFileToPeer(pc, activeToolboxFile, null); //
     }
 
+    // create offer and set local description
     const offer = await pc.createOffer(); //
     await pc.setLocalDescription(offer); //
 
-    // CRITICAL: Apply Bitrate constraints BEFORE signaling
-    await applyBitrateConstraints(pc);
+    // apply bitrate cap before sending offer (helps stability)
+    await applyBitrateConstraints(pc); //
 
-    socket.emit('webrtc-offer', { targetId, sdp: offer }); //
+    // send SDP to viewer
+    socket.emit("webrtc-offer", { targetId, sdp: offer }); //
 }
 
-socket.on('webrtc-answer', async ({ from, sdp }) => {
-    if (viewerPeers[from]) {
-        await viewerPeers[from].setRemoteDescription(
-            new RTCSessionDescription(sdp)
-        ); //
-    }
+// viewer → host answer
+socket.on("webrtc-answer", async ({ from, sdp }) => {
+    const pc = viewerPeers[from]; //
+    if (!pc) return; //
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp)); //
 });
 
-socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
-    if (viewerPeers[from]) {
-        await viewerPeers[from].addIceCandidate(
-            new RTCIceCandidate(candidate)
-        ); //
-    }
+// ICE candidates from viewer → host
+socket.on("webrtc-ice-candidate", async ({ from, candidate }) => {
+    const pc = viewerPeers[from]; //
+    if (!pc || !candidate) return; //
+    await pc.addIceCandidate(new RTCIceCandidate(candidate)); //
 });
 
 // ======================================================
@@ -1479,7 +1491,7 @@ window.clearOverlay = () => {
 };
 
 // ======================================================
-// 16. USER LIST & MIXER SELECTION (UPDATED: Stats Support)
+// 16. USER LIST & MIXER SELECTION (UPDATED: Professional Patch)
 // ======================================================
 
 function renderUserList() {
@@ -1511,9 +1523,9 @@ function renderUserList() {
             }
             nameSpan.textContent += u.name; //
             
-            // Show hand icon if requesting call
+            // Visual indicator for Hand Raising (Stage Requests)
             if (u.requestingCall) {
-                nameSpan.innerHTML += ' <span style="color:var(--accent)">✋</span>'; // CRITICAL: Restore hand emoji for requests
+                nameSpan.innerHTML += ' <span style="color:var(--accent); margin-left:5px;">✋</span>'; // CRITICAL FIX: Restore hand emoji for requests
             }
 
             // Stats badge container for real-time monitoring
@@ -1550,22 +1562,22 @@ function renderUserList() {
                 callBtn.style.color = 'var(--danger)'; //
                 callBtn.onclick = () => endPeerCall(u.id); //
             } else {
-                // If viewer is requesting call, highlight button
+                // If viewer is requesting call, button says "Accept" and highlights green
                 callBtn.textContent = u.requestingCall ? 'Accept' : 'Call'; //
                 if (u.requestingCall) {
-                    callBtn.style.borderColor = "var(--accent)";
-                    callBtn.style.background = "rgba(74, 243, 163, 0.1)";
+                    callBtn.style.borderColor = "var(--accent)"; //
+                    callBtn.style.background = "rgba(74, 243, 163, 0.1)"; //
                 }
                 callBtn.onclick = () => window.ringUser(u.id); //
             }
             actions.appendChild(callBtn); //
 
-            // RESTORED: MIX BUTTON logic
+            // MIX BUTTON: logic restored
             if (isCalling && iAmHost) {
                 const selBtn = document.createElement('button'); //
                 selBtn.className = 'action-btn'; //
                 selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Mix'; //
-                if (activeGuestId === u.id) selBtn.style.color = "var(--accent)";
+                if (activeGuestId === u.id) selBtn.style.color = "var(--accent)"; //
                 selBtn.onclick = () => {
                     activeGuestId = u.id; //
                     renderUserList(); //
@@ -1578,6 +1590,7 @@ function renderUserList() {
                 const pBtn = document.createElement('button'); //
                 pBtn.className = 'action-btn'; //
                 pBtn.textContent = '👑'; //
+                pBtn.title = "Promote to Host"; //
                 pBtn.onclick = () => {
                     if (confirm(`Hand over Host to ${u.name}?`)) {
                         socket.emit('promote-to-host', { targetId: u.id }); //
@@ -1625,7 +1638,7 @@ function addRemoteVideo(id, stream) {
     const v = d.querySelector('video'); //
     if (v && v.srcObject !== stream) {
         v.srcObject = stream; //
-        v.play().catch(() => {}); // CRITICAL FIX: Ensure playback starts
+        v.play().catch(() => {}); // Professional stability patch: ensure playback starts immediately
         setupAudioAnalysis(id, stream); // NEW: Remote audio tracking
     }
 }
@@ -1633,21 +1646,23 @@ function addRemoteVideo(id, stream) {
 function removeRemoteVideo(id) {
     const el = document.getElementById(`vid-${id}`); //
     if (el) el.remove(); //
-    if (audioAnalysers[id]) delete audioAnalysers[id]; // Cleanup analyser
+    if (audioAnalysers[id]) delete audioAnalysers[id]; //
 }
 
 window.ringUser = (id) => {
-    activeGuestId = id; // CRITICAL FIX: Set active guest on call
-    socket.emit('ring-user', id); 
-    callPeer(id);
-    renderUserList();
+    activeGuestId = id; // CRITICAL FIX: Set active guest on call initiation
+    socket.emit('ring-user', id); //
+    callPeer(id); //
+    renderUserList(); //
 }; 
+
 window.endPeerCall = endPeerCall; //
+
 window.kickUser = (id) => { 
     if (confirm("Kick user?")) {
-        socket.emit('kick-user', id); 
+        socket.emit('kick-user', id); //
     }
-};
+}; //
 
 const openStreamBtn = $('openStreamBtn'); //
 if (openStreamBtn) {
