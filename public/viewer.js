@@ -3,8 +3,46 @@ const socket = io({ autoConnect: false });
 const iceConfig = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS.length) ? { iceServers: ICE_SERVERS } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 let pc = null;
+let callPc = null;
+let callStream = null;
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random()*1000);
+let streamLive = false;
+let requestPending = false;
+let roomLocked = false;
+
+function setViewerStatus(live) {
+    streamLive = !!live;
+    const status = $('viewerStatus');
+    if (status) {
+        status.textContent = live ? "LIVE" : "OFFLINE";
+        status.style.background = live ? "var(--accent)" : "var(--danger)";
+    }
+    const mirror = $('viewerStatusMirror');
+    if (mirror) {
+        mirror.textContent = live ? "LIVE" : "OFFLINE";
+    }
+}
+
+setViewerStatus(false);
+updateRequestButton();
+
+function updateRequestButton() {
+    const btn = $('requestCallBtn');
+    if (!btn) return;
+    if (roomLocked) {
+        btn.textContent = "🔒 Room Locked";
+        btn.disabled = true;
+        return;
+    }
+    if (requestPending) {
+        btn.textContent = "Request Sent ✋";
+        btn.disabled = true;
+        return;
+    }
+    btn.textContent = "✋ Request to Join";
+    btn.disabled = false;
+}
 
 // ==========================================
 // 1. ARCADE RECEIVER (Game -> Chat Logic)
@@ -37,6 +75,37 @@ function setupReceiver(pc) {
     };
 }
 
+async function startCallMedia() {
+    if (callStream) return callStream;
+    callStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const selfView = $('viewerSelfVideo');
+    if (selfView) {
+        selfView.srcObject = callStream;
+        selfView.muted = true;
+        selfView.play().catch(() => {});
+        selfView.classList.remove('hidden');
+    }
+    return callStream;
+}
+
+function stopCallMedia() {
+    if (callPc) {
+        try {
+            callPc.close();
+        } catch (e) {}
+        callPc = null;
+    }
+    if (callStream) {
+        callStream.getTracks().forEach(t => t.stop());
+        callStream = null;
+    }
+    const selfView = $('viewerSelfVideo');
+    if (selfView) {
+        selfView.srcObject = null;
+        selfView.classList.add('hidden');
+    }
+}
+
 function addGameToChat(url, name) {
     const log = $('chatLog');
     if(!log) return;
@@ -58,11 +127,26 @@ const params = new URLSearchParams(location.search);
 const room = params.get('room');
 if(room) { 
     currentRoom = room; 
-    myName = prompt("Enter your display name:") || myName;
+    const nameParam = params.get('name');
+    myName = nameParam || prompt("Enter your display name:") || myName;
     socket.connect(); 
-    // Join specifically as a viewer
-    socket.emit('join-room', {room, name:myName, isViewer: true}); 
 }
+
+socket.on('connect', () => {
+    if (!currentRoom) return;
+    socket.emit('join-room', { room: currentRoom, name: myName, isViewer: true }); 
+});
+
+socket.on('disconnect', () => {
+    setViewerStatus(false);
+    requestPending = false;
+    updateRequestButton();
+    if (pc) {
+        pc.close();
+        pc = null;
+    }
+    stopCallMedia();
+});
 
 socket.on('webrtc-offer', async ({sdp, from}) => {
     if(pc) pc.close();
@@ -73,10 +157,15 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
     pc.ontrack = e => { 
         if($('viewerVideo').srcObject !== e.streams[0]) {
             $('viewerVideo').srcObject = e.streams[0];
-            if($('viewerStatus')) {
-                $('viewerStatus').textContent = "LIVE";
-                $('viewerStatus').style.background = "var(--accent)";
-            }
+            $('viewerVideo').muted = true;
+            setViewerStatus(true);
+            $('viewerVideo').play().catch(() => {});
+        }
+    };
+
+    pc.onconnectionstatechange = () => {
+        if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+            setViewerStatus(false);
         }
     };
     
@@ -94,24 +183,78 @@ socket.on('webrtc-ice-candidate', async ({candidate}) => {
     if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate)); 
 });
 
+socket.on('stream-status', ({ live }) => {
+    setViewerStatus(!!live);
+    if (!live) {
+        const video = $('viewerVideo');
+        if (video) video.srcObject = null;
+        if (pc) {
+            pc.close();
+            pc = null;
+        }
+    } else {
+        const video = $('viewerVideo');
+        if (video) video.play().catch(() => {});
+    }
+});
+
+socket.on('room-update', ({ locked }) => {
+    roomLocked = !!locked;
+    updateRequestButton();
+});
+
 // ==========================================
 // 3. CHAT & UI LOGIC
 // ==========================================
 
 // Handle call accept if the host calls the viewer
-socket.on('ring-alert', async ({ from }) => {
-    if (confirm(`Host ${from} is calling you on stage! Click OK to switch to Guest Mode and enable your camera.`)) {
-       joinAsGuest();
+socket.on('ring-alert', ({ from }) => {
+    alert(`Host ${from} is calling you on stage. Accept the incoming call prompt to go live.`); 
+});
+
+socket.on('incoming-call', async ({ from, name, offer }) => {
+    const accepted = confirm(`Host ${name} wants to bring you on cam. Accept?`);
+    if (!accepted) {
+        socket.emit('call-end', { targetId: from });
+        return;
+    }
+
+    try {
+        const stream = await startCallMedia();
+        callPc = new RTCPeerConnection(iceConfig);
+
+        callPc.onicecandidate = e => {
+            if (e.candidate) {
+                socket.emit('call-ice', { targetId: from, candidate: e.candidate });
+            }
+        };
+
+        await callPc.setRemoteDescription(new RTCSessionDescription(offer));
+        stream.getTracks().forEach(t => callPc.addTrack(t, stream));
+
+        const answer = await callPc.createAnswer();
+        await callPc.setLocalDescription(answer);
+        socket.emit('call-answer', { targetId: from, answer });
+    } catch (err) {
+        console.error('[Viewer] incoming-call failed', err);
     }
 });
 
-function joinAsGuest() {
-    const mainAppUrl = new URL(window.location.href);
-    mainAppUrl.pathname = mainAppUrl.pathname.replace('view.html', 'index.html');
-    mainAppUrl.searchParams.set('room', currentRoom);
-    mainAppUrl.searchParams.set('name', myName);
-    window.location.href = mainAppUrl.toString();
-}
+socket.on('call-answer', async ({ answer }) => {
+    if (callPc) {
+        await callPc.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+});
+
+socket.on('call-ice', ({ candidate }) => {
+    if (callPc) {
+        callPc.addIceCandidate(new RTCIceCandidate(candidate));
+    }
+});
+
+socket.on('call-end', () => {
+    stopCallMedia();
+});
 
 socket.on('public-chat', d => { 
     const log = $('chatLog');
@@ -158,11 +301,31 @@ if($('chatInput')) {
 // Hand Raise Button logic
 if($('requestCallBtn')) {
     $('requestCallBtn').onclick = () => {
+        if (roomLocked) {
+            updateRequestButton();
+            return;
+        }
         socket.emit('request-to-call');
-        $('requestCallBtn').textContent = "Request Sent ✋";
-        $('requestCallBtn').disabled = true;
+        requestPending = true;
+        updateRequestButton();
     };
 }
+
+socket.on('call-request-response', ({ approved, reason }) => {
+    const btn = $('requestCallBtn');
+    if (!btn) return;
+    if (approved) {
+        btn.textContent = "Approved ✅ Waiting...";
+        btn.disabled = true;
+        requestPending = false;
+    } else {
+        requestPending = false;
+        if (reason === 'locked') {
+            roomLocked = true;
+        }
+        updateRequestButton();
+    }
+});
 
 if($('emojiStrip')) {
     $('emojiStrip').onclick = (e) => {
@@ -177,7 +340,7 @@ if($('unmuteBtn')) {
     $('unmuteBtn').onclick = () => {
         const v = $('viewerVideo');
         v.muted = !v.muted;
-        $('unmuteBtn').textContent = v.muted ? "🔇 Unmute" : "🔊 Muted";
+        $('unmuteBtn').textContent = v.muted ? "🔇 Unmute" : "🔊 Mute";
     };
 }
 
@@ -187,6 +350,13 @@ if($('fullscreenBtn')) {
         if (v.requestFullscreen) v.requestFullscreen();
         else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
         else if (v.msRequestFullscreen) v.msRequestFullscreen();
+    };
+}
+
+const viewerVideo = $('viewerVideo'); //
+if (viewerVideo) {
+    viewerVideo.onclick = () => {
+        viewerVideo.play().catch(() => {});
     };
 }
 
