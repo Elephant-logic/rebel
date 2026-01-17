@@ -10,7 +10,6 @@ let myName = "Viewer-" + Math.floor(Math.random()*1000);
 let streamLive = false;
 let requestPending = false;
 let roomLocked = false;
-let playbackReady = false;
 
 function setViewerStatus(live) {
     streamLive = !!live;
@@ -27,13 +26,6 @@ function setViewerStatus(live) {
 
 setViewerStatus(false);
 updateRequestButton();
-
-function attemptPlayback() {
-    const video = $('viewerVideo');
-    if (!video || !video.srcObject) return;
-    playbackReady = true;
-    video.play().catch(() => {});
-}
 
 function updateRequestButton() {
     const btn = $('requestCallBtn');
@@ -149,12 +141,10 @@ socket.on('disconnect', () => {
     setViewerStatus(false);
     requestPending = false;
     updateRequestButton();
-    playbackReady = false;
     if (pc) {
         pc.close();
         pc = null;
     }
-    stopCallMedia();
 });
 
 socket.on('webrtc-offer', async ({sdp, from}) => {
@@ -164,15 +154,10 @@ socket.on('webrtc-offer', async ({sdp, from}) => {
     setupReceiver(pc);
     
     pc.ontrack = e => { 
-        const video = $('viewerVideo');
-        if (!video) return;
-        if (video.srcObject !== e.streams[0]) {
-            video.srcObject = e.streams[0];
-        }
-        video.muted = true;
-        setViewerStatus(true);
-        if (playbackReady) {
-            attemptPlayback();
+        if($('viewerVideo').srcObject !== e.streams[0]) {
+            $('viewerVideo').srcObject = e.streams[0];
+            setViewerStatus(true);
+            $('viewerVideo').play().catch(() => {});
         }
     };
 
@@ -201,15 +186,13 @@ socket.on('stream-status', ({ live }) => {
     if (!live) {
         const video = $('viewerVideo');
         if (video) video.srcObject = null;
-        playbackReady = false;
         if (pc) {
             pc.close();
             pc = null;
         }
     } else {
-        if (playbackReady) {
-            attemptPlayback();
-        }
+        const video = $('viewerVideo');
+        if (video) video.play().catch(() => {});
     }
 });
 
@@ -255,21 +238,14 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
     }
 });
 
-socket.on('call-answer', async ({ answer }) => {
-    if (callPc) {
-        await callPc.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-});
-
-socket.on('call-ice', ({ candidate }) => {
-    if (callPc) {
-        callPc.addIceCandidate(new RTCIceCandidate(candidate));
-    }
-});
-
-socket.on('call-end', () => {
-    stopCallMedia();
-});
+function joinAsGuest() {
+    const mainAppUrl = new URL(window.location.href);
+    mainAppUrl.pathname = mainAppUrl.pathname.replace('view.html', 'index.html');
+    mainAppUrl.searchParams.set('room', currentRoom);
+    mainAppUrl.searchParams.set('name', myName);
+    mainAppUrl.searchParams.set('autojoin', '1');
+    window.location.href = mainAppUrl.toString();
+}
 
 socket.on('public-chat', d => { 
     const log = $('chatLog');
@@ -330,9 +306,10 @@ socket.on('call-request-response', ({ approved, reason }) => {
     const btn = $('requestCallBtn');
     if (!btn) return;
     if (approved) {
-        btn.textContent = "Approved ✅ Waiting...";
+        btn.textContent = "Approved ✅ Joining...";
         btn.disabled = true;
         requestPending = false;
+        setTimeout(() => joinAsGuest(), 800);
     } else {
         requestPending = false;
         if (reason === 'locked') {
@@ -356,9 +333,6 @@ if($('unmuteBtn')) {
         const v = $('viewerVideo');
         v.muted = !v.muted;
         $('unmuteBtn').textContent = v.muted ? "🔇 Unmute" : "🔊 Mute";
-        if (!v.muted) {
-            attemptPlayback();
-        }
     };
 }
 
@@ -374,7 +348,7 @@ if($('fullscreenBtn')) {
 const viewerVideo = $('viewerVideo'); //
 if (viewerVideo) {
     viewerVideo.onclick = () => {
-        attemptPlayback();
+        viewerVideo.play().catch(() => {});
     };
 }
 
