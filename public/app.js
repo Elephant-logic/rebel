@@ -520,6 +520,7 @@ async function startLocalMedia() {
         if (localVideo) {
             localVideo.srcObject = localStream; //
             localVideo.muted = true; //
+            localVideo.play().catch(() => {}); //
         }
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
