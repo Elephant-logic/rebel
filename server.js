@@ -11,8 +11,8 @@ const server = http.createServer(app);
 // FIX: Increased buffer to 50MB for large arcade transfers
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 5e7, 
-  pingTimeout: 10000,     
+  maxHttpBufferSize: 5e7,
+  pingTimeout: 10000,
   pingInterval: 25000
 });
 
@@ -26,7 +26,7 @@ function getRoomInfo(roomName) {
     rooms[roomName] = {
       ownerId: null,
       locked: false,
-      streamTitle: 'Untitled Stream', 
+      streamTitle: 'Untitled Stream',
       users: new Map()
     };
   }
@@ -39,11 +39,11 @@ function broadcastRoomUpdate(roomName) {
 
   const users = [];
   for (const [id, u] of room.users.entries()) {
-    users.push({ 
-        id, 
-        name: u.name, 
-        isViewer: u.isViewer, 
-        requestingCall: u.requestingCall 
+    users.push({
+      id,
+      name: u.name,
+      isViewer: u.isViewer,
+      requestingCall: u.requestingCall
     });
   }
 
@@ -65,9 +65,10 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const roomName = room.trim().slice(0, 50); 
-    const rawName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
-    const displayName = rawName.slice(0, 30); 
+    const roomName = room.trim().slice(0, 50);
+    const rawName =
+      (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
+    const displayName = rawName.slice(0, 30);
 
     const info = getRoomInfo(roomName);
 
@@ -82,41 +83,50 @@ io.on('connection', (socket) => {
     socket.data.name = displayName;
     socket.data.isViewer = !!isViewer;
 
+    // First non-viewer becomes host
     if (!info.ownerId && !isViewer) {
       info.ownerId = socket.id;
     }
 
-    info.users.set(socket.id, { 
-        name: displayName, 
-        isViewer: !!isViewer,
-        requestingCall: false 
+    info.users.set(socket.id, {
+      name: displayName,
+      isViewer: !!isViewer,
+      requestingCall: false
     });
 
-    socket.emit('role', { 
+    socket.emit('role', {
       isHost: info.ownerId === socket.id,
       streamTitle: info.streamTitle
     });
 
-    socket.to(roomName).emit('user-joined', { id: socket.id, name: displayName });
+    socket.to(roomName).emit('user-joined', {
+      id: socket.id,
+      name: displayName
+    });
     broadcastRoomUpdate(roomName);
   });
 
-  socket.on('request-to-call', () => {
-    const roomName = socket.data.room;
+  // Viewer raises hand / requests to join the stage
+  socket.on('request-to-call', (payload = {}) => {
+    const roomName = socket.data.room || payload.room;
     if (!roomName) return;
+
     const info = rooms[roomName];
-    const user = info?.users.get(socket.id);
-    
-    if (user) {
-        user.requestingCall = true;
-        if (info.ownerId) {
-            io.to(info.ownerId).emit('call-request-received', { 
-                id: socket.id, 
-                name: socket.data.name 
-            });
-        }
-        broadcastRoomUpdate(roomName);
+    if (!info) return;
+
+    const user = info.users.get(socket.id);
+    if (!user) return;
+
+    user.requestingCall = true;
+
+    if (info.ownerId) {
+      io.to(info.ownerId).emit('call-request-received', {
+        id: socket.id,
+        name: socket.data.name || payload.name || 'Viewer'
+      });
     }
+
+    broadcastRoomUpdate(roomName);
   });
 
   socket.on('promote-to-host', ({ targetId }) => {
@@ -124,13 +134,16 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (info && info.ownerId === socket.id) {
-        info.ownerId = targetId;
-        socket.emit('role', { isHost: false });
-        const nextSocket = io.sockets.sockets.get(targetId);
-        if (nextSocket) {
-            nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
-        }
-        broadcastRoomUpdate(roomName);
+      info.ownerId = targetId;
+      socket.emit('role', { isHost: false });
+      const nextSocket = io.sockets.sockets.get(targetId);
+      if (nextSocket) {
+        nextSocket.emit('role', {
+          isHost: true,
+          streamTitle: info.streamTitle
+        });
+      }
+      broadcastRoomUpdate(roomName);
     }
   });
 
@@ -168,38 +181,56 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
+  // STREAM WebRTC (host ↔ viewer)
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
-    if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
+    if (targetId && sdp)
+      io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
   socket.on('webrtc-answer', ({ targetId, sdp }) => {
-    if (targetId && sdp) io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
+    if (targetId && sdp)
+      io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
   });
   socket.on('webrtc-ice-candidate', ({ targetId, candidate }) => {
-    if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
+    if (targetId && candidate)
+      io.to(targetId).emit('webrtc-ice-candidate', {
+        candidate,
+        from: socket.id
+      });
   });
 
+  // 1:1 CALLS (host ↔ viewer)
   socket.on('ring-user', (targetId) => {
-    if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
+    if (targetId)
+      io.to(targetId).emit('ring-alert', {
+        from: socket.data.name,
+        fromId: socket.id
+      });
   });
   socket.on('call-offer', ({ targetId, offer }) => {
-    if (targetId && offer) io.to(targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer });
+    if (targetId && offer)
+      io
+        .to(targetId)
+        .emit('incoming-call', { from: socket.id, name: socket.data.name, offer });
   });
   socket.on('call-answer', ({ targetId, answer }) => {
-    if (targetId && answer) io.to(targetId).emit('call-answer', { from: socket.id, answer });
+    if (targetId && answer)
+      io.to(targetId).emit('call-answer', { from: socket.id, answer });
   });
   socket.on('call-ice', ({ targetId, candidate }) => {
-    if (targetId && candidate) io.to(targetId).emit('call-ice', { from: socket.id, candidate });
+    if (targetId && candidate)
+      io.to(targetId).emit('call-ice', { from: socket.id, candidate });
   });
   socket.on('call-end', ({ targetId }) => {
     if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
   });
 
+  // CHAT
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
     const info = rooms[roomName];
     io.to(roomName).emit('public-chat', {
-      name: (name || socket.data.name || 'Anon').slice(0,30),
+      name: (name || socket.data.name || 'Anon').slice(0, 30),
       text: String(text).slice(0, 500),
       ts: Date.now(),
       isOwner: info && info.ownerId === socket.id,
@@ -211,20 +242,21 @@ io.on('connection', (socket) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
     io.to(roomName).emit('private-chat', {
-      name: (name || socket.data.name || 'Anon').slice(0,30),
+      name: (name || socket.data.name || 'Anon').slice(0, 30),
       text: String(text).slice(0, 500),
       ts: Date.now()
     });
   });
 
+  // SIMPLE FILE SHARE (not arcade)
   socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !fileName || !fileData) return;
     io.to(roomName).emit('file-share', {
-      name: (name || socket.data.name).slice(0,30),
+      name: (name || socket.data.name).slice(0, 30),
       fileName: String(fileName).slice(0, 100),
       fileType: fileType || 'application/octet-stream',
-      fileData 
+      fileData
     });
   });
 
@@ -233,6 +265,7 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (!info) return;
+
     info.users.delete(socket.id);
 
     if (info.ownerId === socket.id) {
@@ -240,8 +273,12 @@ io.on('connection', (socket) => {
     }
 
     socket.to(roomName).emit('user-left', { id: socket.id });
-    if (info.users.size === 0) delete rooms[roomName];
-    else broadcastRoomUpdate(roomName);
+
+    if (info.users.size === 0) {
+      delete rooms[roomName];
+    } else {
+      broadcastRoomUpdate(roomName);
+    }
   });
 });
 
