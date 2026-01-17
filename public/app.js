@@ -579,10 +579,12 @@ async function startLocalMedia() {
         ]); //
 
         const localVideo = $('localVideo'); //
-        if (localVideo) {
-            localVideo.srcObject = localStream; //
-            localVideo.muted = true; //
-        }
+        const localVideo = $('localVideo');
+if (localVideo) {
+    localVideo.srcObject = localStream;
+    localVideo.muted = true;
+    localVideo.play().catch(() => {}); // CRITICAL FIX
+}
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
 
