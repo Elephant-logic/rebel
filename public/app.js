@@ -578,12 +578,11 @@ async function startLocalMedia() {
             finalAudioTrack
         ]); //
 
-        const localVideo = $('localVideo');
-if (localVideo) {
-    localVideo.srcObject = localStream;
-    localVideo.muted = true;
-    localVideo.play().catch(() => {}); // CRITICAL FIX
-}
+        const localVideo = $('localVideo'); //
+        if (localVideo) {
+            localVideo.srcObject = localStream; //
+            localVideo.muted = true; //
+        }
 
         const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
 
@@ -873,10 +872,9 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
 
     pc.ontrack = e => addRemoteVideo(from, e.streams[0]); //
 
-    await pc.setRemoteDescription(new RTCSessionDescription(offer)); //
-
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream)); //
 
+    await pc.setRemoteDescription(new RTCSessionDescription(offer)); //
     const answer = await pc.createAnswer(); //
     await pc.setLocalDescription(answer); //
 
@@ -886,54 +884,76 @@ socket.on('incoming-call', async ({ from, name, offer }) => {
 });
 
 socket.on('call-answer', async ({ from, answer }) => {
-    if (callPeers[from]) {
-        await callPeers[from].pc.setRemoteDescription(
-            new RTCSessionDescription(answer)
-        ); //
+    const peer = callPeers[from]; //
+    if (!peer) return; //
+    await peer.pc.setRemoteDescription(new RTCSessionDescription(answer)); //
+});
+
+socket.on('call-ice', async ({ from, candidate }) => {
+    const peer = callPeers[from]; //
+    if (!peer) return; //
+    try {
+        await peer.pc.addIceCandidate(new RTCIceCandidate(candidate)); //
+    } catch (e) {
+        console.error("Error adding ICE candidate to call peer", e); //
     }
 });
 
-socket.on('call-ice', ({ from, candidate }) => {
-    if (callPeers[from]) {
-        callPeers[from].pc.addIceCandidate(new RTCIceCandidate(candidate)); //
-    }
-});
+function addRemoteVideo(id, stream) {
+    const grid = $('videoGrid'); //
+    if (!grid) return; //
 
-socket.on('call-end', ({ from }) => {
-    endPeerCall(from, true); //
-});
-
-function endPeerCall(id, isIncomingSignal) {
-    if (callPeers[id]) {
-        try {
-            callPeers[id].pc.close(); //
-        } catch (e) {
-            console.error(e); //
-        }
+    let existing = document.getElementById(`vid-${id}`); //
+    if (!existing) {
+        existing = document.createElement('div'); //
+        existing.id = `vid-${id}`; //
+        existing.className = 'video-container'; //
+        existing.innerHTML = `
+            <h2>Guest</h2>
+            <video autoplay playsinline></video>
+        `; //
+        grid.appendChild(existing); //
     }
+
+    const videoEl = existing.querySelector('video'); //
+    if (videoEl) {
+        videoEl.srcObject = stream; //
+    }
+}
+
+function endPeerCall(id) {
+    const peer = callPeers[id]; //
+    if (!peer) return; //
+    if (peer.pc) peer.pc.close(); //
     delete callPeers[id]; //
-    removeRemoteVideo(id); //
 
-    if (!isIncomingSignal) {
-        socket.emit('call-end', { targetId: id }); //
+    const el = document.getElementById(`vid-${id}`); //
+    if (el && el.parentNode) {
+        el.parentNode.removeChild(el); //
     }
 
     renderUserList(); //
 }
 
 // ======================================================
-// 10. VIEWER CONNECTION & ARCADE PUSH (UPDATED: Bitrate Patch)
+// 10. VIEWER WEBRTC BRIDGE
 // ======================================================
 
-async function connectViewer(targetId) {
-    if (viewerPeers[targetId]) return; //
-
+function createViewerPeer(targetId) {
     const pc = new RTCPeerConnection(iceConfig); //
     viewerPeers[targetId] = pc; //
 
-    const controlChannel = pc.createDataChannel("control"); //
+    const mixedVideoTrack = canvasStream.getVideoTracks()[0]; //
+    const audioTrack = localStream ? localStream.getAudioTracks()[0] : null; //
 
-    pc.onicecandidate = e => {
+    if (mixedVideoTrack) {
+        pc.addTrack(mixedVideoTrack, canvasStream); //
+    }
+    if (audioTrack) {
+        pc.addTrack(audioTrack, localStream); //
+    }
+
+    pc.onicecandidate = (e) => {
         if (e.candidate) {
             socket.emit('webrtc-ice-candidate', {
                 targetId,
@@ -942,53 +962,132 @@ async function connectViewer(targetId) {
         }
     };
 
-    canvasStream.getTracks().forEach(t => pc.addTrack(t, canvasStream)); //
+    applyBitrateConstraints(pc).catch(() => {}); //
 
-    if (localStream) {
-        const at = localStream.getAudioTracks()[0]; //
-        if (at) pc.addTrack(at, canvasStream); //
+    return pc; //
+}
+
+async function connectViewer(targetId) {
+    if (!localStream || !canvasStream) {
+        console.warn("No localStream/canvasStream yet for viewer connection"); //
+        return;
     }
 
-    if (activeToolboxFile) {
-        pushFileToPeer(pc, activeToolboxFile, null); //
+    let pc = viewerPeers[targetId]; //
+    if (!pc) {
+        pc = createViewerPeer(targetId); //
     }
 
     const offer = await pc.createOffer(); //
     await pc.setLocalDescription(offer); //
 
-    // NEW: Apply Bitrate Patch before signaling
-    await applyBitrateConstraints(pc);
-
-    socket.emit('webrtc-offer', { targetId, sdp: offer }); //
+    socket.emit('webrtc-offer', {
+        targetId,
+        sdp: offer
+    }); //
 }
 
-socket.on('webrtc-answer', async ({ from, sdp }) => {
-    if (viewerPeers[from]) {
-        await viewerPeers[from].setRemoteDescription(
-            new RTCSessionDescription(sdp)
-        ); //
+socket.on('webrtc-offer', async ({ sdp, from }) => {
+    // Viewers won't hit this handler on host side
+});
+
+socket.on('webrtc-answer', async ({ sdp, from }) => {
+    const pc = viewerPeers[from]; //
+    if (!pc) return; //
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp)); //
+});
+
+socket.on('webrtc-ice-candidate', async ({ candidate, from }) => {
+    const pc = viewerPeers[from]; //
+    if (!pc) return; //
+    try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate)); //
+    } catch (e) {
+        console.error("Error adding ICE candidate from viewer", e); //
     }
 });
 
-socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
-    if (viewerPeers[from]) {
-        await viewerPeers[from].addIceCandidate(
-            new RTCIceCandidate(candidate)
-        ); //
+// When someone joins as viewer while stream is running
+socket.on('viewer-joined', ({ id }) => {
+    if (iAmHost && isStreaming) {
+        connectViewer(id); //
     }
 });
 
 // ======================================================
-// 11. SOCKET & ROOM LOGIC
+// 11. ROOM & USER MANAGEMENT
 // ======================================================
 
 socket.on('connect', () => {
-    const signalStatus = $('signalStatus'); //
-    if (signalStatus) {
-        signalStatus.className = 'status-dot status-connected'; //
-        signalStatus.textContent = 'Connected'; //
-    }
     myId = socket.id; //
+});
+
+socket.on('role', ({ isHost, streamTitle }) => {
+    iAmHost = isHost; //
+    wasHost = wasHost || isHost; //
+    const header = $('headerTitle'); //
+    if (header) {
+        header.innerHTML = isHost
+            ? `Rebel <span class="logo-highlight">Stream</span> <span class="host-badge">HOST</span>`
+            : `Rebel <span class="logo-highlight">Stream</span>`; //
+    }
+
+    const hostControls = $('hostControls'); //
+    if (hostControls) {
+        hostControls.style.display = isHost ? 'block' : 'none'; //
+    }
+
+    const roomInfo = $('roomInfo'); //
+    if (roomInfo && currentRoom) {
+        roomInfo.textContent = isHost
+            ? `👑 Host • Room: ${currentRoom}`
+            : `👀 Connected • Room: ${currentRoom}`; //
+    }
+
+    const streamTitleInput = $('streamTitleInput'); //
+    if (streamTitleInput && streamTitle) {
+        streamTitleInput.value = streamTitle; //
+    }
+});
+
+socket.on('room-update', ({ users, ownerId, locked, streamTitle }) => {
+    latestUserList = users || []; //
+    currentOwnerId = ownerId || null; //
+    isPrivateMode = !!locked; //
+
+    const lockBtn = $('lockRoomBtn'); //
+    if (lockBtn) {
+        lockBtn.textContent = locked ? '🔒 Room Locked' : '🔓 Lock Room'; //
+        lockBtn.classList.toggle('danger', locked); //
+    }
+
+    const titleInput = $('streamTitleInput'); //
+    if (titleInput && streamTitle) {
+        titleInput.value = streamTitle; //
+    }
+
+    renderUserList(); //
+
+    if (overlayActive && currentRawHTML) {
+        renderHTMLLayout(currentRawHTML); //
+    }
+});
+
+socket.on('user-joined', ({ id, name }) => {
+    // Already handled via room-update, but we can log it
+    const log = $('chatLogRoom'); //
+    if (log) {
+        const div = document.createElement('div'); //
+        div.className = 'chat-line system-msg'; //
+        div.textContent = `${name} joined the room.`; //
+        log.appendChild(div); //
+        log.scrollTop = log.scrollHeight; //
+    }
+});
+
+socket.on('kicked', () => {
+    alert("You were kicked from the room by the host."); //
+    window.location.reload(); //
 });
 
 socket.on('disconnect', () => {
@@ -1019,7 +1118,15 @@ if (joinBtn) {
         if (leaveBtn) leaveBtn.disabled = false; //
 
         updateLink(room); //
-        startLocalMedia(); //
+
+        // Auto-start camera + stream for host when joining a room
+        startLocalMedia().then(() => {
+            if (!isStreaming) {
+                handleStartStream().catch(err => {
+                    console.error('Auto start stream failed', err);
+                });
+            }
+        }); //
     };
 }
 
@@ -1037,607 +1144,332 @@ function generateQR(url) {
         new QRCode(container, {
             text: url,
             width: 128,
-            height: 128,
-            colorDark: "#4af3a3",
-            colorLight: "#101524"
+            height: 128
         }); //
     }
 }
 
-function updateLink(roomSlug) {
-    const url = new URL(window.location.href); //
-    url.pathname = url.pathname.replace('index.html', '') + 'view.html'; //
-    url.search = `?room=${encodeURIComponent(roomSlug)}`; //
-    const finalUrl = url.toString(); //
-
-    const streamLinkInput = $('streamLinkInput'); //
-    if (streamLinkInput) streamLinkInput.value = finalUrl; //
-
-    generateQR(finalUrl); //
+function updateLink(room) {
+    const url = `${window.location.origin}/view.html?room=${encodeURIComponent(room)}`; //
+    const link = $('viewerLink'); //
+    if (link) {
+        link.textContent = url; //
+        link.href = url; //
+    }
+    generateQR(url); //
 }
 
-socket.on('user-joined', ({ id, name }) => {
-    if (iAmHost && isPrivateMode) {
-        const allowed = allowedGuests.some(
-            g => g.toLowerCase() === name.toLowerCase()
-        ); //
-        if (!allowed) {
-            socket.emit('kick-user', id); //
-            return;
-        }
+// ======================================================
+// 12. CHAT SYSTEM (STREAM / ROOM / DM)
+// ======================================================
+
+function appendChatLine(targetId, html) {
+    const log = $(targetId); //
+    if (!log) return; //
+    const wrapper = document.createElement('div'); //
+    wrapper.className = 'chat-line'; //
+    wrapper.innerHTML = html; //
+    log.appendChild(wrapper); //
+    log.scrollTop = log.scrollHeight; //
+}
+
+function formatTime() {
+    const d = new Date(); //
+    return d.toTimeString().slice(0, 5); //
+}
+
+// Public stream chat
+const streamChatInput = $('streamChatInput'); //
+const streamChatSend  = $('streamChatSend'); //
+if (streamChatSend && streamChatInput) {
+    streamChatSend.onclick = () => {
+        const msg = streamChatInput.value.trim(); //
+        if (!msg || !currentRoom) return; //
+        socket.emit('chat-stream', { room: currentRoom, user: userName, text: msg }); //
+        streamChatInput.value = ''; //
+    };
+    streamChatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') streamChatSend.onclick(); //
+    });
+}
+
+socket.on('chat-stream', ({ user, text, time }) => {
+    const stamp = time || formatTime(); //
+    appendChatLine('chatLogPublic', `
+        <strong>${user}</strong> <small>${stamp}</small>: ${text}
+    `); //
+
+    if (tabs.stream && !contents.stream.classList.contains('active')) {
+        tabs.stream.classList.add('has-new'); //
     }
 
-    const privateLog = $('chatLogPrivate'); //
-    appendChat(privateLog, 'System', `${name} joined room`, Date.now()); //
-
-    if (iAmHost && isStreaming) {
-        connectViewer(id); //
-    }
-});
-
-socket.on('user-left', ({ id }) => {
-    if (viewerPeers[id]) {
-        viewerPeers[id].close(); //
-        delete viewerPeers[id]; //
-    }
-    endPeerCall(id, true); //
-});
-
-socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
-    latestUserList = users || []; //
-    currentOwnerId = ownerId; //
-
-    const streamTitleInput = $('streamTitleInput'); //
-    if (streamTitle && streamTitleInput) {
-        streamTitleInput.value = streamTitle; //
-        updateLink($('roomInput').value || currentRoom); //
-    }
-
-    const lockRoomBtn = $('lockRoomBtn'); //
-    if (lockRoomBtn) {
-        lockRoomBtn.textContent = locked ? 'Unlock Room' : 'Lock Room'; //
-        lockRoomBtn.onclick = () => {
-            if (iAmHost) {
-                socket.emit('lock-room', !locked); //
-            }
-        };
-    }
-
-    renderUserList(); //
-    
-    // Auto-update overlay stats when user count changes
-    if (overlayActive) {
+    if (overlayActive && currentRawHTML) {
         renderHTMLLayout(currentRawHTML); //
     }
 });
 
-socket.on('role', async ({ isHost }) => {
-    wasHost = iAmHost; //
-    iAmHost = isHost; //
+// Room chat
+const roomChatInput = $('roomChatInput'); //
+const roomChatSend  = $('roomChatSend'); //
+if (roomChatSend && roomChatInput) {
+    roomChatSend.onclick = () => {
+        const msg = roomChatInput.value.trim(); //
+        if (!msg || !currentRoom) return; //
+        socket.emit('chat-room', { room: currentRoom, user: userName, text: msg }); //
+        roomChatInput.value = ''; //
+    };
+    roomChatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') roomChatSend.onclick(); //
+    });
+}
 
-    const localContainer = $('localContainer'); //
-    if (localContainer) {
-        const h2 = localContainer.querySelector('h2'); //
-        if (h2) {
-            h2.textContent = isHost ? 'You (Host)' : 'You'; //
-        }
+socket.on('chat-room', ({ user, text, time }) => {
+    const stamp = time || formatTime(); //
+    appendChatLine('chatLogRoom', `
+        <strong>${user}</strong> <small>${stamp}</small>: ${text}
+    `); //
+
+    if (tabs.room && !contents.room.classList.contains('active')) {
+        tabs.room.classList.add('has-new'); //
     }
-
-    const hostControls = $('hostControls'); //
-    if (hostControls) {
-        hostControls.style.display = isHost ? 'block' : 'none'; //
-    }
-
-    renderUserList(); //
 });
 
+// Private (host-only) log
+function logPrivateSystem(msg) {
+    const log = $('chatLogPrivate'); //
+    if (!log) return; //
+    const div = document.createElement('div'); //
+    div.className = 'chat-line system-msg'; //
+    div.textContent = msg; //
+    log.appendChild(div); //
+    log.scrollTop = log.scrollHeight; //
+}
+
 // ======================================================
-// 12. HOST CONTROLS
+// 13. HOST CONTROLS: LOCKS, TITLES, VIP, ARCADE, OVERLAY
 // ======================================================
 
-const updateTitleBtn = $('updateTitleBtn'); //
-if (updateTitleBtn) {
-    updateTitleBtn.onclick = () => {
-        const streamTitleInput = $('streamTitleInput'); //
-        if (!streamTitleInput) return;
-        const t = streamTitleInput.value.trim(); //
-        if (t) {
-            socket.emit('update-stream-title', t); //
-            if (overlayActive) renderHTMLLayout(currentRawHTML); //
-        }
+const lockRoomBtn = $('lockRoomBtn'); //
+if (lockRoomBtn) {
+    lockRoomBtn.onclick = () => {
+        if (!currentRoom || !iAmHost) return; //
+        isPrivateMode = !isPrivateMode; //
+        socket.emit('lock-room', isPrivateMode); //
     };
 }
 
 const streamTitleInput = $('streamTitleInput'); //
-if (streamTitleInput) {
-    streamTitleInput.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            const t = streamTitleInput.value.trim(); //
-            if (t) {
-                socket.emit('update-stream-title', t); //
-                if (overlayActive) renderHTMLLayout(currentRawHTML); //
-            }
-        }
-    };
-}
-
-const updateSlugBtn = $('updateSlugBtn'); //
-if (updateSlugBtn) {
-    updateSlugBtn.onclick = () => {
-        const slugInput = $('slugInput'); //
-        if (!slugInput) return;
-        const s = slugInput.value.trim(); //
-        if (s) updateLink(s); //
-    };
-}
-
-const slugInput = $('slugInput'); //
-if (slugInput) {
-    slugInput.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            const s = slugInput.value.trim(); //
-            if (s) updateLink(s); //
+const updateTitleBtn = $('updateTitleBtn'); //
+if (updateTitleBtn && streamTitleInput) {
+    updateTitleBtn.onclick = () => {
+        if (!currentRoom || !iAmHost) return; //
+        const title = streamTitleInput.value.trim() || 'Untitled Stream'; //
+        socket.emit('update-stream-title', title); //
+        if (overlayActive && currentRawHTML) {
+            renderHTMLLayout(currentRawHTML); //
         }
     };
 }
 
 const togglePrivateBtn = $('togglePrivateBtn'); //
+const guestNameInput = $('guestNameInput'); //
+const addGuestBtn = $('addGuestBtn'); //
+const guestListPanel = $('guestListPanel'); //
+const guestListDisplay = $('guestListDisplay'); //
+
 if (togglePrivateBtn) {
     togglePrivateBtn.onclick = () => {
         isPrivateMode = !isPrivateMode; //
-        togglePrivateBtn.textContent = isPrivateMode ? "ON" : "OFF"; //
-        togglePrivateBtn.className = isPrivateMode
-            ? "btn small danger"
-            : "btn small secondary"; //
-
-        const guestListPanel = $('guestListPanel'); //
-        if (guestListPanel) {
-            guestListPanel.style.display = isPrivateMode ? "block" : "none"; //
-        }
-
-        if (isPrivateMode) {
-            latestUserList.forEach(u => {
-                if (
-                    u.id !== myId &&
-                    !allowedGuests.some(
-                        g => g.toLowerCase() === u.name.toLowerCase()
-                    )
-                ) {
-                    socket.emit('kick-user', u.id); //
-                }
-            }); //
-        }
+        togglePrivateBtn.textContent = isPrivateMode ? 'ON' : 'OFF'; //
+        togglePrivateBtn.classList.toggle('danger', isPrivateMode); //
+        if (guestListPanel) guestListPanel.style.display = isPrivateMode ? 'block' : 'none'; //
+        socket.emit('lock-room', isPrivateMode); //
     };
 }
 
-const addGuestBtn = $('addGuestBtn'); //
-if (addGuestBtn) {
+if (addGuestBtn && guestNameInput) {
     addGuestBtn.onclick = () => {
-        const guestNameInput = $('guestNameInput'); //
-        if (!guestNameInput) return;
-        const n = guestNameInput.value.trim(); //
-        if (n && !allowedGuests.includes(n)) {
-            allowedGuests.push(n); //
-            renderGuestList(); //
-            guestNameInput.value = ''; //
-        }
+        const name = guestNameInput.value.trim(); //
+        if (!name) return; //
+        allowedGuests.push(name.toLowerCase()); //
+        guestNameInput.value = ''; //
+        renderGuestList(); //
     };
 }
 
 function renderGuestList() {
-    const d = $('guestListDisplay'); //
-    if (!d) return; //
-
-    d.innerHTML = ''; //
-    allowedGuests.forEach(name => {
-        const t = document.createElement('span'); //
-        t.style.cssText = "background:var(--accent); color:#000; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin:2px;"; //
-        t.textContent = name; //
-        d.appendChild(t); //
+    if (!guestListDisplay) return; //
+    guestListDisplay.innerHTML = ''; //
+    allowedGuests.forEach(n => {
+        const tag = document.createElement('span'); //
+        tag.className = 'guest-tag'; //
+        tag.textContent = n; //
+        guestListDisplay.appendChild(tag); //
     });
 }
 
-// ======================================================
-// 13. CHAT SYSTEM
-// ======================================================
-
-function appendChat(log, name, text, ts) {
-    if (!log) return; //
-
-    const d = document.createElement('div'); //
-    d.className = 'chat-line'; //
-
-    const s = document.createElement('strong'); //
-    s.textContent = name; //
-
-    const t = document.createElement('small'); //
-    t.textContent = new Date(ts).toLocaleTimeString(); //
-
-    d.appendChild(s); //
-    d.appendChild(document.createTextNode(' ')); //
-    d.appendChild(t); //
-    d.appendChild(document.createTextNode(`: ${text}`)); //
-
-    log.appendChild(d); //
-    log.scrollTop = log.scrollHeight; //
-}
-
-function sendPublic() {
-    const i = $('inputPublic'); //
-    if (!i) return; //
-    const t = i.value.trim(); //
-    if (!t || !currentRoom) return; //
-
-    socket.emit('public-chat', {
-        room: currentRoom,
-        name: userName,
-        text: t
-    }); //
-
-    i.value = ''; //
-}
-
-const btnSendPublic = $('btnSendPublic'); //
-if (btnSendPublic) {
-    btnSendPublic.onclick = sendPublic; //
-}
-
-const inputPublic = $('inputPublic'); //
-if (inputPublic) {
-    inputPublic.onkeydown = (e) => {
-        if (e.key === 'Enter') sendPublic(); //
-    };
-}
-
-function sendPrivate() {
-    const i = $('inputPrivate'); //
-    if (!i) return; //
-    const t = i.value.trim(); //
-    if (!t || !currentRoom) return; //
-
-    socket.emit('private-chat', {
-        room: currentRoom,
-        name: userName,
-        text: t
-    }); //
-
-    i.value = ''; //
-}
-
-const btnSendPrivate = $('btnSendPrivate'); //
-if (btnSendPrivate) {
-    btnSendPrivate.onclick = sendPrivate; //
-}
-
-const inputPrivate = $('inputPrivate'); //
-if (inputPrivate) {
-    inputPrivate.onkeydown = (e) => {
-        if (e.key === 'Enter') sendPrivate(); //
-    };
-}
-
-socket.on('public-chat', d => {
-    if (mutedUsers.has(d.name)) return; //
-    const log = $('chatLogPublic'); //
-    appendChat(log, d.name, d.text, d.ts); //
-    if (tabs.stream && !tabs.stream.classList.contains('active')) {
-        tabs.stream.classList.add('has-new'); //
-    }
-
-    // When public chat updates & overlay is active, re-render layout
-    if (overlayActive) {
-        renderHTMLLayout(currentRawHTML); //
-    }
-});
-
-socket.on('private-chat', d => {
-    const log = $('chatLogPrivate'); //
-    appendChat(log, d.name, d.text, d.ts); //
-    if (tabs.room && !tabs.room.classList.contains('active')) {
-        tabs.room.classList.add('has-new'); //
-    }
-});
-
-const emojiStripPublic = $('emojiStripPublic'); //
-if (emojiStripPublic) {
-    emojiStripPublic.onclick = e => {
-        if (e.target.classList.contains('emoji')) {
-            const input = $('inputPublic'); //
-            if (input) input.value += e.target.textContent; //
-        }
-    };
-}
-
-const emojiStripPrivate = $('emojiStripPrivate'); //
-if (emojiStripPrivate) {
-    emojiStripPrivate.onclick = e => {
-        if (e.target.classList.contains('emoji')) {
-            const input = $('inputPrivate'); //
-            if (input) input.value += e.target.textContent; //
-        }
-    };
-}
-
-// ======================================================
-// 14. FILE SHARING (TAB)
-// ======================================================
-
-const fileInput = $('fileInput'); //
-if (fileInput) {
-    fileInput.onchange = () => {
-        if (fileInput.files.length) {
-            const label = $('fileNameLabel'); //
-            if (label) label.textContent = fileInput.files[0].name; //
-            const sendBtn = $('sendFileBtn'); //
-            if (sendBtn) sendBtn.disabled = false; //
-        }
-    };
-}
-
-const sendFileBtn = $('sendFileBtn'); //
-if (sendFileBtn) {
-    sendFileBtn.onclick = () => {
-        if (!fileInput || !fileInput.files.length || !currentRoom) return; //
-
-        const f = fileInput.files[0]; //
-
-        if (f.size > 10 * 1024 * 1024) {
-            alert("File too large (Limit: 10MB). Use 'Arcade'."); //
-            return;
-        }
-
-        const r = new FileReader(); //
-        r.onload = () => {
-            socket.emit('file-share', {
-                room: currentRoom,
-                name: userName,
-                fileName: f.name,
-                fileData: r.result
-            }); //
-            fileInput.value = ''; //
-            const label = $('fileNameLabel'); //
-            if (label) label.textContent = 'No file selected'; //
-            sendFileBtn.disabled = true; //
-        };
-        r.readAsDataURL(f); //
-    };
-}
-
-socket.on('file-share', d => {
-    const div = document.createElement('div'); //
-    div.className = 'file-item'; //
-
-    const info = document.createElement('div'); //
-    const b = document.createElement('strong'); //
-    b.textContent = d.name; //
-    info.appendChild(b); //
-    info.appendChild(
-        document.createTextNode(` shared: ${d.fileName}`)
-    ); //
-
-    const link = document.createElement('a'); //
-    link.href = d.fileData; //
-    link.download = d.fileName; //
-    link.className = 'btn small primary'; //
-    link.textContent = 'Download'; //
-
-    div.appendChild(info); //
-    div.appendChild(link); //
-
-    const fileLog = $('fileLog'); //
-    if (fileLog) fileLog.appendChild(div); //
-
-    if (tabs.files && !tabs.files.classList.contains('active')) {
-        tabs.files.classList.add('has-new'); //
-    }
-});
-
-// ======================================================
-// 15. ARCADE & HTML OVERLAY
-// ======================================================
-
+// Arcade loader
 const arcadeInput = $('arcadeInput'); //
 if (arcadeInput) {
     arcadeInput.onchange = () => {
-        const f = arcadeInput.files[0]; //
-        if (!f) return; //
+        const file = arcadeInput.files[0]; //
+        if (!file) return; //
+        activeToolboxFile = file; //
 
-        activeToolboxFile = f; //
-
-        const arcadeStatus = $('arcadeStatus'); //
-        if (arcadeStatus) {
-            arcadeStatus.textContent = `Active: ${f.name}`; //
+        const status = $('arcadeStatus'); //
+        if (status) {
+            status.textContent = `Loaded: ${file.name}`; //
         }
 
-        Object.values(viewerPeers).forEach(pc => {
-            pushFileToPeer(pc, f); //
-        }); //
+        // Push to all current viewers if streaming
+        if (isStreaming) {
+            latestUserList.forEach(u => {
+                if (u.id !== myId && u.isViewer) {
+                    const pc = viewerPeers[u.id]; //
+                    if (pc) {
+                        logPrivateSystem(`Sending toolbox "${file.name}" to ${u.name}...`); //
+                        pushFileToPeer(pc, file, (p) => {
+                            // Optionally show progress somewhere
+                        }); //
+                    }
+                }
+            });
+        }
     };
 }
 
+// HTML overlay loader
 const htmlOverlayInput = $('htmlOverlayInput'); //
 if (htmlOverlayInput) {
-    htmlOverlayInput.onchange = (e) => {
-        const f = e.target.files[0]; //
-        if (!f) return; //
-
-        const r = new FileReader(); //
-        r.onload = (ev) => {
-            renderHTMLLayout(ev.target.result); //
-            const overlayStatus = $('overlayStatus'); //
-            if (overlayStatus) overlayStatus.textContent = "[Loaded]"; //
+    htmlOverlayInput.onchange = () => {
+        const file = htmlOverlayInput.files[0]; //
+        if (!file) return; //
+        const reader = new FileReader(); //
+        reader.onload = (e) => {
+            const html = e.target.result; //
+            renderHTMLLayout(html); //
+            const status = $('overlayStatus'); //
+            if (status) status.textContent = `Loaded: ${file.name}`; //
         };
-        r.readAsText(f); //
+        reader.readAsText(file); //
     };
 }
 
 window.clearOverlay = () => {
     overlayActive = false; //
-    overlayImage = new Image(); //
-    const overlayStatus = $('overlayStatus'); //
-    if (overlayStatus) overlayStatus.textContent = "[Empty]"; //
+    currentRawHTML = ""; //
+    const status = $('overlayStatus'); //
+    if (status) status.textContent = '[No Overlay]'; //
 };
 
 // ======================================================
-// 16. USER LIST & MIXER SELECTION (UPDATED: Stats Support)
+// 14. USER LIST PANEL & ACTIONS
 // ======================================================
 
 function renderUserList() {
-    const list = $('userList'); //
-    if (!list) return; //
+    const wrap = $('userList'); //
+    if (!wrap) return; //
+    wrap.innerHTML = ''; //
 
-    list.innerHTML = ''; //
-    
-    // Separate In-Room Guests from Stream Viewers
-    const guests = latestUserList.filter(u => !u.isViewer); //
-    const viewers = latestUserList.filter(u => u.isViewer); //
+    latestUserList.forEach(u => {
+        const row = document.createElement('div'); //
+        row.className = 'user-row'; //
 
-    const renderGroup = (label, users) => {
-        if (users.length === 0) return; //
-        const h = document.createElement('h4'); //
-        h.style.cssText = "font-size:0.7rem; color:var(--muted); margin:10px 0 5px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:4px;"; //
-        h.textContent = label; //
-        list.appendChild(h); //
+        const isOwner = currentOwnerId === u.id; //
+        const isSelf = u.id === myId; //
 
-        users.forEach(u => {
-            if (u.id === myId) return; //
+        let badges = ''; //
+        if (isOwner) badges += '👑 '; //
+        if (u.isViewer) badges += '👀 '; //
+        if (u.requestingCall) badges += '✋ '; //
 
-            const div = document.createElement('div'); //
-            div.className = 'user-item'; //
+        row.innerHTML = `
+            <div class="user-main">
+              <span class="user-name">${badges}${u.name}</span>
+            </div>
+            <div class="user-actions"></div>
+        `; //
 
-            const nameSpan = document.createElement('span'); //
-            if (u.id === currentOwnerId) {
-                nameSpan.textContent = '👑 '; //
-            }
-            nameSpan.textContent += u.name; //
-            
-            // Show hand icon if requesting call
-            if (u.requestingCall) {
-                nameSpan.innerHTML += ' <span title="Requesting to Join Stream">✋</span>'; //
-            }
+        const actions = row.querySelector('.user-actions'); //
 
-            // NEW: Stats badge container for real-time monitoring
-            const statsBadge = document.createElement('small');
-            statsBadge.id = `stats-${u.id}`;
-            statsBadge.style.cssText = "margin-left:8px; font-size:0.6rem; opacity:0.7;";
-            nameSpan.appendChild(statsBadge);
-
-            const actions = document.createElement('div'); //
-            actions.className = 'user-actions'; //
-
-            const isCalling = !!callPeers[u.id]; //
-
-            if (iAmHost) {
-                const mBtn = document.createElement('button'); //
-                mBtn.className = 'action-btn'; //
-                mBtn.textContent = mutedUsers.has(u.name) ? 'Unmute' : 'Mute'; //
-                mBtn.onclick = () => {
-                    if (mutedUsers.has(u.name)) {
-                        mutedUsers.delete(u.name); //
-                    } else {
-                        mutedUsers.add(u.name); //
-                    }
-                    renderUserList(); //
-                };
-                actions.appendChild(mBtn); //
-            }
+        if (iAmHost && !isSelf) {
+            const kickBtn = document.createElement('button'); //
+            kickBtn.className = 'btn small danger'; //
+            kickBtn.textContent = 'Kick'; //
+            kickBtn.onclick = () => {
+                if (confirm(`Kick ${u.name}?`)) {
+                    socket.emit('kick-user', u.id); //
+                }
+            };
+            actions.appendChild(kickBtn); //
 
             const callBtn = document.createElement('button'); //
-            callBtn.className = 'action-btn'; //
-
-            if (isCalling) {
-                callBtn.textContent = 'End'; //
-                callBtn.style.color = 'var(--danger)'; //
-                callBtn.onclick = () => endPeerCall(u.id); //
-            } else {
-                // If viewer is requesting call, highlight button
-                callBtn.textContent = u.requestingCall ? 'Accept & Call' : 'Call'; //
-                if (u.requestingCall) callBtn.style.borderColor = "var(--accent)"; //
-                callBtn.onclick = () => window.ringUser(u.id); //
-            }
+            callBtn.className = 'btn small'; //
+            callBtn.textContent = 'Call'; //
+            callBtn.onclick = () => {
+                window.ringUser(u.id); //
+            };
             actions.appendChild(callBtn); //
 
-            if (isCalling && iAmHost) {
-                const selBtn = document.createElement('button'); //
-                selBtn.className = 'action-btn'; //
-                selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Mix'; //
-                selBtn.onclick = () => {
-                    activeGuestId = u.id; //
-                    renderUserList(); //
-                    window.setActiveGuest(u.id); //
-                };
-                actions.appendChild(selBtn); //
-            }
+            const hostBtn = document.createElement('button'); //
+            hostBtn.className = 'btn small secondary'; //
+            hostBtn.textContent = 'Make Host'; //
+            hostBtn.onclick = () => {
+                if (confirm(`Give host control to ${u.name}?`)) {
+                    socket.emit('promote-to-host', { targetId: u.id }); //
+                }
+            };
+            actions.appendChild(hostBtn); //
+        }
 
-            if (iAmHost) {
-                const pBtn = document.createElement('button'); //
-                pBtn.className = 'action-btn'; //
-                pBtn.textContent = '👑 Promote'; //
-                pBtn.onclick = () => {
-                    if (confirm(`Hand over Host to ${u.name}?`)) {
-                        socket.emit('promote-to-host', { targetId: u.id }); //
-                    }
-                };
-                actions.appendChild(pBtn); //
+        if (!u.isViewer && !isSelf) {
+            const muteBtn = document.createElement('button'); //
+            muteBtn.className = 'btn small secondary'; //
+            muteBtn.textContent = mutedUsers.has(u.id) ? 'Unmute' : 'Mute'; //
+            muteBtn.onclick = () => {
+                if (mutedUsers.has(u.id)) mutedUsers.delete(u.id);
+                else mutedUsers.add(u.id);
+                muteBtn.textContent = mutedUsers.has(u.id) ? 'Unmute' : 'Mute'; //
+            };
+            actions.appendChild(muteBtn); //
+        }
 
-                const kBtn = document.createElement('button'); //
-                kBtn.className = 'action-btn kick'; //
-                kBtn.textContent = 'Kick'; //
-                kBtn.onclick = () => window.kickUser(u.id); //
-                actions.appendChild(kBtn); //
-            }
+        if (u.id !== myId) {
+            const statsBadge = document.createElement('span'); //
+            statsBadge.id = `stats-${u.id}`; //
+            statsBadge.className = 'stats-badge'; //
+            statsBadge.textContent = ''; //
+            actions.appendChild(statsBadge); //
+        }
 
-            div.appendChild(nameSpan); //
-            div.appendChild(actions); //
-            list.appendChild(div); //
-        });
-    };
-
-    renderGroup("In-Room Guests", guests); //
-    renderGroup("Stream Viewers", viewers); //
+        wrap.appendChild(row); //
+    });
 }
 
-function addRemoteVideo(id, stream) {
-    let d = document.getElementById(`vid-${id}`); //
-    if (!d) {
-        d = document.createElement('div'); //
-        d.className = 'video-container'; //
-        d.id = `vid-${id}`; //
+window.ringUser = (id) => {
+    socket.emit('ring-user', id); //
+};
 
-        const v = document.createElement('video'); //
-        v.autoplay = true; //
-        v.playsInline = true; //
-        d.appendChild(v); //
+// ======================================================
+// 15. SIGNAL STATUS
+// ======================================================
 
-        const h2 = document.createElement('h2'); //
-        h2.textContent = callPeers[id] ? callPeers[id].name : "Guest"; //
-        d.appendChild(h2); //
-
-        const videoGrid = $('videoGrid'); //
-        if (videoGrid) videoGrid.appendChild(d); //
+socket.on('connect', () => {
+    const signalStatus = $('signalStatus'); //
+    if (signalStatus) {
+        signalStatus.className = 'status-dot status-connected'; //
+        signalStatus.textContent = 'Connected'; //
     }
+});
 
-    const v = d.querySelector('video'); //
-    if (v && v.srcObject !== stream) {
-        v.srcObject = stream; //
-        setupAudioAnalysis(id, stream); // NEW: Remote audio tracking
+socket.on('disconnect', () => {
+    const signalStatus = $('signalStatus'); //
+    if (signalStatus) {
+        signalStatus.className = 'status-dot status-disconnected'; //
+        signalStatus.textContent = 'Disconnected'; //
     }
-}
+});
 
-function removeRemoteVideo(id) {
-    const el = document.getElementById(`vid-${id}`); //
-    if (el) el.remove(); //
-    if (audioAnalysers[id]) delete audioAnalysers[id]; // Cleanup analyser
-}
-
-window.ringUser = (id) => socket.emit('ring-user', id); //
-window.endPeerCall = endPeerCall; //
-window.kickUser = (id) => socket.emit('kick-user', id); //
-
-const openStreamBtn = $('openStreamBtn'); //
-if (openStreamBtn) {
-    openStreamBtn.onclick = () => {
-        const u = $('streamLinkInput') && $('streamLinkInput').value; //
-        if (u) window.open(u, '_blank'); //
-    };
-}
+// ======================================================
+// END
+// ======================================================
