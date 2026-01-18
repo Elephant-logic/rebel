@@ -217,37 +217,37 @@
                 <label class="btn secondary" style="flex:1;">
                   <input id="fileInput" type="file" hidden /> 📎 Choose File
                 </label>
-                <span id=\"fileNameLabel\" style=\"font-size:0.8rem; margin:0 8px; color:var(--muted); flex:2; overflow:hidden; text-overflow:ellipsis;\">No file selected</span>
+                <span id="fileNameLabel" style="font-size:0.8rem; margin:0 8px; color:var(--muted); flex:2; overflow:hidden; text-overflow:ellipsis;">No file selected</span>
                 <button id="sendFileBtn" class="btn primary" disabled>Send</button>
              </div>
-             <div class=\"files-list\">
-                <div id=\"fileLog\" class=\"file-log\"></div>
+             <div class="files-list">
+                <div id="fileLog" class="file-log"></div>
              </div>
           </div>
 
-          <div id=\"contentUsers\" class=\"tab-content\">
-             <h3 style=\"color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;\">Active Users</h3>
-             <div id=\"userList\"></div>
+          <div id="contentUsers" class="tab-content">
+             <h3 style="color:var(--muted); font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;">Active Users</h3>
+             <div id="userList"></div>
           </div>
         </div>
       </section>
     </main>
   </div>
 
-  <div id=\"streamPreviewModal\" class=\"preview-modal\">
-    <div class=\"preview-inner\">
-        <div class=\"preview-header\">
+  <div id="streamPreviewModal" class="preview-modal">
+    <div class="preview-inner">
+        <div class="preview-header">
             <span>Stream Preview (What Viewers See)</span>
-            <button id=\"closePreviewBtn\" class=\"btn small\">✕</button>
+            <button id="closePreviewBtn" class="btn small">✕</button>
         </div>
-        <video id=\"streamPreviewVideo\" autoplay playsinline muted></video>
+        <video id="streamPreviewVideo" autoplay playsinline muted></video>
     </div>
   </div>
   
-  <script src=\"https://cdn.socket.io/4.8.1/socket.io.min.js\"></script>
-  <script src=\"config/ice.js\"></script>
-  <script src=\"app.js\"></script>
-  <script src=\"overlay-plugin.js\"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="config/ice.js"></script>
+  <script src="app.js"></script>
+  <script src="overlay-plugin.js"></script>
   <script>
     // AUTO-FILL GUEST LOGIC
     window.addEventListener('load', () => {
