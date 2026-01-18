@@ -382,7 +382,6 @@ function renderHTMLLayout(htmlString) {
         .replace(/{{title}}/g, streamTitle)
         .replace(/{{chat}}/g, chatHTML); //
 
-    if (hostOverlayRoot) hostOverlayRoot.innerHTML = processedHTML; //
     socket.emit('overlay-broadcast', { room: currentRoom, html: processedHTML }); //
     overlayActive = true; //
 }
@@ -1460,7 +1459,6 @@ window.clearOverlay = () => {
     overlayActive = false; //
     overlayImage = new Image(); //
     currentRawHTML = ""; //
-    if (hostOverlayRoot) hostOverlayRoot.innerHTML = ""; //
     socket.emit('overlay-broadcast', { room: currentRoom, html: "" }); //
     const overlayStatus = $('overlayStatus'); //
     if (overlayStatus) overlayStatus.textContent = "[Empty]"; //
