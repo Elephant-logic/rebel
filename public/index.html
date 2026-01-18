@@ -70,6 +70,15 @@
             </div>
           </div>
 
+          <div id="liveEditor" class="field" style="display:none; border-top: 1px solid var(--border); padding-top:15px; margin-top:15px;">
+              <h3 style="color:var(--accent); font-size:0.9rem;">📝 Live Overlay Editor</h3>
+              <div id="sceneSwitcher" style="display:none; margin-bottom:15px;">
+                  <label style="font-size:0.7rem; color:var(--muted); display:block; margin-bottom:5px;">ACTIVE SCENE</label>
+                  <div id="sceneBtnGroup" style="display:flex; gap:5px;"></div>
+              </div>
+              <div id="dynamicFields"></div>
+              <button id="applyChangesBtn" class="btn primary small full-width" style="margin-top:10px;">Update Overlay</button>
+          </div>
           <div class="field" style="margin-top:15px; border-top:1px solid var(--border); padding-top:10px;">
             <label style="color:var(--danger);">⛔ VIP / Private Room</label>
             <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
@@ -238,6 +247,7 @@
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="config/ice.js"></script>
   <script src="app.js"></script>
+  <script src="overlay-plugin.js"></script>
   <script>
     // AUTO-FILL GUEST LOGIC
     window.addEventListener('load', () => {
