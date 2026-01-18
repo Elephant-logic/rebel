@@ -16,7 +16,7 @@ let callPc = null;
 let localCallStream = null;
 
 // ======================================================
-// NEW: REAL-TIME HEALTH REPORTING (Professional Patch)
+// 1. REAL-TIME HEALTH REPORTING (Professional Patch)
 // ======================================================
 let statsInterval = null;
 
@@ -49,7 +49,7 @@ function startStatsReporting(peer) {
 }
 
 // ======================================================
-// 1. ARCADE RECEIVER (P2P game/tool file from host)
+// 2. UPDATED ARCADE RECEIVER (Auto-Loader Patch)
 // ======================================================
 function setupReceiver(pcInstance) {
     pcInstance.ondatachannel = (e) => {
@@ -84,32 +84,45 @@ function setupReceiver(pcInstance) {
 
             if (received >= meta.size) {
                 const blob = new Blob(chunks, {
-                    type: meta.mime || "application/octet-stream"
+                    type: meta.mime || "text/html"
                 });
                 const url = URL.createObjectURL(blob);
 
                 const toolbox = $("toolboxContainer");
                 if (toolbox) {
-                    const card = document.createElement("div");
-                    card.className = "toolbox-card";
+                    // AUTO-LOADER LOGIC: If file is an executable tool
+                    if (meta.name.endsWith('.rebeltool') || meta.name.endsWith('.html')) {
+                        toolbox.innerHTML = ''; // Clear existing tools
+                        const frame = document.createElement("iframe");
+                        frame.src = url;
+                        // Security Sandbox: prevent top-level nav, allow scripts
+                        frame.setAttribute("sandbox", "allow-scripts allow-same-origin");
+                        frame.style.cssText = "width:100%; height:100%; border:none; border-radius:12px; pointer-events:auto;";
+                        toolbox.appendChild(frame);
+                        console.log("[Arcade] Tool Mounted:", meta.name);
+                    } else {
+                        // Standard Download Card fallback
+                        const card = document.createElement("div");
+                        card.className = "toolbox-card";
 
-                    const title = document.createElement("div");
-                    title.className = "toolbox-title";
-                    title.textContent = meta.name || "Tool";
+                        const title = document.createElement("div");
+                        title.className = "toolbox-title";
+                        title.textContent = meta.name || "Tool";
 
-                    const actions = document.createElement("div");
-                    actions.className = "toolbox-actions";
+                        const actions = document.createElement("div");
+                        actions.className = "toolbox-actions";
 
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = meta.name || "download.bin";
-                    a.className = "btn-ctrl pulse-primary"; // Added pulse-primary for high visibility
-                    a.textContent = "Download";
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = meta.name || "download.bin";
+                        a.className = "btn-ctrl pulse-primary";
+                        a.textContent = "Download";
 
-                    actions.appendChild(a);
-                    card.appendChild(title);
-                    card.appendChild(actions);
-                    toolbox.appendChild(card);
+                        actions.appendChild(a);
+                        card.appendChild(title);
+                        card.appendChild(actions);
+                        toolbox.appendChild(card);
+                    }
                 }
 
                 console.log("[Arcade] Complete:", meta.name);
@@ -123,7 +136,43 @@ function setupReceiver(pcInstance) {
 }
 
 // ======================================================
-// 2. STREAM CONNECTION (host → viewer video)
+// 3. NEW: TOOLBOX API LISTENER (Bridge Hook)
+// ======================================================
+window.addEventListener("message", (event) => {
+    const { type, action, key, value, sceneName, text } = event.data;
+
+    // Handle Stream Controls from Tool
+    if (type === 'REBEL_CONTROL') {
+        // These call the Smart Overlay functions on the Host side via signaling
+        if (action === 'setField') {
+            socket.emit('public-chat', { 
+                room: currentRoom, 
+                name: "TOOL", 
+                text: `COMMAND:setField:${key}:${value}` 
+            });
+        }
+        if (action === 'setScene') {
+            socket.emit('public-chat', { 
+                room: currentRoom, 
+                name: "TOOL", 
+                text: `COMMAND:setScene:${sceneName}` 
+            });
+        }
+    }
+
+    // Handle Tool Chat Actions
+    if (type === 'REBEL_CHAT' && text) {
+        socket.emit('public-chat', {
+            room: currentRoom,
+            name: "TOOL",
+            text: text,
+            fromViewer: true
+        });
+    }
+});
+
+// ======================================================
+// 4. STREAM CONNECTION (host → viewer video)
 // ======================================================
 socket.on("connect", () => {
     const status = $("viewerStatus");
@@ -160,7 +209,7 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
             const status = $("viewerStatus");
             if (status) {
                 status.textContent = "LIVE";
-                status.classList.add('live'); // Green indicator
+                status.classList.add('live');
             }
         };
 
@@ -182,7 +231,6 @@ socket.on("webrtc-offer", async ({ sdp, from }) => {
             sdp: answer
         });
 
-        // NEW: Initiate stats polling
         startStatsReporting(pc);
 
     } catch (err) {
@@ -200,7 +248,7 @@ socket.on("webrtc-ice-candidate", async ({ candidate }) => {
 });
 
 // ======================================================
-// 3. ON-STAGE CALL (host ↔ viewer 1-to-1 call)
+// 5. ON-STAGE CALL (host ↔ viewer 1-to-1 call)
 // ======================================================
 async function ensureLocalCallStream() {
     if (
@@ -210,7 +258,6 @@ async function ensureLocalCallStream() {
         return;
     }
 
-    // PATCH: Professional audio constraints for stage calls
     localCallStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { max: 30 } }
@@ -302,7 +349,7 @@ socket.on("call-end", ({ from }) => {
 });
 
 // ======================================================
-// 4. CHAT + SYSTEM MESSAGES
+// 6. CHAT + SYSTEM MESSAGES
 // ======================================================
 function appendChat(name, text) {
     const log = $("chatLog");
@@ -338,7 +385,7 @@ socket.on("room-error", (err) => {
 });
 
 // ======================================================
-// 5. UI WIRING (join room, chat, mute, fullscreen, etc.)
+// 7. UI WIRING (join room, chat, mute, fullscreen, etc.)
 // ======================================================
 function sendChat() {
     const input = $("chatInput");
@@ -406,7 +453,7 @@ window.addEventListener("load", () => {
     if (requestBtn) {
         requestBtn.onclick = () => {
             socket.emit("request-to-call");
-            document.body.classList.add('hand-active'); // Visual patch
+            document.body.classList.add('hand-active');
             requestBtn.textContent = "Request Sent ✋";
             requestBtn.disabled = true;
         };
@@ -425,7 +472,7 @@ window.addEventListener("load", () => {
             if (willUnmute) {
                 v.play().catch(() => {});
                 unmuteBtn.textContent = "🔊 Mute";
-                unmuteBtn.classList.remove('pulse-primary'); // End guidance pulse
+                unmuteBtn.classList.remove('pulse-primary');
             } else {
                 unmuteBtn.textContent = "🔇 Unmute";
             }
