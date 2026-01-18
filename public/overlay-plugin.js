@@ -162,4 +162,32 @@
     if ($('applyChangesBtn')) {
         $('applyChangesBtn').onclick = () => window.renderHTMLLayout(window.currentRawHTML);
     }
+
+    // 🔌 RebelAPI bridge: listen for messages from tools (iframes)
+    window.addEventListener('message', (event) => {
+        const data = event.data || {};
+
+        if (data.type === 'REBEL_CONTROL') {
+            // Tools calling RebelAPI.setField(key, value)
+            if (data.action === 'setField' && data.key) {
+                if (typeof window.updateOverlayField === 'function') {
+                    window.updateOverlayField(data.key, data.value);
+                }
+            }
+
+            // Tools calling RebelAPI.setScene(sceneName)
+            if (data.action === 'setScene' && data.sceneName) {
+                if (typeof window.setOverlayScene === 'function') {
+                    window.setOverlayScene(data.sceneName);
+                }
+            }
+        }
+
+        if (data.type === 'REBEL_CHAT' && data.text) {
+            // Optional: pipe tool messages into your chat UI
+            if (typeof window.appendSystemMessage === 'function') {
+                window.appendSystemMessage(`[TOOL] ${data.text}`);
+            }
+        }
+    });
 })();
