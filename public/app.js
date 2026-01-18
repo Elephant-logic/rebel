@@ -81,6 +81,7 @@ console.log("Rebel Stream Host App Loaded"); //
 
 const socket = io({ autoConnect: false }); //
 const $ = id => document.getElementById(id); //
+const hostOverlayRoot = document.getElementById('hostOverlayRoot'); //
 
 let currentRoom = null; //
 let userName = 'User'; //
@@ -233,9 +234,6 @@ function drawMixer(timestamp) {
         }
     }
 
-    if (overlayActive && overlayImage.complete) {
-        ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height); //
-    }
 }
 
 // ======================================================
@@ -384,21 +382,9 @@ function renderHTMLLayout(htmlString) {
         .replace(/{{title}}/g, streamTitle)
         .replace(/{{chat}}/g, chatHTML); //
 
-    const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
-            <foreignObject width="100%" height="100%">
-                <div xmlns="http://www.w3.org/1999/xhtml" class="layout-${mixerLayout}" style="width:100%; height:100%; margin:0; padding:0;">
-                    ${processedHTML}
-                </div>
-            </foreignObject>
-        </svg>`; //
-
-    try {
-        overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
-        overlayActive = true; //
-    } catch (e) {
-        console.error("[Overlay] Failed to encode SVG", e); //
-    }
+    if (hostOverlayRoot) hostOverlayRoot.innerHTML = processedHTML; //
+    socket.emit('overlay-broadcast', { room: currentRoom, html: processedHTML }); //
+    overlayActive = true; //
 }
 
 window.setMixerLayout = (mode) => {
@@ -1473,6 +1459,9 @@ if (htmlOverlayInput) {
 window.clearOverlay = () => {
     overlayActive = false; //
     overlayImage = new Image(); //
+    currentRawHTML = ""; //
+    if (hostOverlayRoot) hostOverlayRoot.innerHTML = ""; //
+    socket.emit('overlay-broadcast', { room: currentRoom, html: "" }); //
     const overlayStatus = $('overlayStatus'); //
     if (overlayStatus) overlayStatus.textContent = "[Empty]"; //
 };
