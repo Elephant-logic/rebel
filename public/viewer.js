@@ -10,6 +10,7 @@ let pc = null;               // broadcast stream PC (host → viewer)
 let hostId = null;           // socket id of the host sending us the stream
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random() * 1000);
+const overlayRoot = document.getElementById('overlayRoot');
 
 // separate PC for 1-to-1 “on-stage” call
 let callPc = null;
@@ -136,6 +137,11 @@ socket.on("disconnect", () => {
         status.textContent = "OFFLINE";
         status.classList.remove('live');
     }
+});
+
+socket.on('overlay-update', (html) => {
+    if (!overlayRoot) return;
+    overlayRoot.innerHTML = typeof html === 'string' ? html : '';
 });
 
 socket.on("webrtc-offer", async ({ sdp, from }) => {
