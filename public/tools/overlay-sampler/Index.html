@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rebel Overlay Sampler Tool</title>
+  <!-- Important: this script lives in your main app's /public -->
+  <script src="/rebel-api-bridge.js"></script>
+  <style>
+    body {
+      background: #050508;
+      color: #f5f5f5;
+      font-family: system-ui, sans-serif;
+      padding: 16px;
+    }
+    h1 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+    .row {
+      margin-bottom: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    label {
+      font-size: 13px;
+      opacity: 0.85;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="color"] {
+      padding: 4px 6px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #111;
+      color: #fff;
+      font-size: 13px;
+    }
+    button {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      background: #00c853;
+      color: #000;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: #2979ff;
+      color: #fff;
+    }
+    button.scene {
+      background: #424242;
+      color: #fff;
+    }
+    button.scene.active {
+      background: #ffd600;
+      color: #000;
+    }
+    .section {
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 12px;
+      background: #0c0c11;
+    }
+    small {
+      font-size: 11px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <h1>Overlay Sampler Tool</h1>
+  <small>
+    This runs inside an iframe. It talks to the host overlay via <code>RebelAPI</code>.
+  </small>
+
+  <div class="section">
+    <strong>Quick presets</strong>
+    <div class="row">
+      <button onclick="setBreak('Back in 5 mins', 300)">Back in 5</button>
+      <button onclick="setBreak('Grabbing a brew', 180)">Brew break</button>
+      <button onclick="setBreak('Be Right Back', 60)">BRB 60s</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <strong>Custom break</strong>
+    <div class="row">
+      <label>Title</label>
+      <input id="customTitle" type="text" value="Custom Break" />
+    </div>
+    <div class="row">
+      <label>Seconds</label>
+      <input id="customSeconds" type="number" value="90" min="5" />
+    </div>
+    <div class="row">
+      <label>Accent colour</label>
+      <input id="customAccent" type="color" value="#ff4b6a" />
+    </div>
+    <div class="row">
+      <button class="secondary" onclick="applyCustom()">Apply custom</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <strong>Scene</strong>
+    <div class="row">
+      <button class="scene" id="btnFull" onclick="setScene('Full')">Full</button>
+      <button class="scene" id="btnTicker" onclick="setScene('Ticker')">Ticker</button>
+    </div>
+  </div>
+
+  <script>
+    function safeSetField(key, value) {
+      try {
+        if (window.RebelAPI && typeof RebelAPI.setField === 'function') {
+          RebelAPI.setField(key, value);
+        } else {
+          console.warn('RebelAPI.setField not available');
+        }
+      } catch (err) {
+        console.error('Error calling RebelAPI.setField', err);
+      }
+    }
+
+    function safeSetScene(sceneName) {
+      try {
+        if (window.RebelAPI && typeof RebelAPI.setScene === 'function') {
+          RebelAPI.setScene(sceneName);
+        } else {
+          console.warn('RebelAPI.setScene not available');
+        }
+      } catch (err) {
+        console.error('Error calling RebelAPI.setScene', err);
+      }
+    }
+
+    function setBreak(title, seconds) {
+      safeSetField('breakTitle', title);
+      safeSetField('breakSeconds', String(seconds));
+    }
+
+    function applyCustom() {
+      const title = document.getElementById('customTitle').value || 'Break';
+      const secs = parseInt(document.getElementById('customSeconds').value, 10) || 60;
+      const accent = document.getElementById('customAccent').value || '#ff4b6a';
+
+      safeSetField('breakTitle', title);
+      safeSetField('breakSeconds', String(secs));
+      safeSetField('accentColor', accent);
+    }
+
+    function setScene(sceneName) {
+      safeSetScene(sceneName);
+
+      // simple button highlight
+      const fullBtn = document.getElementById('btnFull');
+      const tickerBtn = document.getElementById('btnTicker');
+      fullBtn.classList.toggle('active', sceneName === 'Full');
+      tickerBtn.classList.toggle('active', sceneName === 'Ticker');
+    }
+
+    // default
+    setScene('Full');
+  </script>
+</body>
+</html>
