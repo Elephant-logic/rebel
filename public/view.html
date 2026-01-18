@@ -12,7 +12,7 @@
       .video-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: flex; align-items: center; justify-content: center; background: #000; }
       video { width: 100%; height: 100%; object-fit: contain; }
 
-      /* NEW: Visual Feedback for Hand Raising */
+      /* Visual Feedback for Hand Raising */
       .hand-active #requestCallBtn {
           background: var(--accent);
           color: #000;
@@ -20,11 +20,41 @@
           box-shadow: 0 0 15px rgba(74, 243, 163, 0.5);
       }
 
+      /* START PATCH: TOOLBOX CONTAINER & IFRAME STYLES */
       #toolboxContainer {
-          position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-          z-index: 9999; display: flex; flex-direction: column; align-items: center; gap: 15px; pointer-events: none; 
+          position: absolute; 
+          top: 50%; 
+          left: 50%; 
+          transform: translate(-50%, -50%);
+          width: 80%; 
+          height: 70%;
+          z-index: 9999; 
+          display: flex; 
+          flex-direction: column; 
+          align-items: center; 
+          pointer-events: none; 
       }
-      #toolboxContainer > * { pointer-events: auto; }
+      
+      #toolboxContainer iframe {
+          pointer-events: auto;
+          box-shadow: 0 0 30px rgba(74, 243, 163, 0.3);
+          background: rgba(0,0,0,0.4);
+          border: 1px solid rgba(74, 243, 163, 0.2);
+          border-radius: 12px;
+          animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      }
+
+      .toolbox-card {
+          background: rgba(0, 0, 0, 0.8);
+          border: 1px solid var(--accent);
+          padding: 15px;
+          border-radius: 8px;
+          min-width: 200px;
+          text-align: center;
+          pointer-events: auto;
+          animation: popIn 0.3s ease-out;
+      }
+      /* END PATCH */
 
       .chat-overlay {
           position: absolute; bottom: 80px; left: 20px; width: 320px; height: 320px;
@@ -59,7 +89,6 @@
       }
       .btn-ctrl { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: 0.2s; }
       
-      /* NEW: Pulsing Animation for Unmute Bypass */
       .btn-ctrl.pulse-primary {
           background: var(--accent);
           color: #000;
@@ -72,9 +101,12 @@
           100% { box-shadow: 0 0 0 0 rgba(74, 243, 163, 0); }
       }
 
+      @keyframes popIn {
+          0% { opacity: 0; transform: scale(0.5); }
+          100% { opacity: 1; transform: scale(1); }
+      }
+
       .status-pill { margin-right: auto; background: var(--danger); padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 0.8rem; }
-      
-      /* NEW: Live Status state */
       .status-pill.live { background: var(--accent); color: #000; }
     </style>
   </head>
