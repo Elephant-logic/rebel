@@ -50,7 +50,7 @@ function startStatsReporting(peer) {
 }
 
 // ======================================================
-// 2. [NEW PATCH] VIEWER OVERLAY RENDERER (ANIMATION FIX)
+// 2. [FIXED] VIEWER OVERLAY RENDERER (ANIMATION FIX)
 // ======================================================
 /**
  * Renders HTML into a live DOM layer to allow CSS animations and JS timers.
