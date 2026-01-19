@@ -403,7 +403,7 @@ function renderHTMLLayout(htmlString) {
         </div>
     `;
 
-    // 5. Broadcaster Sync: push processed overlay HTML out to viewers
+    // 5. NEW: push this processed overlay HTML out to all viewers in the room
     if (iAmHost && isStreaming && currentRoom) {
         socket.emit('overlay-html', {
             room: currentRoom,
