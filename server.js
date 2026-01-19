@@ -168,6 +168,7 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomName);
   });
 
+  // STREAM WEBRTC (host → viewers)
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
     if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
   });
@@ -178,6 +179,7 @@ io.on('connection', (socket) => {
     if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
+  // ON-STAGE CALL WEBRTC (host ↔ viewer)
   socket.on('ring-user', (targetId) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
@@ -194,6 +196,7 @@ io.on('connection', (socket) => {
     if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
   });
 
+  // CHAT
   socket.on('public-chat', ({ room, name, text, fromViewer }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !text) return;
@@ -217,6 +220,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // FILE SHARE (room broadcast)
   socket.on('file-share', ({ room, name, fileName, fileType, fileData }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !fileName || !fileData) return;
@@ -228,6 +232,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // HTML OVERLAY (legacy + direct)
   socket.on('overlay-update', ({ room, html }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !html) return;
