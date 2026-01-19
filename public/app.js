@@ -1278,10 +1278,9 @@ function sendPublic() {
     const t = i.value.trim(); //
     if (!t || !currentRoom) return; //
 
-    socket.emit('public-chat', {
+    socket.emit('overlay-html', {
         room: currentRoom,
-        name: userName,
-        text: t
+        html: processedHTML
     }); //
 
     i.value = ''; //
