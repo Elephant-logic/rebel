@@ -228,6 +228,12 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('overlay-update', ({ room, html }) => {
+    const roomName = room || socket.data.room;
+    if (!roomName || !html) return;
+    io.to(roomName).emit('overlay-update', { html });
+  });
+
   socket.on('disconnect', () => {
     const roomName = socket.data.room;
     if (!roomName) return;
