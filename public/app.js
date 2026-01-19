@@ -334,47 +334,12 @@ if (previewModal) {
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
 function buildChatHTMLFromLogs(maxLines = 12) {
-    const log = $('chatLogPublic'); //
-    if (!log) return ''; //
-
-    const nodes = Array.from(log.querySelectorAll('.chat-line')); //
-    const last = nodes.slice(-maxLines); //
-
-    return last.map(line => {
-        const nameEl = line.querySelector('strong'); //
-        const timeEl = line.querySelector('small'); //
-        let textNode = null; //
-        for (const n of line.childNodes) {
-            if (n.nodeType === Node.TEXT_NODE && n.textContent.includes(':')) {
-                textNode = n; //
-                break;
-            }
-        }
-
-        const name = nameEl ? nameEl.textContent.trim() : ''; //
-        const time = timeEl ? timeEl.textContent.trim() : ''; //
-        const text = textNode
-            ? textNode.textContent.replace(/^:\s*/, '').trim()
-            : line.textContent.replace(name, '').trim(); //
-
-        return `
-            <div class="ov-chat-line">
-               <span class="ov-chat-name">${name}</span>
-               <span class="ov-chat-time">${time}</span>
-               <span class="ov-chat-text">${text}</span>
-            </div>
-        `;
-    }).join('');
-}
-
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
-
-    // keep a copy for re-renders / viewers
     currentRawHTML = htmlString;
     overlayActive = true;
 
-    // 1. Prepare data for placeholders
+    // 1. Prepare Data for Placeholders
     const viewerCount = latestUserList.filter(u => u.isViewer).length;
     const guestCount  = latestUserList.filter(u => !u.isViewer).length;
     const streamTitle = $('streamTitleInput')
@@ -382,21 +347,75 @@ function renderHTMLLayout(htmlString) {
         : "Rebel Stream";
     const chatHTML    = buildChatHTMLFromLogs(14);
 
-    // 2. Process placeholders ({{viewers}}, {{guests}}, {{title}}, {{chat}})
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g,  streamTitle)
         .replace(/{{chat}}/g,   chatHTML);
 
-    // 3. Tell viewers to refresh their overlays (keeps your existing COMMAND logic)
+    // 2. Host Preview – sandbox iframe over your cam
+    let overlayLayer = $('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        overlayLayer.style.cssText =
+            "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
+        const container = $('localContainer');
+        if (container) container.appendChild(overlayLayer);
+    }
+
+    let frame = document.getElementById('overlayPreviewFrame');
+    if (!frame) {
+        frame = document.createElement('iframe');
+        frame.id = 'overlayPreviewFrame';
+        // no allow-same-origin so the overlay CSS cannot touch the host page
+        frame.setAttribute('sandbox', 'allow-scripts');
+        frame.style.cssText =
+            "position:absolute; top:0; left:0; width:1920px; height:1080px;" +
+            "border:none; pointer-events:none;";
+        overlayLayer.appendChild(frame);
+    }
+
+    const videoEl = $('localVideo');
+    const scale = (videoEl && videoEl.offsetWidth > 0)
+        ? (videoEl.offsetWidth / 1920)
+        : 1;
+    frame.style.transformOrigin = 'top left';
+    frame.style.transform = `scale(${scale})`;
+
+    const doc = frame.contentDocument || frame.contentWindow.document;
+    doc.open();
+    doc.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+html, body {
+  margin:0;
+  padding:0;
+  width:1920px;
+  height:1080px;
+  overflow:hidden;
+  background:transparent;
+}
+</style>
+</head>
+<body>
+<div class="layout-${mixerLayout}">
+${processedHTML}
+</div>
+</body>
+</html>`);
+    doc.close();
+
+    // 3. Push processed overlay HTML to all viewers
     if (iAmHost && isStreaming && currentRoom) {
-        socket.emit('public-chat', {
+        socket.emit('overlay-update', {
             room: currentRoom,
-            name: "SYSTEM",
-            text: `COMMAND:update-overlay`
+            html: processedHTML
         });
     }
+}
 
     // 4. Host preview – sandboxed iframe sitting over your cam
     const localVideo = $('localVideo');
