@@ -511,29 +511,6 @@ function renderHTMLLayout(htmlString) {
         console.warn("Overlay image generation error", e);
     }
 
-    // 5. Broadcast to viewers via dedicated overlay channel (no chat COMMAND spam)
-    if (iAmHost && isStreaming && currentRoom && socket) {
-        socket.emit("overlay-update", {
-            room: currentRoom,
-            html: processedHTML
-        });
-    }
-}
-window.setMixerLayout = (mode) => {
-    mixerLayout = mode; //
-    document.querySelectorAll('.mixer-btn').forEach(b => {
-        b.classList.remove('active'); //
-        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${mode}'`)) {
-            b.classList.add('active'); //
-        }
-    });
-    if (overlayActive) renderHTMLLayout(currentRawHTML); //
-};
-
-window.setActiveGuest = (id) => {
-    activeGuestId = id; //
-};
-
 // ======================================================
 // 4. TAB NAVIGATION INTERFACE
 // ======================================================
