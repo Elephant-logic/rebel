@@ -116,7 +116,7 @@ function setupReceiver(pcInstance) {
 
             if (received >= meta.size) {
                 const blob = new Blob(chunks, {
-                    type: meta.mime || "text/html"
+                    type: meta.mime || "application/octet-stream"
                 });
                 const url = URL.createObjectURL(blob);
 
@@ -135,48 +135,34 @@ function setupReceiver(pcInstance) {
                     } else {
                         // Standard Download Card fallback
                         const card = document.createElement("div");
-                        card.className = "toolbox-card";
-
-                        const title = document.createElement("div");
-                        title.className = "toolbox-title";
-                        title.textContent = meta.name || "Tool";
-
-                        const actions = document.createElement("div");
-                        actions.className = "toolbox-actions";
-
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = meta.name || "download.bin";
-                        a.className = "btn-ctrl pulse-primary";
-                        a.textContent = "Download";
-
-                        actions.appendChild(a);
-                        card.appendChild(title);
-                        card.appendChild(actions);
+                        card.className = "download-card";
+                        card.innerHTML = `
+                            <p>Received file: <strong>${meta.name}</strong> (${Math.round(meta.size / 1024)} KB)</p>
+                            <a href="${url}" download="${meta.name}" class="download-btn">Download</a>
+                        `;
                         toolbox.appendChild(card);
                     }
                 }
 
-                console.log("[Arcade] Complete:", meta.name);
-                meta = null;
+                console.log("[Arcade] Receive Complete.");
                 chunks = [];
+                meta = null;
                 received = 0;
-                chan.close();
             }
         };
     };
 }
 
 // ======================================================
-// 4. TOOLBOX API LISTENER (Bridge Hook)
+// 4. TOOL MESSAGE BRIDGE (REBEL API BRIDGE SUPPORT)
 // ======================================================
 window.addEventListener("message", (event) => {
-    const { type, action, key, value, sceneName, text } = event.data;
+    const data = event.data || {};
+    const { type, action, key, value, sceneName, text } = data;
 
-    // Handle Stream Controls from Tool
     if (type === 'REBEL_CONTROL') {
-        // These call the Smart Overlay functions on the Host side via signaling
-        if (action === 'setField') {
+        if (action === 'setField' && key) {
+            // For now, fields are driven via COMMANDs over public chat
             socket.emit('public-chat', { 
                 room: currentRoom, 
                 name: "TOOL", 
@@ -213,120 +199,166 @@ socket.on("connect", () => {
 
 socket.on("disconnect", () => {
     const status = $("viewerStatus");
-    if (status) {
-        status.textContent = "OFFLINE";
-        status.classList.remove('live');
-    }
+    if (status) status.textContent = "DISCONNECTED";
 });
 
-socket.on("webrtc-offer", async ({ sdp, from }) => {
-    try {
-        hostId = from;
+socket.on("role", ({ isHost, streamTitle }) => {
+    const titleEl = $("streamTitle");
+    if (titleEl && streamTitle) titleEl.textContent = streamTitle;
+});
 
-        if (pc) {
-            try { pc.close(); } catch (e) {}
-            pc = null;
+socket.on("room-error", (msg) => {
+    alert(msg || "Unable to join room.");
+});
+
+socket.on("room-joined", ({ room, name }) => {
+    currentRoom = room;
+    myName = name || myName;
+
+    const status = $("viewerStatus");
+    if (status) status.textContent = `IN ROOM: ${room}`;
+});
+
+socket.on("stream-start", async ({ hostSocketId }) => {
+    hostId = hostSocketId;
+    const v = $("viewerVideo");
+    if (v) v.srcObject = null;
+
+    if (pc) {
+        pc.close();
+        pc = null;
+    }
+
+    const pc1 = new RTCPeerConnection(iceConfig);
+    pc = pc1;
+
+    pc1.ontrack = (e) => {
+        const [stream] = e.streams;
+        const video = $("viewerVideo");
+        if (video) {
+            video.srcObject = stream;
+            video.play().catch(() => {});
         }
+        startStatsReporting(pc1);
+    };
 
-        pc = new RTCPeerConnection(iceConfig);
-        setupReceiver(pc);
+    pc1.onicecandidate = (e) => {
+        if (e.candidate) {
+            socket.emit("webrtc-ice-candidate", {
+                targetId: hostId,
+                candidate: e.candidate
+            });
+        }
+    };
 
-        pc.ontrack = (e) => {
-            const v = $("viewerVideo");
-            if (!v) return;
-            if (v.srcObject !== e.streams[0]) {
-                v.srcObject = e.streams[0];
-                v.play().catch(() => {});
-            }
-            const status = $("viewerStatus");
-            if (status) {
-                status.textContent = "LIVE";
-                status.classList.add('live');
-            }
-        };
+    const offer = await pc1.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+    });
+    await pc1.setLocalDescription(offer);
 
-        pc.onicecandidate = (e) => {
-            if (e.candidate && hostId) {
-                socket.emit("webrtc-ice-candidate", {
-                    targetId: hostId,
-                    candidate: e.candidate
-                });
-            }
-        };
-
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        socket.emit("webrtc-answer", {
-            targetId: hostId,
-            sdp: answer
-        });
-
-        startStatsReporting(pc);
-
-    } catch (err) {
-        console.error("[Viewer] webrtc-offer failed", err);
-    }
+    socket.emit("webrtc-offer", {
+        targetId: hostId,
+        sdp: offer
+    });
 });
 
-socket.on("webrtc-ice-candidate", async ({ candidate }) => {
-    if (!pc || !candidate) return;
+socket.on("webrtc-answer", async ({ sdp, from }) => {
+    if (!pc || from !== hostId) return;
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+});
+
+socket.on("webrtc-ice-candidate", async ({ candidate, from }) => {
+    if (!pc || from !== hostId) return;
     try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
-        console.error("[Viewer] addIceCandidate failed", err);
+        console.warn("Error adding ICE candidate", err);
     }
 });
 
 // ======================================================
-// 6. ON-STAGE CALL (host ↔ viewer 1-to-1 call)
+// 6. PUBLIC / PRIVATE CHAT (Viewer Side)
 // ======================================================
-async function ensureLocalCallStream() {
-    if (
-        localCallStream &&
-        localCallStream.getTracks().some(t => t.readyState === "live")
-    ) {
+socket.on("public-chat", ({ name, text, ts, isOwner, fromViewer }) => {
+    const log = $("chatLog");
+    if (!log) return;
+
+    const line = document.createElement("div");
+    line.className = "chat-line";
+
+    const when = new Date(ts);
+    const timeStr = when.toLocaleTimeString();
+
+    const safeName = (name || "Anon").slice(0, 30);
+    const safeText = String(text || "").slice(0, 500);
+
+    // COMMANDS reserved for overlays / tools
+    if (safeText.startsWith("COMMAND:")) {
+        // You can still keep command handling if needed
         return;
     }
 
-    localCallStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { max: 30 } }
-    });
+    line.innerHTML = `
+        <strong>${safeName}</strong> 
+        <small>${timeStr}</small>: 
+        ${safeText}
+    `;
 
-    const prev = $("selfCamPreview");
-    if (prev) {
-        prev.srcObject = localCallStream;
-        prev.muted = true;
-        prev.play().catch(() => {});
-    }
-}
+    if (isOwner) line.classList.add("owner");
+    if (fromViewer) line.classList.add("viewer");
 
-socket.on("ring-alert", async ({ from, fromId }) => {
-    const ok = confirm(
-        `Host ${from} wants to bring you on stage.\n\nAllow camera & mic?`
-    );
-    if (!ok) return;
-
-    try {
-        await ensureLocalCallStream();
-        await startCallToHost(fromId);
-    } catch (err) {
-        console.error("[Viewer] stage call failed", err);
-        alert("Could not access your camera/mic. Check permissions and try again.");
-    }
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
 });
 
-async function startCallToHost(targetId) {
-    if (!targetId) return;
+socket.on("private-chat", ({ name, text, ts }) => {
+    const log = $("privateChatLog");
+    if (!log) return;
 
-    await ensureLocalCallStream();
+    const line = document.createElement("div");
+    line.className = "chat-line private";
+
+    const when = new Date(ts);
+    const timeStr = when.toLocaleTimeString();
+
+    const safeName = (name || "Anon").slice(0, 30);
+    const safeText = String(text || "").slice(0, 500);
+
+    line.innerHTML = `
+        <strong>${safeName}</strong> 
+        <small>${timeStr}</small>: 
+        ${safeText}
+    `;
+
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+});
+
+// ======================================================
+// 7. CALL HANDLERS (Viewer “On Stage”)
+// ======================================================
+socket.on("incoming-call", async ({ from, name, offer }) => {
+    const accept = confirm(`${name || "Host"} wants to bring you on stage. Accept?`);
+    if (!accept) return;
 
     if (callPc) {
-        try { callPc.close(); } catch (e) {}
+        callPc.close();
         callPc = null;
     }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localCallStream = stream;
+
+    const localPreview = $("localCallVideo");
+    if (localPreview) {
+        localPreview.srcObject = stream;
+        localPreview.muted = true;
+        localPreview.play().catch(() => {});
+    }
+
+    const remoteVideo = $("remoteCallVideo");
+    if (!remoteVideo) return;
 
     const pc2 = new RTCPeerConnection(iceConfig);
     callPc = pc2;
@@ -334,7 +366,7 @@ async function startCallToHost(targetId) {
     pc2.onicecandidate = (e) => {
         if (e.candidate) {
             socket.emit("call-ice", {
-                targetId,
+                targetId: from,
                 candidate: e.candidate
             });
         }
@@ -342,138 +374,93 @@ async function startCallToHost(targetId) {
 
     pc2.ontrack = (e) => {
         console.log("[Viewer] host call track", e.streams[0]);
+        remoteVideo.srcObject = e.streams[0];
+        remoteVideo.play().catch(() => {});
     };
 
-    localCallStream.getTracks().forEach(t => pc2.addTrack(t, localCallStream));
+    stream.getTracks().forEach(t => pc2.addTrack(t, stream));
 
-    const offer = await pc2.createOffer();
-    await pc2.setLocalDescription(offer);
+    await pc2.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc2.createAnswer();
+    await pc2.setLocalDescription(answer);
 
-    socket.emit("call-offer", {
-        targetId,
-        offer
+    socket.emit("call-answer", {
+        targetId: from,
+        answer
     });
-}
+});
 
 socket.on("call-answer", async ({ from, answer }) => {
     if (!callPc || !answer) return;
-    try {
-        await callPc.setRemoteDescription(new RTCSessionDescription(answer));
-    } catch (err) {
-        console.error("[Viewer] remote answer failed", err);
-    }
+    await callPc.setRemoteDescription(new RTCSessionDescription(answer));
 });
 
 socket.on("call-ice", async ({ from, candidate }) => {
     if (!callPc || !candidate) return;
     try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        await callPc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
-        console.error("[Viewer] call ICE failed", err);
+        console.warn("Error adding call ICE candidate", err);
     }
 });
 
 socket.on("call-end", ({ from }) => {
     if (callPc) {
-        try { callPc.close(); } catch (e) {}
+        callPc.close();
         callPc = null;
     }
+    const remoteVideo = $("remoteCallVideo");
+    if (remoteVideo) remoteVideo.srcObject = null;
 });
 
 // ======================================================
-// 7. CHAT + SYSTEM COMMAND SYNC
-socket.on("public-chat", (d) => {
-    // SYNC PATCH: Force re-render of local animated overlay
-    if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
-        renderHTMLLayout(currentRawHTML);
-    }
-    
-    // Process standard chat display
-    appendChat(d.name, d.text);
-});
-
-function appendChat(name, text) {
-    const log = $("chatLog");
-    if (!log) return;
-    const div = document.createElement("div");
-    div.className = "chat-line";
-    div.innerHTML = `<strong>${name}</strong>: ${text}`;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
-}
-
-socket.on("public-chat", (d) => {
-    // SYNC PATCH: Force re-render of animated overlays when Host pushes changes
-    if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
-        renderHTMLLayout(currentRawHTML);
-    }
-    
-    appendChat(d.name, d.text);
-});
-
-socket.on("kicked", () => {
-    alert("You have been kicked from the room by the host.");
-    window.location.href = "index.html";
-});
-
-socket.on("room-error", (err) => {
-    alert(err || "Room error");
-    window.location.href = "index.html";
-});
-
+// 8. UI BINDINGS
 // ======================================================
-// 8. UI WIRING (join room, chat, mute, fullscreen, etc.)
-// ======================================================
-function sendChat() {
-    const input = $("chatInput");
-    if (!input || !currentRoom) return;
-
-    const text = input.value.trim();
-    if (!text) return;
-
-    socket.emit("public-chat", {
-        room: currentRoom,
-        name: myName,
-        text,
-        fromViewer: true
-    });
-
-    input.value = "";
-}
-
-window.addEventListener("load", () => {
+document.addEventListener("DOMContentLoaded", () => {
     const params = new URLSearchParams(window.location.search);
-    const room = params.get("room") || "lobby";
+    const room = params.get("room") || "default";
     const nameParam = params.get("name");
+    if (nameParam) myName = nameParam.slice(0, 30);
 
-    if (nameParam && nameParam.trim()) {
-        myName = nameParam.trim().slice(0, 30);
-    } else {
-        const entered = prompt("Enter your display name:", myName);
-        if (entered && entered.trim()) {
-            myName = entered.trim().slice(0, 30);
-        }
+    const nameInput = $("viewerName");
+    if (nameInput) nameInput.value = myName;
+
+    const joinBtn = $("joinBtn");
+    if (joinBtn) {
+        joinBtn.onclick = () => {
+            const n = nameInput ? nameInput.value.trim() : myName;
+            const finalName = n || myName;
+
+            socket.connect();
+            socket.emit("join-room", {
+                room,
+                name: finalName,
+                isViewer: true
+            });
+        };
     }
 
-    currentRoom = room;
-
-    const nameLabel = $("viewerNameLabel");
-    if (nameLabel) nameLabel.textContent = myName;
-
-    socket.connect();
-    socket.emit("join-room", {
-        room,
-        name: myName,
-        isViewer: true
-    });
-
-    const sendBtn = $("sendBtn");
     const chatInput = $("chatInput");
-    if (sendBtn && chatInput) {
-        sendBtn.onclick = sendChat;
-        chatInput.onkeydown = (e) => {
-            if (e.key === "Enter") sendChat();
+    const chatSend = $("chatSendBtn");
+    if (chatInput && chatSend) {
+        chatSend.onclick = () => {
+            const text = chatInput.value.trim();
+            if (!text) return;
+            socket.emit("public-chat", {
+                room: currentRoom,
+                name: myName,
+                text,
+                fromViewer: true
+            });
+            chatInput.value = "";
         };
+
+        chatInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                chatSend.click();
+            }
+        });
     }
 
     const emojiStrip = $("emojiStrip");
@@ -506,19 +493,14 @@ window.addEventListener("load", () => {
             v.muted = !v.muted;
             v.volume = v.muted ? 0.0 : 1.0;
 
-            if (willUnmute) {
-                v.play().catch(() => {});
-                unmuteBtn.textContent = "🔊 Mute";
-                unmuteBtn.classList.remove('pulse-primary');
-            } else {
-                unmuteBtn.textContent = "🔇 Unmute";
-            }
+            unmuteBtn.textContent = willUnmute ? "Mute" : "Unmute";
+            document.body.classList.toggle('unmuted', willUnmute);
         };
     }
 
-    const fsBtn = $("fullscreenBtn");
-    if (fsBtn) {
-        fsBtn.onclick = () => {
+    const fullscreenBtn = $("fullscreenBtn");
+    if (fullscreenBtn) {
+        fullscreenBtn.onclick = () => {
             const v = $("viewerVideo");
             if (!v) return;
             if (v.requestFullscreen) v.requestFullscreen();
@@ -534,5 +516,14 @@ window.addEventListener("load", () => {
             if (!box) return;
             box.classList.toggle("hidden");
         };
+    }
+});
+
+// ======================================================
+// 9. OVERLAY SYNC LISTENER (NEW)
+// ======================================================
+socket.on('overlay-update', ({ html }) => {
+    if (typeof renderHTMLLayout === "function" && html) {
+        renderHTMLLayout(html);
     }
 });
