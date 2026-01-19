@@ -367,40 +367,48 @@ function buildChatHTMLFromLogs(maxLines = 12) {
 }
 
 function renderHTMLLayout(htmlString) {
-    if (!htmlString) return; //
-    currentRawHTML = htmlString; //
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
 
-    // Separate Viewers from Guests for stats
-    const viewerCount = latestUserList.filter(u => u.isViewer).length; //
-    const guestCount = latestUserList.filter(u => !u.isViewer).length; //
-    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
+    // 1. Ensure the Live Overlay Layer exists in the DOM
+    let overlayLayer = $('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
+        $('localContainer').appendChild(overlayLayer);
+    }
 
-    // Build chat HTML block from current public chat
-    const chatHTML = buildChatHTMLFromLogs(14); //
+    // 2. Prepare Data for Placeholders
+    const viewerCount = latestUserList.filter(u => u.isViewer).length;
+    const guestCount = latestUserList.filter(u => !u.isViewer).length;
+    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const chatHTML = buildChatHTMLFromLogs(14);
 
+    // 3. Process All Placeholders (Fields + Global Stats)
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
-        .replace(/{{chat}}/g, chatHTML); //
+        .replace(/{{chat}}/g, chatHTML);
 
-    const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
-            <foreignObject width="100%" height="100%">
-                <div xmlns="http://www.w3.org/1999/xhtml" class="layout-${mixerLayout}" style="width:100%; height:100%; margin:0; padding:0;">
-                    ${processedHTML}
-                </div>
-            </foreignObject>
-        </svg>`; //
+    // 4. Inject as "Living" DOM
+    // This replaces the old SVG-image logic to enable CSS animations/JS timers.
+    overlayLayer.innerHTML = `
+        <div class="layout-${mixerLayout}" style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${$('localVideo').offsetWidth / 1920});">
+            ${processedHTML}
+        </div>
+    `;
 
-    try {
-        overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
-        overlayActive = true; //
-    } catch (e) {
-        console.error("[Overlay] Failed to encode SVG", e); //
+    // 5. Broadcaster Sync: Signal viewers to update local views
+    if (iAmHost && isStreaming) {
+        socket.emit('public-chat', {
+            room: currentRoom,
+            name: "SYSTEM",
+            text: `COMMAND:update-overlay`
+        });
     }
 }
-
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
     document.querySelectorAll('.mixer-btn').forEach(b => {
