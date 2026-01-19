@@ -219,15 +219,8 @@ socket.on("disconnect", () => {
     }
 });
 
-// [PATCH] Receive direct HTML Overlay updates
-socket.on("overlay-html", ({ html }) => {
-    if (typeof renderHTMLLayout === 'function' && html) {
-        renderHTMLLayout(html);
-    }
-});
-
-// [PATCH] Standard overlay-update listener compatibility
-socket.on("overlay-update", ({ html }) => {
+// [PATCH] Real-time Overlay HTML Relay
+socket.on('overlay-html', ({ html }) => {
     if (typeof renderHTMLLayout === 'function' && html) {
         renderHTMLLayout(html);
     }
@@ -396,6 +389,7 @@ socket.on("call-end", ({ from }) => {
 
 // ======================================================
 // 7. CHAT + SYSTEM COMMAND SYNC
+// ======================================================
 socket.on("public-chat", (d) => {
     // SYNC PATCH: Force re-render of local animated overlay
     if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
@@ -542,7 +536,7 @@ window.addEventListener("load", () => {
     }
 });
 
-// [PATCH] Final handler to rescale overlay on window resize
+// [PATCH] Rescale overlay on window resize
 window.addEventListener('resize', () => {
     if (currentRawHTML) renderHTMLLayout(currentRawHTML);
 });
