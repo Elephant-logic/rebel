@@ -48,7 +48,6 @@ function startStatsReporting(peer) {
         });
     }, 2000);
 }
-
 // ======================================================
 // 2. [NEW PATCH] VIEWER OVERLAY RENDERER (ANIMATION FIX)
 // ======================================================
@@ -65,7 +64,7 @@ function renderHTMLLayout(htmlString) {
         overlayLayer = document.createElement('div');
         overlayLayer.id = 'mixerOverlayLayer';
         // Position exactly over the video
-        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
+        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;"; 
         const videoLayer = document.querySelector('.video-layer');
         if (videoLayer) videoLayer.appendChild(overlayLayer);
     }
