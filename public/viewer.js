@@ -10,51 +10,162 @@ let pc = null;               // broadcast stream PC (host → viewer)
 let hostId = null;           // socket id of the host sending us the stream
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random() * 1000);
-let currentRawHTML = "";     // Stores latest overlay code for real-time sync
+let currentRawHTML = "";     // [PATCH] Stores latest overlay code for real-time sync
 
 // separate PC for 1-to-1 “on-stage” call
 let callPc = null;
-let localCallStream = null;
 
-// ======================================================
-// 1. REAL-TIME HEALTH REPORTING (Professional Patch)
-// ======================================================
-let statsInterval = null;
+// last known users list from the server
+let lastUserList = [];
 
-function startStatsReporting(peer) {
-    if (statsInterval) clearInterval(statsInterval);
-    statsInterval = setInterval(async () => {
-        if (!peer || peer.connectionState !== 'connected') return;
+// Track call state (host vs viewer)
+let isOnStage = false;
 
-        const stats = await peer.getStats();
-        stats.forEach(report => {
-            if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                // Calculate latency based on jitter buffer delay
-                const latency = Math.round((report.jitterBufferDelay / report.jitterBufferEmittedCount) * 1000) || 0;
-                
-                // Update the Latency Badge in view.html
-                const badge = $('latencyBadge');
-                const mirror = $('viewerStatusMirror');
-                if (badge) {
-                    badge.innerHTML = `⏱️ ${latency}ms`;
-                    badge.style.display = 'inline-block';
-                    badge.style.color = latency > 200 ? '#ff4b6a' : '#9ba3c0';
-                }
-                if (mirror) mirror.innerHTML = `${latency}ms`;
-
-                // Send latency back to the host via the server stats listener
-                socket.emit('report-stats', { latency });
-            }
-        });
-    }, 2000);
+// Utility: parse query string
+function getQueryParam(key) {
+    const params = new URLSearchParams(window.location.search);
+    return params.get(key);
 }
 
 // ======================================================
-// 2. VIEWER OVERLAY RENDERER
+// 1. JOIN ROOM + SIGNAL SETUP
+// ======================================================
+function joinRoom(room, name) {
+    if (!room) return;
+
+    currentRoom = room;
+    myName = name || myName;
+
+    // Connect socket
+    socket.connect();
+
+    socket.emit("join-room", {
+        room,
+        name: myName,
+        isViewer: true
+    });
+}
+
+// When socket connects, update status indicator
+socket.on("connect", () => {
+    const el = $("signalStatus");
+    if (el) {
+        el.className = "status-dot status-connected";
+        el.textContent = "Connected";
+    }
+});
+
+socket.on("disconnect", () => {
+    const el = $("signalStatus");
+    if (el) {
+        el.className = "status-dot status-disconnected";
+        el.textContent = "Disconnected";
+    }
+});
+
+// Server tells us who the host is and if stream is live
+socket.on("room-update", (payload) => {
+    lastUserList = payload.users || [];
+
+    const hostUser = lastUserList.find(u => !u.isViewer && u.isHost);
+    hostId = hostUser ? hostUser.id : null;
+
+    const titleEl = $("streamTitle");
+    if (titleEl && payload.streamTitle) {
+        titleEl.textContent = payload.streamTitle;
+    }
+
+    const countEl = $("viewerCount");
+    if (countEl) {
+        const viewers = lastUserList.filter(u => u.isViewer).length;
+        countEl.textContent = viewers;
+    }
+
+    // If there's a host and we haven't got a PC, request a stream
+    if (hostId && !pc && payload.streamLive) {
+        requestStreamFromHost();
+    }
+});
+
+// Host will send this to tell us that stream is starting or stopping
+socket.on("host-stream-state", ({ live }) => {
+    if (live) {
+        requestStreamFromHost();
+    } else {
+        destroyViewerPc();
+        const v = $("viewerVideo");
+        if (v) v.srcObject = null;
+        const overlay = $("mixerOverlayLayer");
+        if (overlay) overlay.innerHTML = "";
+    }
+});
+
+// ======================================================
+// 2. VIEWER WEBRTC HANDSHAKE
+// ======================================================
+function requestStreamFromHost() {
+    if (!hostId || pc) return;
+
+    pc = new RTCPeerConnection(iceConfig);
+
+    pc.ontrack = (evt) => {
+        const v = $("viewerVideo");
+        if (v) {
+            v.srcObject = evt.streams[0];
+            v.play().catch(() => {});
+        }
+    };
+
+    pc.onicecandidate = (evt) => {
+        if (evt.candidate) {
+            socket.emit("webrtc-ice-candidate", {
+                targetId: hostId,
+                candidate: evt.candidate
+            });
+        }
+    };
+
+    pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed" || pc.connectionState === "disconnected" || pc.connectionState === "closed") {
+            destroyViewerPc();
+        }
+    };
+
+    // viewer creates offer
+    pc.createOffer().then(offer => {
+        pc.setLocalDescription(offer);
+        socket.emit("webrtc-offer", {
+            targetId: hostId,
+            sdp: offer
+        });
+    }).catch(console.error);
+}
+
+function destroyViewerPc() {
+    if (pc) {
+        try { pc.close(); } catch (e) {}
+        pc = null;
+    }
+}
+
+// Host replies with answer
+socket.on("webrtc-answer", ({ from, sdp }) => {
+    if (!pc || from !== hostId) return;
+    pc.setRemoteDescription(new RTCSessionDescription(sdp)).catch(console.error);
+});
+
+// ICE from host
+socket.on("webrtc-ice-candidate", ({ from, candidate }) => {
+    if (!pc || from !== hostId || !candidate) return;
+    pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+});
+
+// ======================================================
+// 2. SMART OVERLAY RENDERER (Viewer-side)
 // ======================================================
 /**
- * Renders HTML into a live DOM layer to allow CSS animations and JS timers.
- * Mounted over the .video-layer in view.html and scaled from 1920x1080.
+ * Renders the overlay into #mixerOverlayLayer in the viewer DOM.
+ * This replaces the static SVG logic that was killing the tickers.
  */
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
@@ -65,18 +176,14 @@ function renderHTMLLayout(htmlString) {
         overlayLayer = document.createElement('div');
         overlayLayer.id = 'mixerOverlayLayer';
         // Position exactly over the video
-        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
+        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;"; 
         const videoLayer = document.querySelector('.video-layer');
-        if (videoLayer) {
-            videoLayer.appendChild(overlayLayer);
-        } else {
-            // Fallback: attach to body if .video-layer missing
-            document.body.appendChild(overlayLayer);
-        }
+        if (videoLayer) videoLayer.appendChild(overlayLayer);
     }
 
+    // Scale the 1080p layout to fit the viewer's current video window
     const videoEl = document.getElementById('viewerVideo');
-    const scale = videoEl ? (videoEl.offsetWidth / 1920) : 1;
+    const scale = videoEl ? videoEl.offsetWidth / 1920 : 1;
 
     overlayLayer.innerHTML = `
         <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale});">
@@ -85,10 +192,13 @@ function renderHTMLLayout(htmlString) {
     `;
 }
 
-// Re-scale overlay when window size changes (if we already have one)
-window.addEventListener('resize', () => {
-    if (currentRawHTML) {
-        renderHTMLLayout(currentRawHTML);
+// ======================================================
+// 2b. OVERLAY UPDATES FROM HOST (Smart Overlay Channel)
+// ======================================================
+socket.on("overlay-update", ({ html }) => {
+    if (typeof html === "string" && html.trim()) {
+        currentRawHTML = html;
+        renderHTMLLayout(html);
     }
 });
 
@@ -105,305 +215,224 @@ function setupReceiver(pcInstance) {
         let received = 0;
 
         chan.onmessage = (evt) => {
-            if (!meta && typeof evt.data === "string") {
+            if (!meta) {
                 try {
-                    const parsed = JSON.parse(evt.data);
-                    if (parsed && parsed.type === "meta") {
-                        meta = parsed;
-                        received = 0;
-                        chunks = [];
-                        console.log("[Arcade] Receiving:", meta.name, meta.size);
+                    meta = JSON.parse(evt.data);
+                    if (meta.type !== "meta") {
+                        meta = null;
+                    } else {
                         return;
                     }
-                } catch (err) {
-                    console.warn("[Arcade] Bad meta", err);
+                } catch {
+                    meta = null;
                 }
-                return;
             }
 
             if (!meta) return;
 
-            chunks.push(evt.data);
-            received += evt.data.byteLength || evt.data.size || 0;
+            const chunk = evt.data;
+            if (typeof chunk === "string") return;
+
+            chunks.push(chunk);
+            received += chunk.byteLength;
 
             if (received >= meta.size) {
-                const blob = new Blob(chunks, {
-                    type: meta.mime || "text/html"
-                });
-                const url = URL.createObjectURL(blob);
+                const blob = new Blob(chunks, { type: meta.mime || "application/octet-stream" });
 
-                const toolbox = $("toolboxContainer");
-                if (toolbox) {
-                    // AUTO-LOADER LOGIC: If file is an executable tool
-                    if (meta.name.endsWith('.rebeltool') || meta.name.endsWith('.html')) {
-                        toolbox.innerHTML = ''; // Clear existing tools
-                        const frame = document.createElement("iframe");
-                        frame.src = url;
-                        // Security Sandbox: prevent top-level nav, allow scripts
-                        frame.setAttribute("sandbox", "allow-scripts allow-same-origin");
-                        frame.style.cssText = "width:100%; height:100%; border:none; border-radius:12px; pointer-events:auto;";
-                        toolbox.appendChild(frame);
-                        console.log("[Arcade] Tool Mounted:", meta.name);
-                    } else {
-                        // Standard Download Card fallback
-                        const card = document.createElement("div");
-                        card.className = "toolbox-card";
-
-                        const title = document.createElement("div");
-                        title.className = "toolbox-title";
-                        title.textContent = meta.name || "Tool";
-
-                        const actions = document.createElement("div");
-                        actions.className = "toolbox-actions";
-
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = meta.name || "download.bin";
-                        a.className = "btn-ctrl pulse-primary";
-                        a.textContent = "Download";
-
-                        actions.appendChild(a);
-                        card.appendChild(title);
-                        card.appendChild(actions);
-                        toolbox.appendChild(card);
-                    }
+                // Decide how to handle based on mime
+                if ((meta.mime && meta.mime.includes("html")) || meta.name.endsWith(".html") || meta.name.endsWith(".rebeltool")) {
+                    // Load code into live overlay renderer
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const html = reader.result;
+                        currentRawHTML = html;
+                        renderHTMLLayout(html);
+                    };
+                    reader.readAsText(blob);
+                } else {
+                    // Fallback: simple download
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = meta.name || "download.bin";
+                    a.style.display = "none";
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        URL.revokeObjectURL(a.href);
+                        a.remove();
+                    }, 5000);
                 }
 
-                console.log("[Arcade] Complete:", meta.name);
-                meta = null;
+                // Reset
                 chunks = [];
+                meta = null;
                 received = 0;
-                chan.close();
             }
         };
     };
 }
 
-// ======================================================
-// 4. TOOLBOX API LISTENER (Bridge Hook)
-// ======================================================
-window.addEventListener("message", (event) => {
-    const { type, action, key, value, sceneName, text } = event.data || {};
+// This will be called once WebRTC PC is created
+function attachArcade(pcInstance) {
+    setupReceiver(pcInstance);
+}
 
-    // Handle Stream Controls from Tool
-    if (type === 'REBEL_CONTROL') {
-        // These call the Smart Overlay functions on the Host side via signaling
-        if (action === 'setField') {
-            socket.emit('public-chat', { 
-                room: currentRoom, 
-                name: "TOOL", 
-                text: `COMMAND:setField:${key}:${value}` 
-            });
-        }
-        if (action === 'setScene') {
-            socket.emit('public-chat', { 
-                room: currentRoom, 
-                name: "TOOL", 
-                text: `COMMAND:setScene:${sceneName}` 
-            });
-        }
-    }
-
-    // Handle Tool Chat Actions
-    if (type === 'REBEL_CHAT' && text) {
-        socket.emit('public-chat', {
-            room: currentRoom,
-            name: "TOOL",
-            text: text,
-            fromViewer: true
-        });
-    }
-});
+// Hook into viewer PC creation
+(function patchForArcade() {
+    const originalRequest = requestStreamFromHost;
+    requestStreamFromHost = function() {
+        if (pc) return;
+        originalRequest();
+        // when pc is created:
+        setTimeout(() => {
+            if (pc) attachArcade(pc);
+        }, 1000);
+    };
+})();
 
 // ======================================================
-// 5. STREAM CONNECTION (host → viewer video)
+// 4. ON-STAGE CALL WEBRTC (Viewer <-> Host)
 // ======================================================
-socket.on("connect", () => {
-    const status = $("viewerStatus");
-    if (status) status.textContent = "CONNECTED";
-});
+function requestOnStage() {
+    if (!currentRoom) return;
 
-socket.on("disconnect", () => {
-    const status = $("viewerStatus");
+    socket.emit("call-request", {
+        room: currentRoom
+    });
+
+    const status = $("callStatus");
     if (status) {
-        status.textContent = "OFFLINE";
-        status.classList.remove('live');
+        status.textContent = "Requested to join the stream…";
+    }
+}
+
+// Host decides to ring us
+socket.on("ring-alert", async ({ from, fromId }) => {
+    // for viewer, if host rings, auto-accept
+    if (fromId !== hostId) return;
+
+    try {
+        await startOnStageCall();
+    } catch (err) {
+        console.error("Error starting call:", err);
+        alert("Could not start call – check camera/mic permissions.");
     }
 });
 
-socket.on("webrtc-offer", async ({ sdp, from }) => {
-    try {
-        hostId = from;
+async function startOnStageCall() {
+    if (callPc) return;
+    isOnStage = true;
 
-        if (pc) {
-            try { pc.close(); } catch (e) {}
-            pc = null;
+    callPc = new RTCPeerConnection(iceConfig);
+
+    // remote track from host (or mixed canvas)
+    callPc.ontrack = (evt) => {
+        const v = $("stageVideo");
+        if (v) {
+            v.srcObject = evt.streams[0];
+            v.play().catch(() => {});
         }
+    };
 
-        pc = new RTCPeerConnection(iceConfig);
-        setupReceiver(pc);
+    callPc.onicecandidate = (evt) => {
+        if (evt.candidate) {
+            socket.emit("call-ice", {
+                candidate: evt.candidate
+            });
+        }
+    };
 
-        pc.ontrack = (e) => {
-            const v = $("viewerVideo");
-            if (!v) return;
-            if (v.srcObject !== e.streams[0]) {
-                v.srcObject = e.streams[0];
-                v.play().catch(() => {});
-            }
-            const status = $("viewerStatus");
-            if (status) {
-                status.textContent = "LIVE";
-                status.classList.add('live');
-            }
-        };
+    callPc.onconnectionstatechange = () => {
+        if (["failed", "disconnected", "closed"].includes(callPc.connectionState)) {
+            endOnStageCall(true);
+        }
+    };
 
-        pc.onicecandidate = (e) => {
-            if (e.candidate && hostId) {
-                socket.emit("webrtc-ice-candidate", {
-                    targetId: hostId,
-                    candidate: e.candidate
-                });
-            }
-        };
+    // viewer uses mic + camera for the call
+    const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true
+    });
 
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+    stream.getTracks().forEach(t => callPc.addTrack(t, stream));
 
-        socket.emit("webrtc-answer", {
-            targetId: hostId,
-            sdp: answer
-        });
-
-        startStatsReporting(pc);
-
-    } catch (err) {
-        console.error("[Viewer] webrtc-offer failed", err);
+    const vLocal = $("localStageVideo");
+    if (vLocal) {
+        vLocal.srcObject = stream;
+        vLocal.muted = true;
+        vLocal.play().catch(() => {});
     }
+
+    const offer = await callPc.createOffer();
+    await callPc.setLocalDescription(offer);
+
+    socket.emit("call-offer", {
+        offer
+    });
+
+    const status = $("callStatus");
+    if (status) {
+        status.textContent = "On Stage";
+    }
+}
+
+function endOnStageCall(isRemote) {
+    isOnStage = false;
+
+    if (callPc) {
+        try { callPc.close(); } catch (e) {}
+        callPc = null;
+    }
+
+    const v = $("stageVideo");
+    if (v) v.srcObject = null;
+    const vLocal = $("localStageVideo");
+    if (vLocal) vLocal.srcObject = null;
+
+    if (!isRemote) {
+        socket.emit("call-end");
+    }
+
+    const status = $("callStatus");
+    if (status) status.textContent = "Not on Stage";
+}
+
+// Call answer from host
+socket.on("call-answer", async ({ answer }) => {
+    if (!callPc) return;
+    await callPc.setRemoteDescription(new RTCSessionDescription(answer));
 });
 
-socket.on("webrtc-ice-candidate", async ({ candidate }) => {
-    if (!pc || !candidate) return;
-    try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (err) {
-        console.error("[Viewer] addIceCandidate failed", err);
-    }
+// Call ice candidate from host
+socket.on("call-ice", ({ candidate }) => {
+    if (!callPc || !candidate) return;
+    callPc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+});
+
+// Host ends the call
+socket.on("call-end", () => {
+    endOnStageCall(true);
 });
 
 // ======================================================
-// 5b. OVERLAY SYNC (NEW)
+// 7. CHAT + SYSTEM COMMAND SYNC
 // ======================================================
-socket.on("overlay-update", ({ html }) => {
-    if (html && typeof renderHTMLLayout === 'function') {
-        renderHTMLLayout(html);
-    }
-});
+socket.on("public-chat", (d) => {
+    const name = d && d.name ? d.name : "SYSTEM";
+    const text = typeof d.text === "string" ? d.text : "";
 
-// ======================================================
-// 6. ON-STAGE CALL (host ↔ viewer 1-to-1 call)
-// ======================================================
-async function ensureLocalCallStream() {
-    if (
-        localCallStream &&
-        localCallStream.getTracks().some(t => t.readyState === "live")
-    ) {
+    // Hide internal COMMAND messages from viewer chat
+    if (text.startsWith("COMMAND:")) {
+        if (text === "COMMAND:update-overlay" && currentRawHTML) {
+            // Backwards compatibility: older host builds
+            renderHTMLLayout(currentRawHTML);
+        }
         return;
     }
 
-    localCallStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { max: 30 } }
-    });
-
-    const prev = $("selfCamPreview");
-    if (prev) {
-        prev.srcObject = localCallStream;
-        prev.muted = true;
-        prev.play().catch(() => {});
-    }
-}
-
-socket.on("ring-alert", async ({ from, fromId }) => {
-    const ok = confirm(
-        `Host ${from} wants to bring you on stage.\n\nAllow camera & mic?`
-    );
-    if (!ok) return;
-
-    try {
-        await ensureLocalCallStream();
-        await startCallToHost(fromId);
-    } catch (err) {
-        console.error("[Viewer] stage call failed", err);
-        alert("Could not access your camera/mic. Check permissions and try again.");
-    }
+    appendChat(name, text);
 });
 
-async function startCallToHost(targetId) {
-    if (!targetId) return;
-
-    await ensureLocalCallStream();
-
-    if (callPc) {
-        try { callPc.close(); } catch (e) {}
-        callPc = null;
-    }
-
-    const pc2 = new RTCPeerConnection(iceConfig);
-    callPc = pc2;
-
-    pc2.onicecandidate = (e) => {
-        if (e.candidate) {
-            socket.emit("call-ice", {
-                targetId,
-                candidate: e.candidate
-            });
-        }
-    };
-
-    pc2.ontrack = (e) => {
-        console.log("[Viewer] host call track", e.streams[0]);
-    };
-
-    localCallStream.getTracks().forEach(t => pc2.addTrack(t, localCallStream));
-
-    const offer = await pc2.createOffer();
-    await pc2.setLocalDescription(offer);
-
-    socket.emit("call-offer", {
-        targetId,
-        offer
-    });
-}
-
-socket.on("call-answer", async ({ from, answer }) => {
-    if (!callPc || !answer) return;
-    try {
-        await callPc.setRemoteDescription(new RTCSessionDescription(answer));
-    } catch (err) {
-        console.error("[Viewer] remote answer failed", err);
-    }
-});
-
-socket.on("call-ice", async ({ from, candidate }) => {
-    if (!callPc || !candidate) return;
-    try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (err) {
-        console.error("[Viewer] call ICE failed", err);
-    }
-});
-
-socket.on("call-end", ({ from }) => {
-    if (callPc) {
-        try { callPc.close(); } catch (e) {}
-        callPc = null;
-    }
-});
-
-// ======================================================
-// 7. CHAT (cleaned – COMMAND:update-overlay removed)
-// ======================================================
 function appendChat(name, text) {
     const log = $("chatLog");
     if (!log) return;
@@ -413,10 +442,6 @@ function appendChat(name, text) {
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
 }
-
-socket.on("public-chat", (d) => {
-    appendChat(d.name, d.text);
-});
 
 socket.on("kicked", () => {
     alert("You have been kicked from the room by the host.");
@@ -431,95 +456,72 @@ socket.on("room-error", (err) => {
 // ======================================================
 // 8. UI WIRING (join room, chat, mute, fullscreen, etc.)
 // ======================================================
-function sendChat() {
-    const input = $("chatInput");
-    if (!input || !currentRoom) return;
-
-    const text = input.value.trim();
-    if (!text) return;
-
-    socket.emit("public-chat", {
-        room: currentRoom,
-        name: myName,
-        text,
-        fromViewer: true
-    });
-
-    input.value = "";
-}
-
-window.addEventListener("load", () => {
-    const params = new URLSearchParams(window.location.search);
-    const room = params.get("room") || "lobby";
-    const nameParam = params.get("name");
-
-    if (nameParam && nameParam.trim()) {
-        myName = nameParam.trim().slice(0, 30);
-    } else {
-        const entered = prompt("Enter your display name:", myName);
-        if (entered && entered.trim()) {
-            myName = entered.trim().slice(0, 30);
-        }
+function initUi() {
+    const roomFromQuery = getQueryParam("room");
+    const roomInput = $("roomInput");
+    if (roomInput && roomFromQuery) {
+        roomInput.value = roomFromQuery;
     }
 
-    currentRoom = room;
-
-    const nameLabel = $("viewerNameLabel");
-    if (nameLabel) nameLabel.textContent = myName;
-
-    socket.connect();
-    socket.emit("join-room", {
-        room,
-        name: myName,
-        isViewer: true
-    });
-
-    const sendBtn = $("sendBtn");
-    const chatInput = $("chatInput");
-    if (sendBtn && chatInput) {
-        sendBtn.onclick = sendChat;
-        chatInput.onkeydown = (e) => {
-            if (e.key === "Enter") sendChat();
-        };
+    const nameInput = $("nameInput");
+    if (nameInput) {
+        nameInput.value = myName;
     }
 
-    const emojiStrip = $("emojiStrip");
-    if (emojiStrip && chatInput) {
-        emojiStrip.onclick = (e) => {
-            if (e.target.classList.contains("emoji")) {
-                chatInput.value += e.target.textContent;
-                chatInput.focus();
+    const joinBtn = $("joinBtn");
+    if (joinBtn) {
+        joinBtn.onclick = () => {
+            const r = roomInput ? roomInput.value.trim() : "";
+            const n = nameInput ? nameInput.value.trim() : myName;
+            if (!r) {
+                alert("Room is required");
+                return;
             }
+            joinRoom(r, n);
+            joinBtn.disabled = true;
         };
     }
 
-    const requestBtn = $("requestCallBtn");
-    if (requestBtn) {
-        requestBtn.onclick = () => {
-            socket.emit("request-to-call");
-            document.body.classList.add('hand-active');
-            requestBtn.textContent = "Request Sent ✋";
-            requestBtn.disabled = true;
+    const requestStageBtn = $("requestStageBtn");
+    if (requestStageBtn) {
+        requestStageBtn.onclick = () => {
+            requestOnStage();
         };
     }
 
-    const unmuteBtn = $("unmuteBtn");
-    if (unmuteBtn) {
-        unmuteBtn.onclick = () => {
+    const endStageBtn = $("endStageBtn");
+    if (endStageBtn) {
+        endStageBtn.onclick = () => {
+            endOnStageCall(false);
+        };
+    }
+
+    const chatInput = $("chatInput");
+    const chatSend = $("chatSendBtn");
+    if (chatSend && chatInput) {
+        const send = () => {
+            const text = chatInput.value.trim();
+            if (!text || !currentRoom) return;
+            socket.emit("public-chat", {
+                room: currentRoom,
+                name: myName,
+                text
+            });
+            chatInput.value = "";
+        };
+        chatSend.onclick = send;
+        chatInput.onkeydown = (e) => {
+            if (e.key === "Enter") send();
+        };
+    }
+
+    const muteBtn = $("muteBtn");
+    if (muteBtn) {
+        muteBtn.onclick = () => {
             const v = $("viewerVideo");
             if (!v) return;
-            const willUnmute = v.muted;
-
             v.muted = !v.muted;
-            v.volume = v.muted ? 0.0 : 1.0;
-
-            if (willUnmute) {
-                v.play().catch(() => {});
-                unmuteBtn.textContent = "🔊 Mute";
-                unmuteBtn.classList.remove('pulse-primary');
-            } else {
-                unmuteBtn.textContent = "🔇 Unmute";
-            }
+            muteBtn.textContent = v.muted ? "Unmute" : "Mute";
         };
     }
 
@@ -542,4 +544,7 @@ window.addEventListener("load", () => {
             box.classList.toggle("hidden");
         };
     }
-});
+}
+
+// Init on DOM ready
+document.addEventListener("DOMContentLoaded", initUi);
