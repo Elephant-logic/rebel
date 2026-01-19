@@ -369,31 +369,36 @@ function buildChatHTMLFromLogs(maxLines = 12) {
 
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
+
+    // keep a copy for re-renders / viewers
     currentRawHTML = htmlString;
     overlayActive = true;
 
     // 1. Prepare data for placeholders
     const viewerCount = latestUserList.filter(u => u.isViewer).length;
     const guestCount  = latestUserList.filter(u => !u.isViewer).length;
-    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const streamTitle = $('streamTitleInput')
+        ? $('streamTitleInput').value
+        : "Rebel Stream";
     const chatHTML    = buildChatHTMLFromLogs(14);
 
-    // 2. Process placeholders
+    // 2. Process placeholders ({{viewers}}, {{guests}}, {{title}}, {{chat}})
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g,  streamTitle)
         .replace(/{{chat}}/g,   chatHTML);
 
-    // 3. Send to VIEWERS (this is what they actually see)
+    // 3. Tell viewers to refresh their overlays (keeps your existing COMMAND logic)
     if (iAmHost && isStreaming && currentRoom) {
-        socket.emit("overlay-update", {
+        socket.emit('public-chat', {
             room: currentRoom,
-            html: processedHTML
+            name: "SYSTEM",
+            text: `COMMAND:update-overlay`
         });
     }
 
-    // 4. Host preview – sandboxed iframe so CSS can't touch host UI
+    // 4. Host preview – sandboxed iframe sitting over your cam
     const localVideo = $('localVideo');
     const scale = (localVideo && localVideo.offsetWidth > 0)
         ? (localVideo.offsetWidth / 1920)
@@ -404,11 +409,15 @@ function renderHTMLLayout(htmlString) {
         frame = document.createElement('iframe');
         frame.id = 'overlayPreviewFrame';
         frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
-        frame.style.cssText = "position:absolute; inset:0; border:none; pointer-events:none; z-index:10;";
+        frame.style.cssText =
+            "position:absolute; inset:0; border:none; " +
+            "pointer-events:none; z-index:10;";
+
         const container = $('localContainer');
         if (container) container.appendChild(frame);
     }
 
+    // Build a mini HTML doc *inside the iframe* so its CSS cannot touch the host page
     frame.srcdoc = `
         <!doctype html>
         <html>
@@ -426,14 +435,18 @@ function renderHTMLLayout(htmlString) {
             </style>
         </head>
         <body>
-            <div style="width:1920px;height:1080px;transform-origin:top left;transform:scale(${scale});">
+            <div style="
+                width:1920px;
+                height:1080px;
+                transform-origin:top left;
+                transform:scale(${scale});
+            ">
                 ${processedHTML}
             </div>
         </body>
         </html>
     `;
 }
-
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
     document.querySelectorAll('.mixer-btn').forEach(b => {
