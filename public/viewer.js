@@ -10,7 +10,7 @@ let pc = null;               // broadcast stream PC (host → viewer)
 let hostId = null;           // socket id of the host sending us the stream
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random() * 1000);
-let currentRawHTML = "";     // [PATCH] Stores latest overlay code for real-time sync
+let currentRawHTML = "";     // Stores latest overlay code for real-time sync
 
 // separate PC for 1-to-1 “on-stage” call
 let callPc = null;
@@ -48,12 +48,13 @@ function startStatsReporting(peer) {
         });
     }, 2000);
 }
+
 // ======================================================
-// 2. [NEW PATCH] VIEWER OVERLAY RENDERER (ANIMATION FIX)
+// 2. VIEWER OVERLAY RENDERER
 // ======================================================
 /**
  * Renders HTML into a live DOM layer to allow CSS animations and JS timers.
- * This replaces the static SVG logic that was killing the tickers.
+ * Mounted over the .video-layer in view.html and scaled from 1920x1080.
  */
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
@@ -64,14 +65,18 @@ function renderHTMLLayout(htmlString) {
         overlayLayer = document.createElement('div');
         overlayLayer.id = 'mixerOverlayLayer';
         // Position exactly over the video
-        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;"; 
+        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
         const videoLayer = document.querySelector('.video-layer');
-        if (videoLayer) videoLayer.appendChild(overlayLayer);
+        if (videoLayer) {
+            videoLayer.appendChild(overlayLayer);
+        } else {
+            // Fallback: attach to body if .video-layer missing
+            document.body.appendChild(overlayLayer);
+        }
     }
 
-    // Scale the 1080p layout to fit the viewer's current video window
     const videoEl = document.getElementById('viewerVideo');
-    const scale = videoEl ? videoEl.offsetWidth / 1920 : 1;
+    const scale = videoEl ? (videoEl.offsetWidth / 1920) : 1;
 
     overlayLayer.innerHTML = `
         <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale});">
@@ -79,6 +84,13 @@ function renderHTMLLayout(htmlString) {
         </div>
     `;
 }
+
+// Re-scale overlay when window size changes (if we already have one)
+window.addEventListener('resize', () => {
+    if (currentRawHTML) {
+        renderHTMLLayout(currentRawHTML);
+    }
+});
 
 // ======================================================
 // 3. UPDATED ARCADE RECEIVER (Auto-Loader Patch)
@@ -171,7 +183,7 @@ function setupReceiver(pcInstance) {
 // 4. TOOLBOX API LISTENER (Bridge Hook)
 // ======================================================
 window.addEventListener("message", (event) => {
-    const { type, action, key, value, sceneName, text } = event.data;
+    const { type, action, key, value, sceneName, text } = event.data || {};
 
     // Handle Stream Controls from Tool
     if (type === 'REBEL_CONTROL') {
@@ -280,6 +292,15 @@ socket.on("webrtc-ice-candidate", async ({ candidate }) => {
 });
 
 // ======================================================
+// 5b. OVERLAY SYNC (NEW)
+// ======================================================
+socket.on("overlay-update", ({ html }) => {
+    if (html && typeof renderHTMLLayout === 'function') {
+        renderHTMLLayout(html);
+    }
+});
+
+// ======================================================
 // 6. ON-STAGE CALL (host ↔ viewer 1-to-1 call)
 // ======================================================
 async function ensureLocalCallStream() {
@@ -381,17 +402,8 @@ socket.on("call-end", ({ from }) => {
 });
 
 // ======================================================
-// 7. CHAT + SYSTEM COMMAND SYNC
-socket.on("public-chat", (d) => {
-    // SYNC PATCH: Force re-render of local animated overlay
-    if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
-        renderHTMLLayout(currentRawHTML);
-    }
-    
-    // Process standard chat display
-    appendChat(d.name, d.text);
-});
-
+// 7. CHAT (cleaned – COMMAND:update-overlay removed)
+// ======================================================
 function appendChat(name, text) {
     const log = $("chatLog");
     if (!log) return;
@@ -403,11 +415,6 @@ function appendChat(name, text) {
 }
 
 socket.on("public-chat", (d) => {
-    // SYNC PATCH: Force re-render of animated overlays when Host pushes changes
-    if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
-        renderHTMLLayout(currentRawHTML);
-    }
-    
     appendChat(d.name, d.text);
 });
 
