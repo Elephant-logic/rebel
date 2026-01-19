@@ -383,22 +383,22 @@ socket.on("call-end", ({ from }) => {
 
 // ======================================================
 // 7. CHAT + SYSTEM COMMAND SYNC
-// ======================================================
+socket.on("public-chat", (d) => {
+    // SYNC PATCH: Force re-render of local animated overlay
+    if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
+        renderHTMLLayout(currentRawHTML);
+    }
+    
+    // Process standard chat display
+    appendChat(d.name, d.text);
+});
+
 function appendChat(name, text) {
     const log = $("chatLog");
     if (!log) return;
-
     const div = document.createElement("div");
     div.className = "chat-line";
-
-    const strong = document.createElement("strong");
-    strong.textContent = name;
-
-    const span = document.createElement("span");
-    span.textContent = `: ${text}`;
-
-    div.appendChild(strong);
-    div.appendChild(span);
+    div.innerHTML = `<strong>${name}</strong>: ${text}`;
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
 }
