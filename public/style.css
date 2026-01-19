@@ -155,3 +155,9 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(74,243,163
   .sidebar { width: 100%; height: auto; max-height: 250px; }
   .chat-panel { min-height: 500px; } 
 }
+/* MOBILE SCROLL PATCH */
+#mixerOverlayLayer, 
+#mixerOverlayLayer * {
+    pointer-events: none !important; /* Touch passes through to chat */
+    user-select: none; /* Prevents text selection while scrolling */
+}
