@@ -370,101 +370,202 @@ function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
     currentRawHTML = htmlString;
 
-    // 1. Ensure the Live Overlay Layer exists in the Host DOM
+    // 1. Target the local video container
+    // Make sure this ID matches your wrapper in index.html
+    let container = $('localContainer') || document.querySelector('.video-grid'); 
+    
+    if (!container) {
+        console.error("Overlay Error: Could not find a container to attach the overlay to.");
+        return;
+    }
+
+    // 2. Ensure the Live Overlay Layer exists
     let overlayLayer = $('mixerOverlayLayer');
     if (!overlayLayer) {
         overlayLayer = document.createElement('div');
         overlayLayer.id = 'mixerOverlayLayer';
-        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
-        const container = $('localContainer');
-        if (container) container.appendChild(overlayLayer);
+        // Ensure it sits directly on top of the video
+        overlayLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none; overflow:hidden;";
+        container.style.position = "relative"; // Ensure parent is relative
+        container.appendChild(overlayLayer);
     }
 
-    // 2. Prepare Data for Placeholders
+    // 3. Data Prep
     const viewerCount = latestUserList.filter(u => u.isViewer).length;
-    const guestCount = latestUserList.filter(u => !u.isViewer).length;
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
     const chatHTML = buildChatHTMLFromLogs(14);
 
-    // 3. Process All Placeholders
+    // 4. Placeholder Replacement
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
-        .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
         .replace(/{{chat}}/g, chatHTML);
 
-    // 4. Inject as Living DOM (Enables CSS animations and JS timers)
+    // 5. Scaling Fix
     const videoEl = $('localVideo');
-    const scale = (videoEl && videoEl.offsetWidth > 0) ? (videoEl.offsetWidth / 1920) : 1;
+    // Default to a sane scale if the video width isn't available yet
+    const scale = (videoEl && videoEl.offsetWidth > 0) ? (videoEl.offsetWidth / 1920) : (container.offsetWidth / 1920);
     
     overlayLayer.innerHTML = `
-        <div class="layout-${mixerLayout}" style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale});">
+        <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale || 1});">
             ${processedHTML}
         </div>
     `;
 
-    // 5. NEW: push this processed overlay HTML out to all viewers in the room
-    if (iAmHost && isStreaming && currentRoom) {
-        socket.emit('overlay-html', {
-            room: currentRoom,
-            html: processedHTML
-        });
+    // 6. Broadcast to Viewers
+    if (iAmHost && isStreaming) {
+        socket.emit('overlay-update', { room: currentRoom, html: processedHTML });
     }
-}
-window.setMixerLayout = (mode) => {
-    mixerLayout = mode; //
-    document.querySelectorAll('.mixer-btn').forEach(b => {
-        b.classList.remove('active'); //
-        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${mode}'`)) {
-            b.classList.add('active'); //
-        }
-    });
-    if (overlayActive) renderHTMLLayout(currentRawHTML); //
-};
+}function renderHTMLLayout(htmlString) {
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
 
-window.setActiveGuest = (id) => {
-    activeGuestId = id; //
-};
+    // 1. Target the local video container
+    // Make sure this ID matches your wrapper in index.html
+    let container = $('localContainer') || document.querySelector('.video-grid'); 
+    
+    if (!container) {
+        console.error("Overlay Error: Could not find a container to attach the overlay to.");
+        return;
+    }
 
-// ======================================================
-// 4. TAB NAVIGATION INTERFACE
-// ======================================================
+    // 2. Ensure the Live Overlay Layer exists
+    let overlayLayer = $('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        // Ensure it sits directly on top of the video
+        overlayLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none; overflow:hidden;";
+        container.style.position = "relative"; // Ensure parent is relative
+        container.appendChild(overlayLayer);
+    }
 
-const tabs = { 
-    stream: $('tabStreamChat'), 
-    room: $('tabRoomChat'), 
-    files: $('tabFiles'), 
-    users: $('tabUsers') 
-}; //
+    // 3. Data Prep
+    const viewerCount = latestUserList.filter(u => u.isViewer).length;
+    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const chatHTML = buildChatHTMLFromLogs(14);
 
-const contents = { 
-    stream: $('contentStreamChat'), 
-    room: $('contentRoomChat'), 
-    files: $('contentFiles'), 
-    users: $('contentUsers') 
-}; //
+    // 4. Placeholder Replacement
+    let processedHTML = htmlString
+        .replace(/{{viewers}}/g, viewerCount)
+        .replace(/{{title}}/g, streamTitle)
+        .replace(/{{chat}}/g, chatHTML);
 
-function switchTab(name) {
-    if (!tabs[name]) return; //
-    Object.values(tabs).forEach(t => t.classList.remove('active')); //
-    Object.values(contents).forEach(c => c.classList.remove('active')); //
-    tabs[name].classList.add('active'); //
-    contents[name].classList.add('active'); //
-    tabs[name].classList.remove('has-new'); //
-}
+    // 5. Scaling Fix
+    const videoEl = $('localVideo');
+    // Default to a sane scale if the video width isn't available yet
+    const scale = (videoEl && videoEl.offsetWidth > 0) ? (videoEl.offsetWidth / 1920) : (container.offsetWidth / 1920);
+    
+    overlayLayer.innerHTML = `
+        <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale || 1});">
+            ${processedHTML}
+        </div>
+    `;
 
-if (tabs.stream) tabs.stream.onclick = () => switchTab('stream'); //
-if (tabs.room)   tabs.room.onclick   = () => switchTab('room'); //
-if (tabs.files)  tabs.files.onclick  = () => switchTab('files'); //
-if (tabs.users)  tabs.users.onclick  = () => switchTab('users'); //
+    // 6. Broadcast to Viewers
+    if (iAmHost && isStreaming) {
+        socket.emit('overlay-update', { room: currentRoom, html: processedHTML });
+    }
+}function renderHTMLLayout(htmlString) {
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
 
-// ======================================================
-// 5. Broadcaster Sync: push processed overlay HTML out to viewers
-if (iAmHost && isStreaming && currentRoom) {
-    socket.emit('overlay-html', {
-        room: currentRoom,
-        html: processedHTML
-    });
+    // 1. Target the local video container
+    // Make sure this ID matches your wrapper in index.html
+    let container = $('localContainer') || document.querySelector('.video-grid'); 
+    
+    if (!container) {
+        console.error("Overlay Error: Could not find a container to attach the overlay to.");
+        return;
+    }
+
+    // 2. Ensure the Live Overlay Layer exists
+    let overlayLayer = $('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        // Ensure it sits directly on top of the video
+        overlayLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none; overflow:hidden;";
+        container.style.position = "relative"; // Ensure parent is relative
+        container.appendChild(overlayLayer);
+    }
+
+    // 3. Data Prep
+    const viewerCount = latestUserList.filter(u => u.isViewer).length;
+    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const chatHTML = buildChatHTMLFromLogs(14);
+
+    // 4. Placeholder Replacement
+    let processedHTML = htmlString
+        .replace(/{{viewers}}/g, viewerCount)
+        .replace(/{{title}}/g, streamTitle)
+        .replace(/{{chat}}/g, chatHTML);
+
+    // 5. Scaling Fix
+    const videoEl = $('localVideo');
+    // Default to a sane scale if the video width isn't available yet
+    const scale = (videoEl && videoEl.offsetWidth > 0) ? (videoEl.offsetWidth / 1920) : (container.offsetWidth / 1920);
+    
+    overlayLayer.innerHTML = `
+        <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale || 1});">
+            ${processedHTML}
+        </div>
+    `;
+
+    // 6. Broadcast to Viewers
+    if (iAmHost && isStreaming) {
+        socket.emit('overlay-update', { room: currentRoom, html: processedHTML });
+    }
+}function renderHTMLLayout(htmlString) {
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
+
+    // 1. Target the local video container
+    // Make sure this ID matches your wrapper in index.html
+    let container = $('localContainer') || document.querySelector('.video-grid'); 
+    
+    if (!container) {
+        console.error("Overlay Error: Could not find a container to attach the overlay to.");
+        return;
+    }
+
+    // 2. Ensure the Live Overlay Layer exists
+    let overlayLayer = $('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        // Ensure it sits directly on top of the video
+        overlayLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; z-index:100; pointer-events:none; overflow:hidden;";
+        container.style.position = "relative"; // Ensure parent is relative
+        container.appendChild(overlayLayer);
+    }
+
+    // 3. Data Prep
+    const viewerCount = latestUserList.filter(u => u.isViewer).length;
+    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const chatHTML = buildChatHTMLFromLogs(14);
+
+    // 4. Placeholder Replacement
+    let processedHTML = htmlString
+        .replace(/{{viewers}}/g, viewerCount)
+        .replace(/{{title}}/g, streamTitle)
+        .replace(/{{chat}}/g, chatHTML);
+
+    // 5. Scaling Fix
+    const videoEl = $('localVideo');
+    // Default to a sane scale if the video width isn't available yet
+    const scale = (videoEl && videoEl.offsetWidth > 0) ? (videoEl.offsetWidth / 1920) : (container.offsetWidth / 1920);
+    
+    overlayLayer.innerHTML = `
+        <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale || 1});">
+            ${processedHTML}
+        </div>
+    `;
+
+    // 6. Broadcast to Viewers
+    if (iAmHost && isStreaming) {
+        socket.emit('overlay-update', { room: currentRoom, html: processedHTML });
+    }
 }
 
 if ($('closeSettingsBtn')) {
