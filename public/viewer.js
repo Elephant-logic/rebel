@@ -48,6 +48,7 @@ function startStatsReporting(peer) {
         });
     }, 2000);
 }
+
 // ======================================================
 // 2. [NEW PATCH] VIEWER OVERLAY RENDERER (ANIMATION FIX)
 // ======================================================
@@ -219,8 +220,15 @@ socket.on("disconnect", () => {
     }
 });
 
-// [PATCH] Real-time Overlay HTML Relay
+// [PATCH] Receive direct HTML Overlay updates
 socket.on('overlay-html', ({ html }) => {
+    if (typeof renderHTMLLayout === 'function' && html) {
+        renderHTMLLayout(html);
+    }
+});
+
+// [PATCH] Standard overlay-update listener compatibility
+socket.on("overlay-update", ({ html }) => {
     if (typeof renderHTMLLayout === 'function' && html) {
         renderHTMLLayout(html);
     }
@@ -536,7 +544,7 @@ window.addEventListener("load", () => {
     }
 });
 
-// [PATCH] Rescale overlay on window resize
+// [PATCH] Final handler to rescale overlay on window resize
 window.addEventListener('resize', () => {
     if (currentRawHTML) renderHTMLLayout(currentRawHTML);
 });
