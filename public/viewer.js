@@ -527,3 +527,9 @@ socket.on('overlay-update', ({ html }) => {
         renderHTMLLayout(html);
     }
 });
+
+socket.on('overlay-update', ({ html }) => {
+    if (typeof renderHTMLLayout === "function" && html) {
+        renderHTMLLayout(html);
+    }
+});
