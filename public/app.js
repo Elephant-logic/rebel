@@ -367,35 +367,38 @@ function buildChatHTMLFromLogs(maxLines = 12) {
 }
 
 function renderHTMLLayout(htmlString) {
-function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
     currentRawHTML = htmlString;
 
-    // 1. Find the Live Overlay Layer in the Host DOM
+    // 1. Ensure the Live Overlay Layer exists in the Host DOM
     let overlayLayer = $('mixerOverlayLayer');
     if (!overlayLayer) {
         overlayLayer = document.createElement('div');
         overlayLayer.id = 'mixerOverlayLayer';
         overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
-        $('localContainer').appendChild(overlayLayer);
+        const container = $('localContainer');
+        if (container) container.appendChild(overlayLayer);
     }
 
-    // 2. Prepare Placeholder Data
+    // 2. Prepare Data for Placeholders
     const viewerCount = latestUserList.filter(u => u.isViewer).length;
     const guestCount = latestUserList.filter(u => !u.isViewer).length;
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
     const chatHTML = buildChatHTMLFromLogs(14);
 
-    // 3. Process the HTML Placeholders
+    // 3. Process All Placeholders
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
         .replace(/{{chat}}/g, chatHTML);
 
-    // 4. Inject as "Living" DOM (Enables CSS animations and JS timers)
+    // 4. Inject as Living DOM (Enables CSS animations and JS timers)
+    const videoEl = $('localVideo');
+    const scale = (videoEl && videoEl.offsetWidth > 0) ? (videoEl.offsetWidth / 1920) : 1;
+    
     overlayLayer.innerHTML = `
-        <div class="layout-${mixerLayout}" style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${$('localVideo').offsetWidth / 1920});">
+        <div class="layout-${mixerLayout}" style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale});">
             ${processedHTML}
         </div>
     `;
