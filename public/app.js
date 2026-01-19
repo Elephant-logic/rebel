@@ -332,6 +332,7 @@ if (previewModal) {
 }
 
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
+// --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
 function buildChatHTMLFromLogs(maxLines = 12) {
     const log = $('chatLogPublic'); //
     if (!log) return ''; //
@@ -408,7 +409,6 @@ function renderHTMLLayout(htmlString) {
         if (container) container.appendChild(frame);
     }
 
-    // Build a tiny HTML doc inside the iframe
     frame.srcdoc = `
         <!doctype html>
         <html>
@@ -433,14 +433,7 @@ function renderHTMLLayout(htmlString) {
         </html>
     `;
 }
-    // 5. Broadcaster Sync: Tell viewers to update their local overlays
-    if (iAmHost && isStreaming && currentRoom) {
-        socket.emit("overlay-update", {
-            room: currentRoom,
-            html: processedHTML
-        });
-    }
-}
+
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
     document.querySelectorAll('.mixer-btn').forEach(b => {
