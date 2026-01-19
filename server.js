@@ -8,11 +8,11 @@ const PORT = process.env.PORT || 9100;
 const app = express();
 const server = http.createServer(app);
 
-// FIX: Increased buffer to 50MB for large arcade transfers
+// FIX: Increased buffer to 100MB and added professional timeouts for mobile
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 5e7, 
-  pingTimeout: 10000,     
+  maxHttpBufferSize: 1e8, // 100MB for large Arcade tools
+  pingTimeout: 30000,     // 30s to survive mobile signal jitter
   pingInterval: 25000
 });
 
@@ -40,7 +40,7 @@ function broadcastRoomUpdate(roomName) {
   const users = [];
   for (const [id, u] of room.users.entries()) {
     users.push({ 
-        id, 
+        id: id, 
         name: u.name, 
         isViewer: u.isViewer, 
         requestingCall: u.requestingCall 
@@ -48,7 +48,7 @@ function broadcastRoomUpdate(roomName) {
   }
 
   io.to(roomName).emit('room-update', {
-    users,
+    users: users,
     ownerId: room.ownerId,
     locked: room.locked,
     streamTitle: room.streamTitle
@@ -170,13 +170,13 @@ io.on('connection', (socket) => {
 
   // STREAM WEBRTC (host → viewers)
   socket.on('webrtc-offer', ({ targetId, sdp }) => {
-    if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp, from: socket.id });
+    if (targetId && sdp) io.to(targetId).emit('webrtc-offer', { sdp: sdp, from: socket.id });
   });
   socket.on('webrtc-answer', ({ targetId, sdp }) => {
-    if (targetId && sdp) io.to(targetId).emit('webrtc-answer', { sdp, from: socket.id });
+    if (targetId && sdp) io.to(targetId).emit('webrtc-answer', { sdp: sdp, from: socket.id });
   });
   socket.on('webrtc-ice-candidate', ({ targetId, candidate }) => {
-    if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate, from: socket.id });
+    if (targetId && candidate) io.to(targetId).emit('webrtc-ice-candidate', { candidate: candidate, from: socket.id });
   });
 
   // ON-STAGE CALL WEBRTC (host ↔ viewer)
@@ -184,13 +184,13 @@ io.on('connection', (socket) => {
     if (targetId) io.to(targetId).emit('ring-alert', { from: socket.data.name, fromId: socket.id });
   });
   socket.on('call-offer', ({ targetId, offer }) => {
-    if (targetId && offer) io.to(targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer });
+    if (targetId && offer) io.to(targetId).emit('incoming-call', { from: socket.id, name: socket.data.name, offer: offer });
   });
   socket.on('call-answer', ({ targetId, answer }) => {
-    if (targetId && answer) io.to(targetId).emit('call-answer', { from: socket.id, answer });
+    if (targetId && answer) io.to(targetId).emit('call-answer', { from: socket.id, answer: answer });
   });
   socket.on('call-ice', ({ targetId, candidate }) => {
-    if (targetId && candidate) io.to(targetId).emit('call-ice', { from: socket.id, candidate });
+    if (targetId && candidate) io.to(targetId).emit('call-ice', { from: socket.id, candidate: candidate });
   });
   socket.on('call-end', ({ targetId }) => {
     if (targetId) io.to(targetId).emit('call-end', { from: socket.id });
@@ -228,7 +228,7 @@ io.on('connection', (socket) => {
       name: (name || socket.data.name).slice(0,30),
       fileName: String(fileName).slice(0, 100),
       fileType: fileType || 'application/octet-stream',
-      fileData 
+      fileData: fileData 
     });
   });
 
@@ -236,14 +236,14 @@ io.on('connection', (socket) => {
   socket.on('overlay-update', ({ room, html }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !html) return;
-    io.to(roomName).emit('overlay-update', { html });
+    io.to(roomName).emit('overlay-update', { html: html });
   });
 
-  // [PATCH] Real-time Overlay Relay
+  // Real-time Overlay Relay
   socket.on('overlay-html', ({ room, html }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !html) return;
-    io.to(roomName).emit('overlay-html', { html });
+    io.to(roomName).emit('overlay-html', { html: html });
   });
 
   socket.on('disconnect', () => {
