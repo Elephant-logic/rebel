@@ -136,7 +136,7 @@ function setupReceiver(pcInstance) {
 }
 
 // ======================================================
-// 3. NEW: TOOLBOX API LISTENER (Bridge Hook)
+// 3. TOOLBOX API LISTENER (Bridge Hook)
 // ======================================================
 window.addEventListener("message", (event) => {
     const { type, action, key, value, sceneName, text } = event.data;
@@ -349,7 +349,7 @@ socket.on("call-end", ({ from }) => {
 });
 
 // ======================================================
-// 6. CHAT + SYSTEM MESSAGES
+// 6. CHAT + SYSTEM COMMAND SYNC
 // ======================================================
 function appendChat(name, text) {
     const log = $("chatLog");
@@ -371,6 +371,11 @@ function appendChat(name, text) {
 }
 
 socket.on("public-chat", (d) => {
+    // SYNC PATCH: Force re-render of animated overlays
+    if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
+        renderHTMLLayout(currentRawHTML);
+    }
+    
     appendChat(d.name, d.text);
 });
 
