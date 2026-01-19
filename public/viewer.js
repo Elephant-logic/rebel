@@ -10,6 +10,7 @@ let pc = null;               // broadcast stream PC (host → viewer)
 let hostId = null;           // socket id of the host sending us the stream
 let currentRoom = null;
 let myName = "Viewer-" + Math.floor(Math.random() * 1000);
+let currentRawHTML = "";     // [PATCH] Stores latest overlay code for real-time sync
 
 // separate PC for 1-to-1 “on-stage” call
 let callPc = null;
@@ -49,7 +50,39 @@ function startStatsReporting(peer) {
 }
 
 // ======================================================
-// 2. UPDATED ARCADE RECEIVER (Auto-Loader Patch)
+// 2. [NEW PATCH] VIEWER OVERLAY RENDERER (ANIMATION FIX)
+// ======================================================
+/**
+ * Renders HTML into a live DOM layer to allow CSS animations and JS timers.
+ * This replaces the static SVG logic that was killing the tickers.
+ */
+function renderHTMLLayout(htmlString) {
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
+    
+    let overlayLayer = document.getElementById('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        // Position exactly over the video
+        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
+        const videoLayer = document.querySelector('.video-layer');
+        if (videoLayer) videoLayer.appendChild(overlayLayer);
+    }
+
+    // Scale the 1080p layout to fit the viewer's current video window
+    const videoEl = document.getElementById('viewerVideo');
+    const scale = videoEl ? videoEl.offsetWidth / 1920 : 1;
+
+    overlayLayer.innerHTML = `
+        <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale});">
+            ${htmlString}
+        </div>
+    `;
+}
+
+// ======================================================
+// 3. UPDATED ARCADE RECEIVER (Auto-Loader Patch)
 // ======================================================
 function setupReceiver(pcInstance) {
     pcInstance.ondatachannel = (e) => {
@@ -136,7 +169,7 @@ function setupReceiver(pcInstance) {
 }
 
 // ======================================================
-// 3. TOOLBOX API LISTENER (Bridge Hook)
+// 4. TOOLBOX API LISTENER (Bridge Hook)
 // ======================================================
 window.addEventListener("message", (event) => {
     const { type, action, key, value, sceneName, text } = event.data;
@@ -172,7 +205,7 @@ window.addEventListener("message", (event) => {
 });
 
 // ======================================================
-// 4. STREAM CONNECTION (host → viewer video)
+// 5. STREAM CONNECTION (host → viewer video)
 // ======================================================
 socket.on("connect", () => {
     const status = $("viewerStatus");
@@ -248,7 +281,7 @@ socket.on("webrtc-ice-candidate", async ({ candidate }) => {
 });
 
 // ======================================================
-// 5. ON-STAGE CALL (host ↔ viewer 1-to-1 call)
+// 6. ON-STAGE CALL (host ↔ viewer 1-to-1 call)
 // ======================================================
 async function ensureLocalCallStream() {
     if (
@@ -335,7 +368,7 @@ socket.on("call-answer", async ({ from, answer }) => {
 socket.on("call-ice", async ({ from, candidate }) => {
     if (!callPc || !candidate) return;
     try {
-        await callPc.addIceCandidate(new RTCIceCandidate(candidate));
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
         console.error("[Viewer] call ICE failed", err);
     }
@@ -349,7 +382,7 @@ socket.on("call-end", ({ from }) => {
 });
 
 // ======================================================
-// 6. CHAT + SYSTEM COMMAND SYNC
+// 7. CHAT + SYSTEM COMMAND SYNC
 // ======================================================
 function appendChat(name, text) {
     const log = $("chatLog");
@@ -371,7 +404,7 @@ function appendChat(name, text) {
 }
 
 socket.on("public-chat", (d) => {
-    // SYNC PATCH: Force re-render of animated overlays
+    // SYNC PATCH: Force re-render of animated overlays when Host pushes changes
     if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
         renderHTMLLayout(currentRawHTML);
     }
@@ -390,7 +423,7 @@ socket.on("room-error", (err) => {
 });
 
 // ======================================================
-// 7. UI WIRING (join room, chat, mute, fullscreen, etc.)
+// 8. UI WIRING (join room, chat, mute, fullscreen, etc.)
 // ======================================================
 function sendChat() {
     const input = $("chatInput");
