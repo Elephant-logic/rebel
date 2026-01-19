@@ -1279,10 +1279,10 @@ function sendPublic() {
     if (!t || !currentRoom) return; //
 
     socket.emit('public-chat', {
-        room: currentRoom,
-        name: userName,
-        text: t
-    }); //
+    room: currentRoom,
+    name: "SYSTEM",
+    text: `COMMAND:update-overlay`
+}); //
 
     i.value = ''; //
 }
