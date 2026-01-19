@@ -79,14 +79,10 @@ async function pushFileToPeer(pc, file, onProgress) {
 
 console.log("Rebel Stream Host App Loaded"); //
 
-const socket = io({ 
-    autoConnect: false,
-    reconnectionAttempts: 10,
-    timeout: 10000 
-}); //
+const socket = io({ autoConnect: false }); //
 const $ = id => document.getElementById(id); //
 
-// STABILITY PATCH: Mobile height fix to prevent detachment
+// NEW PATCH: Fix mobile height detachment
 function fixMobileViewport() {
     let vh = window.innerHeight * 0.01; //
     document.documentElement.style.setProperty('--vh', `${vh}px`); //
@@ -251,7 +247,7 @@ function drawMixer(timestamp) {
 }
 
 // ======================================================
-// 4. AUDIO ANALYSIS HELPERS (NEW PATCH)
+// AUDIO ANALYSIS HELPERS (NEW PATCH)
 // ======================================================
 function setupAudioAnalysis(id, stream) {
     if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)(); //
@@ -265,7 +261,7 @@ function setupAudioAnalysis(id, stream) {
             data: new Uint8Array(analyser.frequencyBinCount),
             vol: 0
         }; //
-    } catch (e) { console.warn("Audio analysis init failed", e); }
+    } catch (e) { console.warn("Audio analysis init failed", e); } //
 }
 
 // ======================================================
@@ -280,7 +276,7 @@ async function applyBitrateConstraints(pc) {
             if (!parameters.encodings) parameters.encodings = [{}]; //
             parameters.encodings[0].maxBitrate = 2500 * 1000; // 2.5 Mbps cap
             await videoSender.setParameters(parameters); //
-        } catch (e) { console.error("Bitrate cap failed", e); }
+        } catch (e) { console.error("Bitrate cap failed", e); } //
     }
 }
 
@@ -387,7 +383,7 @@ function renderHTMLLayout(htmlString) {
     if (!overlayLayer) {
         overlayLayer = document.createElement('div'); //
         overlayLayer.id = 'mixerOverlayLayer'; //
-        // STABILITY FIX: Absolute position stops UI from jumping
+        // STABILITY FIX: Use absolute position to prevent UI from jumping
         overlayLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; z-index:10; pointer-events:none; overflow:hidden;"; //
         const container = $('localContainer'); //
         if (container) {
@@ -449,7 +445,7 @@ window.setActiveGuest = (id) => {
 };
 
 // ======================================================
-// 5. TAB NAVIGATION INTERFACE
+// 4. TAB NAVIGATION INTERFACE
 // ======================================================
 
 const tabs = { 
@@ -481,7 +477,7 @@ if (tabs.files)  tabs.files.onclick  = () => switchTab('files'); //
 if (tabs.users)  tabs.users.onclick  = () => switchTab('users'); //
 
 // ======================================================
-// 6. DEVICE SETTINGS
+// 5. DEVICE SETTINGS
 // ======================================================
 
 const settingsPanel = $('settingsPanel'); //
@@ -540,7 +536,7 @@ if (videoSource)  videoSource.onchange  = startLocalMedia; //
 if (videoQuality) videoQuality.onchange = startLocalMedia; //
 
 // ======================================================
-// 7. MEDIA CONTROLS (UPDATED: High-Stability Constraints)
+// 6. MEDIA CONTROLS (UPDATED: High-Stability Constraints)
 // ======================================================
 
 async function startLocalMedia() {
@@ -768,8 +764,55 @@ function stopScreenShare() {
 
     startLocalMedia(); //
 }
+
 // ======================================================
-// 9. P2P CALLING (1-to-1 Handshakes)
+// 9. BROADCAST STREAMING
+// ======================================================
+
+async function handleStartStream() {
+    if (!currentRoom || !iAmHost) return; //
+
+    if (!localStream) {
+        await startLocalMedia(); //
+    }
+
+    isStreaming = true; //
+    const startBtn = $('startStreamBtn'); //
+    if (startBtn) {
+        startBtn.textContent = "Stop Stream"; //
+        startBtn.classList.add('danger'); //
+    }
+
+    latestUserList.forEach(u => {
+        if (u.id !== myId) {
+            connectViewer(u.id); //
+        }
+    });
+}
+
+const startStreamBtn = $('startStreamBtn'); //
+if (startStreamBtn) {
+    startStreamBtn.onclick = async () => {
+        if (!currentRoom || !iAmHost) {
+            alert("Host only."); //
+            return; //
+        }
+        if (isStreaming) {
+            isStreaming = false; //
+            startStreamBtn.textContent = "Start Stream"; //
+            startStreamBtn.classList.remove('danger'); //
+
+            Object.values(viewerPeers).forEach(pc => pc.close()); //
+            for (const k in viewerPeers) {
+                delete viewerPeers[k]; //
+            }
+        } else {
+            await handleStartStream(); //
+        }
+    };
+}
+// ======================================================
+// 10. P2P CALLING (1-to-1 Handshakes)
 // ======================================================
 
 const hangupBtn = $('hangupBtn'); //
@@ -785,6 +828,7 @@ socket.on('ring-alert', async ({ from, fromId }) => {
     }
 });
 
+// Listener for Viewer "Hand Raise" call requests
 socket.on('call-request-received', ({ id, name }) => {
     const privateLog = $('chatLogPrivate'); //
     if (privateLog) {
@@ -796,6 +840,7 @@ socket.on('call-request-received', ({ id, name }) => {
         privateLog.scrollTop = privateLog.scrollHeight; //
     }
 
+    //choice to ring them now
     const doRing = confirm(
         `${name} has requested to join the stream.\n\nRing them now?`
     ); //
@@ -903,7 +948,7 @@ function endPeerCall(id, isIncomingSignal) {
 }
 
 // ======================================================
-// 10. VIEWER CONNECTION & SIGNALLING
+// 11. VIEWER CONNECTION & ARCADE PUSH (UPDATED: Bitrate Patch)
 // ======================================================
 
 async function connectViewer(targetId) {
@@ -911,6 +956,8 @@ async function connectViewer(targetId) {
 
     const pc = new RTCPeerConnection(iceConfig); //
     viewerPeers[targetId] = pc; //
+
+    const controlChannel = pc.createDataChannel("control"); //
 
     pc.onicecandidate = e => {
         if (e.candidate) {
@@ -935,6 +982,7 @@ async function connectViewer(targetId) {
     const offer = await pc.createOffer(); //
     await pc.setLocalDescription(offer); //
 
+    // NEW: Apply Bitrate Patch before signaling
     await applyBitrateConstraints(pc); //
 
     socket.emit('webrtc-offer', { targetId, sdp: offer }); //
@@ -957,7 +1005,7 @@ socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
 });
 
 // ======================================================
-// 11. SOCKET & ROOM LOGIC
+// 12. SOCKET & ROOM LOGIC
 // ======================================================
 
 socket.on('connect', () => {
@@ -1083,6 +1131,7 @@ socket.on('room-update', ({ locked, streamTitle, ownerId, users }) => {
 
     renderUserList(); //
     
+    // Auto-update overlay stats when user count changes
     if (overlayActive) {
         renderHTMLLayout(currentRawHTML); //
     }
@@ -1109,7 +1158,7 @@ socket.on('role', async ({ isHost }) => {
 });
 
 // ======================================================
-// 12. HOST CONTROLS
+// 13. HOST CONTROLS
 // ======================================================
 
 const updateTitleBtn = $('updateTitleBtn'); //
@@ -1121,6 +1170,39 @@ if (updateTitleBtn) {
         if (t) {
             socket.emit('update-stream-title', t); //
             if (overlayActive) renderHTMLLayout(currentRawHTML); //
+        }
+    };
+}
+
+const streamTitleInput = $('streamTitleInput'); //
+if (streamTitleInput) {
+    streamTitleInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            const t = streamTitleInput.value.trim(); //
+            if (t) {
+                socket.emit('update-stream-title', t); //
+                if (overlayActive) renderHTMLLayout(currentRawHTML); //
+            }
+        }
+    };
+}
+
+const updateSlugBtn = $('updateSlugBtn'); //
+if (updateSlugBtn) {
+    updateSlugBtn.onclick = () => {
+        const slugInput = $('slugInput'); //
+        if (!slugInput) return; //
+        const s = slugInput.value.trim(); //
+        if (s) updateLink(s); //
+    };
+}
+
+const slugInput = $('slugInput'); //
+if (slugInput) {
+    slugInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            const s = slugInput.value.trim(); //
+            if (s) updateLink(s); //
         }
     };
 }
@@ -1182,7 +1264,7 @@ function renderGuestList() {
 }
 
 // ======================================================
-// 13. CHAT SYSTEM
+// 14. CHAT SYSTEM
 // ======================================================
 
 function appendChat(log, name, text, ts) {
@@ -1221,10 +1303,42 @@ function sendPublic() {
     i.value = ''; //
 }
 
-if ($('btnSendPublic')) $('btnSendPublic').onclick = sendPublic; //
-if ($('inputPublic')) {
-    $('inputPublic').onkeydown = (e) => {
+const btnSendPublic = $('btnSendPublic'); //
+if (btnSendPublic) {
+    btnSendPublic.onclick = sendPublic; //
+}
+
+const inputPublic = $('inputPublic'); //
+if (inputPublic) {
+    inputPublic.onkeydown = (e) => {
         if (e.key === 'Enter') sendPublic(); //
+    };
+}
+
+function sendPrivate() {
+    const i = $('inputPrivate'); //
+    if (!i) return; //
+    const t = i.value.trim(); //
+    if (!t || !currentRoom) return; //
+
+    socket.emit('private-chat', {
+        room: currentRoom,
+        name: userName,
+        text: t
+    }); //
+
+    i.value = ''; //
+}
+
+const btnSendPrivate = $('btnSendPrivate'); //
+if (btnSendPrivate) {
+    btnSendPrivate.onclick = sendPrivate; //
+}
+
+const inputPrivate = $('inputPrivate'); //
+if (inputPrivate) {
+    inputPrivate.onkeydown = (e) => {
+        if (e.key === 'Enter') sendPrivate(); //
     };
 }
 
@@ -1232,16 +1346,51 @@ socket.on('public-chat', d => {
     if (mutedUsers.has(d.name)) return; //
     const log = $('chatLogPublic'); //
     appendChat(log, d.name, d.text, d.ts); //
-    if (overlayActive) renderHTMLLayout(currentRawHTML); //
+    if (tabs.stream && !tabs.stream.classList.contains('active')) {
+        tabs.stream.classList.add('has-new'); //
+    }
+socket.on('overlay-update', ({ html }) => {
+    if (typeof renderHTMLLayout === "function" && html) {
+        renderHTMLLayout(html); //
+    }
+});
+
+    // When public chat updates & overlay is active, re-render layout
+    if (overlayActive) {
+        renderHTMLLayout(currentRawHTML); //
+    }
 });
 
 socket.on('private-chat', d => {
     const log = $('chatLogPrivate'); //
     appendChat(log, d.name, d.text, d.ts); //
+    if (tabs.room && !tabs.room.classList.contains('active')) {
+        tabs.room.classList.add('has-new'); //
+    }
 });
 
+const emojiStripPublic = $('emojiStripPublic'); //
+if (emojiStripPublic) {
+    emojiStripPublic.onclick = e => {
+        if (e.target.classList.contains('emoji')) {
+            const input = $('inputPublic'); //
+            if (input) input.value += e.target.textContent; //
+        }
+    };
+}
+
+const emojiStripPrivate = $('emojiStripPrivate'); //
+if (emojiStripPrivate) {
+    emojiStripPrivate.onclick = e => {
+        if (e.target.classList.contains('emoji')) {
+            const input = $('inputPrivate'); //
+            if (input) input.value += e.target.textContent; //
+        }
+    };
+}
+
 // ======================================================
-// 14. FILE SHARING
+// 15. FILE SHARING (TAB)
 // ======================================================
 
 const fileInput = $('fileInput'); //
@@ -1262,6 +1411,12 @@ if (sendFileBtn) {
         if (!fileInput || !fileInput.files.length || !currentRoom) return; //
 
         const f = fileInput.files[0]; //
+
+        if (f.size > 10 * 1024 * 1024) {
+            alert("File too large (Limit: 10MB). Use 'Arcade'."); //
+            return;
+        }
+
         const r = new FileReader(); //
         r.onload = () => {
             socket.emit('file-share', {
@@ -1271,7 +1426,8 @@ if (sendFileBtn) {
                 fileData: r.result
             }); //
             fileInput.value = ''; //
-            if ($('fileNameLabel')) $('fileNameLabel').textContent = 'No file selected'; //
+            const label = $('fileNameLabel'); //
+            if (label) label.textContent = 'No file selected'; //
             sendFileBtn.disabled = true; //
         };
         r.readAsDataURL(f); //
@@ -1281,12 +1437,34 @@ if (sendFileBtn) {
 socket.on('file-share', d => {
     const div = document.createElement('div'); //
     div.className = 'file-item'; //
-    div.innerHTML = `<strong>${d.name}</strong> shared: ${d.fileName} <a href="${d.fileData}" download="${d.fileName}" class="btn small primary">Download</a>`; //
-    if ($('fileLog')) $('fileLog').appendChild(div); //
+
+    const info = document.createElement('div'); //
+    const b = document.createElement('strong'); //
+    b.textContent = d.name; //
+    info.appendChild(b); //
+    info.appendChild(
+        document.createTextNode(` shared: ${d.fileName}`)
+    ); //
+
+    const link = document.createElement('a'); //
+    link.href = d.fileData; //
+    link.download = d.fileName; //
+    link.className = 'btn small primary'; //
+    link.textContent = 'Download'; //
+
+    div.appendChild(info); //
+    div.appendChild(link); //
+
+    const fileLog = $('fileLog'); //
+    if (fileLog) fileLog.appendChild(div); //
+
+    if (tabs.files && !tabs.files.classList.contains('active')) {
+        tabs.files.classList.add('has-new'); //
+    }
 });
 
 // ======================================================
-// 15. ARCADE & 16. USER LIST (FINAL)
+// 16. ARCADE & HTML OVERLAY
 // ======================================================
 
 const arcadeInput = $('arcadeInput'); //
@@ -1296,17 +1474,30 @@ if (arcadeInput) {
         if (!f) return; //
 
         activeToolboxFile = f; //
-        if ($('arcadeStatus')) $('arcadeStatus').textContent = `Active: ${f.name}`; //
-        Object.values(viewerPeers).forEach(pc => pushFileToPeer(pc, f)); //
+
+        const arcadeStatus = $('arcadeStatus'); //
+        if (arcadeStatus) {
+            arcadeStatus.textContent = `Active: ${f.name}`; //
+        }
+
+        Object.values(viewerPeers).forEach(pc => {
+            pushFileToPeer(pc, f); //
+        }); //
     };
 }
 
+
+
 window.clearOverlay = () => {
     overlayActive = false; //
-    currentRawHTML = ""; //
-    if ($('mixerOverlayLayer')) $('mixerOverlayLayer').innerHTML = ""; //
-    if ($('overlayStatus')) $('overlayStatus').textContent = "[Empty]"; //
+    overlayImage = new Image(); //
+    const overlayStatus = $('overlayStatus'); //
+    if (overlayStatus) overlayStatus.textContent = "[Empty]"; //
 };
+
+// ======================================================
+// 17. USER LIST & MIXER SELECTION (UPDATED: Stats Support)
+// ======================================================
 
 function renderUserList() {
     const list = $('userList'); //
@@ -1314,41 +1505,113 @@ function renderUserList() {
 
     list.innerHTML = ''; //
     
-    latestUserList.forEach(u => {
-        if (u.id === myId) return; //
+    // Separate In-Room Guests from Stream Viewers
+    const guests = latestUserList.filter(u => !u.isViewer); //
+    const viewers = latestUserList.filter(u => u.isViewer); //
 
-        const div = document.createElement('div'); //
-        div.className = 'user-item'; //
+    const renderGroup = (label, users) => {
+        if (users.length === 0) return; //
+        const h = document.createElement('h4'); //
+        h.style.cssText = "font-size:0.7rem; color:var(--muted); margin:10px 0 5px; text-transform:uppercase; border-bottom:1px solid var(--border); padding-bottom:4px;"; //
+        h.textContent = label; //
+        list.appendChild(h); //
 
-        const nameSpan = document.createElement('span'); //
-        nameSpan.textContent = (u.id === currentOwnerId ? '👑 ' : '') + u.name + (u.requestingCall ? ' ✋' : ''); //
-        
-        const statsBadge = document.createElement('small'); //
-        statsBadge.id = `stats-${u.id}`; //
-        statsBadge.style.cssText = "margin-left:8px; font-size:0.6rem; opacity:0.7;"; //
-        nameSpan.appendChild(statsBadge); //
+        users.forEach(u => {
+            if (u.id === myId) return; //
 
-        const actions = document.createElement('div'); //
-        actions.className = 'user-actions'; //
+            const div = document.createElement('div'); //
+            div.className = 'user-item'; //
 
-        if (iAmHost) {
+            const nameSpan = document.createElement('span'); //
+            if (u.id === currentOwnerId) {
+                nameSpan.textContent = '👑 '; //
+            }
+            nameSpan.textContent += u.name; //
+            
+            // Show hand icon if requesting call
+            if (u.requestingCall) {
+                nameSpan.innerHTML += ' <span title="Requesting to Join Stream">✋</span>'; //
+            }
+
+            // Real-time monitoring stats badge container
+            const statsBadge = document.createElement('small'); //
+            statsBadge.id = `stats-${u.id}`; //
+            statsBadge.style.cssText = "margin-left:8px; font-size:0.6rem; opacity:0.7;"; //
+            nameSpan.appendChild(statsBadge); //
+
+            const actions = document.createElement('div'); //
+            actions.className = 'user-actions'; //
+
+            const isCalling = !!callPeers[u.id]; //
+
+            if (iAmHost) {
+                const mBtn = document.createElement('button'); //
+                mBtn.className = 'action-btn'; //
+                mBtn.textContent = mutedUsers.has(u.name) ? 'Unmute' : 'Mute'; //
+                mBtn.onclick = () => {
+                    if (mutedUsers.has(u.name)) {
+                        mutedUsers.delete(u.name); //
+                    } else {
+                        mutedUsers.add(u.name); //
+                    }
+                    renderUserList(); //
+                };
+                actions.appendChild(mBtn); //
+            }
+
             const callBtn = document.createElement('button'); //
             callBtn.className = 'action-btn'; //
-            callBtn.textContent = callPeers[u.id] ? 'End' : (u.requestingCall ? 'Accept' : 'Call'); //
-            callBtn.onclick = () => callPeers[u.id] ? endPeerCall(u.id) : window.ringUser(u.id); //
+
+            if (isCalling) {
+                callBtn.textContent = 'End'; //
+                callBtn.style.color = 'var(--danger)'; //
+                callBtn.onclick = () => endPeerCall(u.id); //
+            } else {
+                // If viewer is requesting call, highlight button
+                callBtn.textContent = u.requestingCall ? 'Accept & Call' : 'Call'; //
+                if (u.requestingCall) callBtn.style.borderColor = "var(--accent)"; //
+                callBtn.onclick = () => window.ringUser(u.id); //
+            }
             actions.appendChild(callBtn); //
 
-            const kBtn = document.createElement('button'); //
-            kBtn.className = 'action-btn kick'; //
-            kBtn.textContent = 'Kick'; //
-            kBtn.onclick = () => socket.emit('kick-user', u.id); //
-            actions.appendChild(kBtn); //
-        }
+            if (isCalling && iAmHost) {
+                const selBtn = document.createElement('button'); //
+                selBtn.className = 'action-btn'; //
+                selBtn.textContent = (activeGuestId === u.id) ? 'Selected' : 'Mix'; //
+                selBtn.onclick = () => {
+                    activeGuestId = u.id; //
+                    renderUserList(); //
+                    window.setActiveGuest(u.id); //
+                };
+                actions.appendChild(selBtn); //
+            }
 
-        div.appendChild(nameSpan); //
-        div.appendChild(actions); //
-        list.appendChild(div); //
-    });
+            if (iAmHost) {
+                const pBtn = document.createElement('button'); //
+                pBtn.className = 'action-btn'; //
+                pBtn.textContent = '👑 Promote'; //
+                pBtn.onclick = () => {
+                    if (confirm(`Hand over Host to ${u.name}?`)) {
+                        socket.emit('promote-to-host', { targetId: u.id }); //
+                    }
+                };
+                actions.appendChild(pBtn); //
+
+                const kBtn = document.createElement('button'); //
+                kBtn.className = 'action-btn kick'; //
+                kBtn.textContent = 'Kick'; //
+                kBtn.onclick = () => window.kickUser(u.id); //
+                actions.appendChild(kBtn); //
+            }
+
+            div.appendChild(nameSpan); //
+            div.appendChild(actions); //
+            list.appendChild(div); //
+        });
+    };
+
+    renderGroup("In-Room Guests", guests); //
+    renderGroup("Stream Viewers", viewers); //
 }
 
 function addRemoteVideo(id, stream) {
@@ -1359,14 +1622,16 @@ function addRemoteVideo(id, stream) {
         d.id = `vid-${id}`; //
 
         const v = document.createElement('video'); //
-        v.autoplay = true; v.playsInline = true; //
+        v.autoplay = true; //
+        v.playsInline = true; //
         d.appendChild(v); //
 
         const h2 = document.createElement('h2'); //
         h2.textContent = callPeers[id] ? callPeers[id].name : "Guest"; //
         d.appendChild(h2); //
 
-        if ($('videoGrid')) $('videoGrid').appendChild(d); //
+        const videoGrid = $('videoGrid'); //
+        if (videoGrid) videoGrid.appendChild(d); //
     }
 
     const v = d.querySelector('video'); //
@@ -1379,20 +1644,17 @@ function addRemoteVideo(id, stream) {
 function removeRemoteVideo(id) {
     const el = document.getElementById(`vid-${id}`); //
     if (el) el.remove(); //
+    if (audioAnalysers[id]) delete audioAnalysers[id]; //
 }
 
 window.ringUser = (id) => socket.emit('ring-user', id); //
 window.endPeerCall = endPeerCall; //
+window.kickUser = (id) => socket.emit('kick-user', id); //
+
 const openStreamBtn = $('openStreamBtn'); //
 if (openStreamBtn) {
     openStreamBtn.onclick = () => {
-        const u = $('streamLinkInput')?.value; //
+        const u = $('streamLinkInput') && $('streamLinkInput').value; //
         if (u) window.open(u, '_blank'); //
     };
 }
-
-// 4. TAB NAVIGATION INITIALIZATION
-if (tabs.stream) tabs.stream.onclick = () => switchTab('stream'); //
-if (tabs.room)   tabs.room.onclick   = () => switchTab('room'); //
-if (tabs.files)  tabs.files.onclick  = () => switchTab('files'); //
-if (tabs.users)  tabs.users.onclick  = () => switchTab('users'); //
