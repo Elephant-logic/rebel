@@ -403,12 +403,11 @@ function renderHTMLLayout(htmlString) {
         </div>
     `;
 
-    // 5. Broadcaster Sync: Tell viewers to update their local overlays
-    if (iAmHost && isStreaming) {
-        socket.emit('public-chat', {
+    // 5. Broadcaster Sync: push processed overlay HTML out to viewers
+    if (iAmHost && isStreaming && currentRoom) {
+        socket.emit('overlay-html', {
             room: currentRoom,
-            name: "SYSTEM",
-            text: `COMMAND:update-overlay`
+            html: processedHTML
         });
     }
 }
