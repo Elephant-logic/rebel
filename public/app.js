@@ -434,37 +434,91 @@ ${processedHTML}
 
         const container = $('localContainer');
         if (container) container.appendChild(frame);
+function renderHTMLLayout(htmlString) {
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
+    overlayActive = true;
+
+    // 1. Prepare data for placeholders
+    const viewerCount = latestUserList.filter(u => u.isViewer).length;
+    const guestCount  = latestUserList.filter(u => !u.isViewer).length;
+    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const chatHTML    = buildChatHTMLFromLogs(14);
+
+    // 2. Process placeholders in the HTML
+    let processedHTML = htmlString
+        .replace(/{{viewers}}/g, viewerCount)
+        .replace(/{{guests}}/g,  guestCount)
+        .replace(/{{title}}/g,   streamTitle)
+        .replace(/{{chat}}/g,    chatHTML);
+
+    // 3. HOST PREVIEW OVER LOCAL VIDEO ONLY
+    let overlayLayer = $('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        overlayLayer.style.cssText =
+            "position:absolute; inset:0; z-index:5; pointer-events:none; overflow:hidden;";
+        const container = $('localContainer') || document.body;
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
+        }
+        container.appendChild(overlayLayer);
     }
 
-    // Build a mini HTML doc *inside the iframe* so its CSS cannot touch the host page
-    frame.srcdoc = `
-        <!doctype html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                html, body {
-                    margin:0;
-                    padding:0;
-                    width:100%;
-                    height:100%;
-                    overflow:hidden;
-                    background:transparent;
-                }
-            </style>
-        </head>
-        <body>
-            <div style="
-                width:1920px;
-                height:1080px;
-                transform-origin:top left;
-                transform:scale(${scale});
-            ">
-                ${processedHTML}
-            </div>
-        </body>
-        </html>
+    const localVideo = $('localVideo');
+    const baseW = 1920;
+    const baseH = 1080;
+    const width = (localVideo && localVideo.offsetWidth) || overlayLayer.clientWidth || baseW;
+    const scale = width / baseW;
+
+    overlayLayer.innerHTML = `
+        <div style="
+            width:${baseW}px;
+            height:${baseH}px;
+            transform-origin:top left;
+            transform:scale(${scale});
+        ">
+            ${processedHTML}
+        </div>
     `;
+
+    // 4. BAKE OVERLAY INTO MIXER CANVAS (this is what makes it "become your cam")
+    try {
+        const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${baseW}" height="${baseH}">
+  <foreignObject width="100%" height="100%">
+    <div xmlns="http://www.w3.org/1999/xhtml"
+         style="width:${baseW}px;height:${baseH}px;">
+      ${processedHTML}
+    </div>
+  </foreignObject>
+</svg>`;
+
+        const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+        const url  = URL.createObjectURL(blob);
+        const img  = new Image();
+
+        img.onload = () => {
+            overlayImage = img;       // used by drawMixer()
+            overlayActive = true;
+            URL.revokeObjectURL(url);
+        };
+        img.onerror = (e) => {
+            console.warn("Overlay rasterize failed", e);
+        };
+        img.src = url;
+    } catch (e) {
+        console.warn("Overlay image generation error", e);
+    }
+
+    // 5. Broadcast to viewers via dedicated overlay channel (no chat COMMAND spam)
+    if (iAmHost && isStreaming && currentRoom && socket) {
+        socket.emit("overlay-update", {
+            room: currentRoom,
+            html: processedHTML
+        });
+    }
 }
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
