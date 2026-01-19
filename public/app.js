@@ -367,10 +367,11 @@ function buildChatHTMLFromLogs(maxLines = 12) {
 }
 
 function renderHTMLLayout(htmlString) {
+function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
     currentRawHTML = htmlString;
 
-    // 1. Ensure the Live Overlay Layer exists in the DOM
+    // 1. Find the Live Overlay Layer in the Host DOM
     let overlayLayer = $('mixerOverlayLayer');
     if (!overlayLayer) {
         overlayLayer = document.createElement('div');
@@ -379,28 +380,27 @@ function renderHTMLLayout(htmlString) {
         $('localContainer').appendChild(overlayLayer);
     }
 
-    // 2. Prepare Data for Placeholders
+    // 2. Prepare Placeholder Data
     const viewerCount = latestUserList.filter(u => u.isViewer).length;
     const guestCount = latestUserList.filter(u => !u.isViewer).length;
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
     const chatHTML = buildChatHTMLFromLogs(14);
 
-    // 3. Process All Placeholders (Fields + Global Stats)
+    // 3. Process the HTML Placeholders
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
         .replace(/{{chat}}/g, chatHTML);
 
-    // 4. Inject as "Living" DOM
-    // This replaces the old SVG-image logic to enable CSS animations/JS timers.
+    // 4. Inject as "Living" DOM (Enables CSS animations and JS timers)
     overlayLayer.innerHTML = `
         <div class="layout-${mixerLayout}" style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${$('localVideo').offsetWidth / 1920});">
             ${processedHTML}
         </div>
     `;
 
-    // 5. Broadcaster Sync: Signal viewers to update local views
+    // 5. Broadcaster Sync: Tell viewers to update their local overlays
     if (iAmHost && isStreaming) {
         socket.emit('public-chat', {
             room: currentRoom,
