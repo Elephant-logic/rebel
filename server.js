@@ -228,10 +228,18 @@ io.on('connection', (socket) => {
     });
   });
 
+  // [PATCH] Real-time HTML Overlay Relay
   socket.on('overlay-update', ({ room, html }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !html) return;
     io.to(roomName).emit('overlay-update', { html });
+  });
+
+  // [NEW PATCH] Direct Overlay HTML Relay for real-time pushing
+  socket.on('overlay-html', ({ room, html }) => {
+    const roomName = room || socket.data.room;
+    if (!roomName || !html) return;
+    io.to(roomName).emit('overlay-html', { html });
   });
 
   socket.on('disconnect', () => {
