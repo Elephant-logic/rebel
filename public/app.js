@@ -404,14 +404,12 @@ function renderHTMLLayout(htmlString) {
     `;
 
     // 5. Broadcaster Sync: Tell viewers to update their local overlays
-    if (iAmHost && isStreaming) {
-        socket.emit('public-chat', {
-            room: currentRoom,
-            name: "SYSTEM",
-            text: `COMMAND:update-overlay`
-        });
+    if (iAmHost && isStreaming && currentRoom) {
+    socket.emit("overlay-update", {
+        room: currentRoom,
+        html: processedHTML
+    });
     }
-}
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
     document.querySelectorAll('.mixer-btn').forEach(b => {
