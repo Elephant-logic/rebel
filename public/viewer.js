@@ -54,7 +54,7 @@ function startStatsReporting(peer) {
 // ======================================================
 /**
  * Renders HTML into a live DOM layer to allow CSS animations and JS timers.
- * This replaces the static SVG logic that was killing the tickers.
+ * FIXED: Uses Absolute positioning to float over the video without shifting it.
  */
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
@@ -64,18 +64,23 @@ function renderHTMLLayout(htmlString) {
     if (!overlayLayer) {
         overlayLayer = document.createElement('div');
         overlayLayer.id = 'mixerOverlayLayer';
-        // Position exactly over the video
+        // THE FIX: Position exactly over the video using absolute positioning
         overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;"; 
         const videoLayer = document.querySelector('.video-layer');
-        if (videoLayer) videoLayer.appendChild(overlayLayer);
+        if (videoLayer) {
+            videoLayer.style.position = "relative"; // Anchor for absolute child
+            videoLayer.appendChild(overlayLayer);
+        }
     }
 
     // Scale the 1080p layout to fit the viewer's current video window
     const videoEl = document.getElementById('viewerVideo');
-    const scale = videoEl ? videoEl.offsetWidth / 1920 : 1;
+    const container = document.querySelector('.viewer-shell');
+    // SCALING FIX: Use container width for better mobile fit
+    const scale = container ? container.offsetWidth / 1920 : (videoEl ? videoEl.offsetWidth / 1920 : 1);
 
     overlayLayer.innerHTML = `
-        <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale});">
+        <div style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale}); pointer-events: none;">
             ${htmlString}
         </div>
     `;
@@ -229,7 +234,7 @@ socket.on('overlay-html', ({ html }) => {
 
 // [PATCH] Standard overlay-update listener compatibility
 socket.on("overlay-update", ({ html }) => {
-    if (typeof renderHTMLLayout === 'function' && html) {
+    if (typeof renderHTMLLayout === "function" && html) {
         renderHTMLLayout(html);
     }
 });
@@ -349,7 +354,7 @@ async function startCallToHost(targetId) {
     pc2.onicecandidate = (e) => {
         if (e.candidate) {
             socket.emit("call-ice", {
-                targetId,
+                targetId: targetId,
                 candidate: e.candidate
             });
         }
@@ -365,8 +370,8 @@ async function startCallToHost(targetId) {
     await pc2.setLocalDescription(offer);
 
     socket.emit("call-offer", {
-        targetId,
-        offer
+        targetId: targetId,
+        offer: offer
     });
 }
 
@@ -441,7 +446,7 @@ function sendChat() {
     socket.emit("public-chat", {
         room: currentRoom,
         name: myName,
-        text,
+        text: text,
         fromViewer: true
     });
 
@@ -469,7 +474,7 @@ window.addEventListener("load", () => {
 
     socket.connect();
     socket.emit("join-room", {
-        room,
+        room: room,
         name: myName,
         isViewer: true
     });
