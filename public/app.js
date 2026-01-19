@@ -1454,21 +1454,7 @@ if (arcadeInput) {
     };
 }
 
-const htmlOverlayInput = $('htmlOverlayInput'); //
-if (htmlOverlayInput) {
-    htmlOverlayInput.onchange = (e) => {
-        const f = e.target.files[0]; //
-        if (!f) return; //
 
-        const r = new FileReader(); //
-        r.onload = (ev) => {
-            renderHTMLLayout(ev.target.result); //
-            const overlayStatus = $('overlayStatus'); //
-            if (overlayStatus) overlayStatus.textContent = "[Loaded]"; //
-        };
-        r.readAsText(f); //
-    };
-}
 
 window.clearOverlay = () => {
     overlayActive = false; //
