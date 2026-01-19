@@ -369,40 +369,70 @@ function buildChatHTMLFromLogs(maxLines = 12) {
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
     currentRawHTML = htmlString;
+    overlayActive = true;
 
-    // 1. Ensure the Live Overlay Layer exists in the Host DOM
-    let overlayLayer = $('mixerOverlayLayer');
-    if (!overlayLayer) {
-        overlayLayer = document.createElement('div');
-        overlayLayer.id = 'mixerOverlayLayer';
-        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;";
-        const container = $('localContainer');
-        if (container) container.appendChild(overlayLayer);
-    }
-
-    // 2. Prepare Data for Placeholders
+    // 1. Prepare data for placeholders
     const viewerCount = latestUserList.filter(u => u.isViewer).length;
-    const guestCount = latestUserList.filter(u => !u.isViewer).length;
+    const guestCount  = latestUserList.filter(u => !u.isViewer).length;
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
-    const chatHTML = buildChatHTMLFromLogs(14);
+    const chatHTML    = buildChatHTMLFromLogs(14);
 
-    // 3. Process All Placeholders
+    // 2. Process placeholders
     let processedHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
-        .replace(/{{title}}/g, streamTitle)
-        .replace(/{{chat}}/g, chatHTML);
+        .replace(/{{title}}/g,  streamTitle)
+        .replace(/{{chat}}/g,   chatHTML);
 
-    // 4. Inject as Living DOM (Enables CSS animations and JS timers)
-    const videoEl = $('localVideo');
-    const scale = (videoEl && videoEl.offsetWidth > 0) ? (videoEl.offsetWidth / 1920) : 1;
-    
-    overlayLayer.innerHTML = `
-        <div class="layout-${mixerLayout}" style="width:1920px; height:1080px; transform-origin: top left; transform: scale(${scale});">
-            ${processedHTML}
-        </div>
+    // 3. Send to VIEWERS (this is what they actually see)
+    if (iAmHost && isStreaming && currentRoom) {
+        socket.emit("overlay-update", {
+            room: currentRoom,
+            html: processedHTML
+        });
+    }
+
+    // 4. Host preview – sandboxed iframe so CSS can't touch host UI
+    const localVideo = $('localVideo');
+    const scale = (localVideo && localVideo.offsetWidth > 0)
+        ? (localVideo.offsetWidth / 1920)
+        : 1;
+
+    let frame = document.getElementById('overlayPreviewFrame');
+    if (!frame) {
+        frame = document.createElement('iframe');
+        frame.id = 'overlayPreviewFrame';
+        frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        frame.style.cssText = "position:absolute; inset:0; border:none; pointer-events:none; z-index:10;";
+        const container = $('localContainer');
+        if (container) container.appendChild(frame);
+    }
+
+    // Build a tiny HTML doc inside the iframe
+    frame.srcdoc = `
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                html, body {
+                    margin:0;
+                    padding:0;
+                    width:100%;
+                    height:100%;
+                    overflow:hidden;
+                    background:transparent;
+                }
+            </style>
+        </head>
+        <body>
+            <div style="width:1920px;height:1080px;transform-origin:top left;transform:scale(${scale});">
+                ${processedHTML}
+            </div>
+        </body>
+        </html>
     `;
-
+}
     // 5. Broadcaster Sync: Tell viewers to update their local overlays
     if (iAmHost && isStreaming && currentRoom) {
         socket.emit("overlay-update", {
