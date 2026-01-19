@@ -150,11 +150,27 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(74,243,163
 .preview-header { display: flex; justify-content: space-between; padding: 10px; background: #0a0e1a; font-size: 0.8rem; border-bottom: 1px solid var(--border); }
 .preview-inner video { flex: 1; object-fit: contain; }
 
+/* UPDATED MOBILE FULL-SCREEN PATCH */
 @media (max-width: 800px) {
-  .layout { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; max-height: 250px; }
-  .chat-panel { min-height: 500px; } 
+  .app-shell { margin: 0; padding: 5px; max-width: 100%; }
+  .layout { 
+    flex-direction: column; 
+    height: auto; /* Allow scrolling on mobile */
+    gap: 10px;
+  }
+  .sidebar { 
+    width: 100% !important; 
+    max-height: none; 
+    order: 2; /* Moves room settings below the video */
+  }
+  .main-panel { 
+    width: 100% !important; 
+    order: 1; /* Keeps video at the very top */
+  }
+  .video-grid { grid-template-columns: 1fr; }
+  .chat-panel { min-height: 400px; } 
 }
+
 /* MOBILE SCROLL PATCH */
 #mixerOverlayLayer, 
 #mixerOverlayLayer * {
