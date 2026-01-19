@@ -235,7 +235,6 @@ io.on('connection', (socket) => {
     io.to(roomName).emit('overlay-update', { html });
   });
 
-  // [NEW PATCH] Direct Overlay HTML Relay for real-time pushing
   socket.on('overlay-html', ({ room, html }) => {
     const roomName = room || socket.data.room;
     if (!roomName || !html) return;
