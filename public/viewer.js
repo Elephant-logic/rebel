@@ -219,6 +219,20 @@ socket.on("disconnect", () => {
     }
 });
 
+// [PATCH] Receive direct HTML Overlay updates
+socket.on("overlay-html", ({ html }) => {
+    if (typeof renderHTMLLayout === 'function' && html) {
+        renderHTMLLayout(html);
+    }
+});
+
+// [PATCH] Standard overlay-update listener compatibility
+socket.on("overlay-update", ({ html }) => {
+    if (typeof renderHTMLLayout === 'function' && html) {
+        renderHTMLLayout(html);
+    }
+});
+
 socket.on("webrtc-offer", async ({ sdp, from }) => {
     try {
         hostId = from;
@@ -402,15 +416,6 @@ function appendChat(name, text) {
     log.scrollTop = log.scrollHeight;
 }
 
-socket.on("public-chat", (d) => {
-    // SYNC PATCH: Force re-render of animated overlays when Host pushes changes
-    if (d.text === 'COMMAND:update-overlay' && typeof renderHTMLLayout === 'function') {
-        renderHTMLLayout(currentRawHTML);
-    }
-    
-    appendChat(d.name, d.text);
-});
-
 socket.on("kicked", () => {
     alert("You have been kicked from the room by the host.");
     window.location.href = "index.html";
@@ -535,4 +540,9 @@ window.addEventListener("load", () => {
             box.classList.toggle("hidden");
         };
     }
+});
+
+// [PATCH] Final handler to rescale overlay on window resize
+window.addEventListener('resize', () => {
+    if (currentRawHTML) renderHTMLLayout(currentRawHTML);
 });
