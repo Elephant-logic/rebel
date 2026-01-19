@@ -31,18 +31,19 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(window.currentRawHTML, 'text/html');
             const configScript = doc.getElementById('overlay-config');
+            const liveEditor = $('liveEditor');
 
             if (configScript) {
                 try {
                     const config = JSON.parse(configScript.textContent);
                     setupDashboard(config);
-                    $('liveEditor').style.display = 'block';
+                    if (liveEditor) liveEditor.style.display = 'block';
                 } catch (err) {
                     console.error("Overlay Plugin: JSON Parse failed.", err);
-                    $('liveEditor').style.display = 'none';
+                    if (liveEditor) liveEditor.style.display = 'none';
                 }
             } else {
-                $('liveEditor').style.display = 'none';
+                if (liveEditor) liveEditor.style.display = 'none';
             }
 
             // Trigger the initial render
@@ -57,11 +58,11 @@
         const sceneGroup = $('sceneBtnGroup');
         const sceneSwitcher = $('sceneSwitcher');
 
-        fieldContainer.innerHTML = '';
-        sceneGroup.innerHTML = '';
+        if (fieldContainer) fieldContainer.innerHTML = '';
+        if (sceneGroup) sceneGroup.innerHTML = '';
 
         // Handle Scenes
-        if (config.scenes && config.scenes.length > 0) {
+        if (sceneSwitcher && sceneGroup && config.scenes && config.scenes.length > 0) {
             sceneSwitcher.style.display = 'block';
             config.scenes.forEach(scene => {
                 const btn = document.createElement('button');
@@ -71,16 +72,20 @@
                 
                 btn.onclick = () => {
                     window.setOverlayScene(scene);
-                    document.querySelectorAll('#sceneBtnGroup .mixer-btn').forEach(b => b.classList.remove('active'));
+                    document
+                        .querySelectorAll('#sceneBtnGroup .mixer-btn')
+                        .forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                 };
                 sceneGroup.appendChild(btn);
             });
-        } else {
+        } else if (sceneSwitcher) {
             sceneSwitcher.style.display = 'none';
         }
 
         // Handle Dynamic Fields
+        if (!fieldContainer || !config.fields) return;
+
         for (const key in config.fields) {
             const div = document.createElement('div');
             div.className = 'field';
@@ -105,10 +110,16 @@
                     </label>
                     <input type="hidden" id="edit-tickerPlayState" value="${config.fields[key]}" />
                 `;
-                div.querySelector('#pauseToggle').onchange = (e) => {
-                    $('edit-tickerPlayState').value = e.target.checked ? 'paused' : 'running';
-                    window.renderHTMLLayout(window.currentRawHTML);
-                };
+                const checkbox = div.querySelector('#pauseToggle');
+                if (checkbox) {
+                    checkbox.onchange = (e) => {
+                        const hidden = $('edit-tickerPlayState');
+                        if (hidden) {
+                            hidden.value = e.target.checked ? 'paused' : 'running';
+                        }
+                        window.renderHTMLLayout(window.currentRawHTML);
+                    };
+                }
             }
             // Default: Text Input
             else {
@@ -159,35 +170,20 @@
     };
 
     // Manual Apply button trigger
-    if ($('applyChangesBtn')) {
-        $('applyChangesBtn').onclick = () => window.renderHTMLLayout(window.currentRawHTML);
+    const applyBtn = $('applyChangesBtn');
+    if (applyBtn) {
+        applyBtn.onclick = () => window.renderHTMLLayout(window.currentRawHTML);
     }
 
-    // 🔌 RebelAPI bridge: listen for messages from tools (iframes)
-    window.addEventListener('message', (event) => {
-        const data = event.data || {};
+    // 6. Listen for REBEL_CONTROL messages from tools (iframes)
+    window.addEventListener('message', (ev) => {
+        const msg = ev.data;
+        if (!msg || msg.type !== 'REBEL_CONTROL') return;
 
-        if (data.type === 'REBEL_CONTROL') {
-            // Tools calling RebelAPI.setField(key, value)
-            if (data.action === 'setField' && data.key) {
-                if (typeof window.updateOverlayField === 'function') {
-                    window.updateOverlayField(data.key, data.value);
-                }
-            }
-
-            // Tools calling RebelAPI.setScene(sceneName)
-            if (data.action === 'setScene' && data.sceneName) {
-                if (typeof window.setOverlayScene === 'function') {
-                    window.setOverlayScene(data.sceneName);
-                }
-            }
-        }
-
-        if (data.type === 'REBEL_CHAT' && data.text) {
-            // Optional: pipe tool messages into your chat UI
-            if (typeof window.appendSystemMessage === 'function') {
-                window.appendSystemMessage(`[TOOL] ${data.text}`);
-            }
+        if (msg.action === 'setField') {
+            window.updateOverlayField(msg.key, msg.value);
+        } else if (msg.action === 'setScene') {
+            window.setOverlayScene(msg.sceneName);
         }
     });
 })();
