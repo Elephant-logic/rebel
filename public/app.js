@@ -332,29 +332,30 @@ if (previewModal) {
 }
 
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
+// --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
 function buildChatHTMLFromLogs(maxLines = 12) {
-    const log = $('chatLogPublic'); //
-    if (!log) return ''; //
+    const log = $('chatLogPublic');
+    if (!log) return '';
 
-    const nodes = Array.from(log.querySelectorAll('.chat-line')); //
-    const last = nodes.slice(-maxLines); //
+    const nodes = Array.from(log.querySelectorAll('.chat-line'));
+    const last = nodes.slice(-maxLines);
 
     return last.map(line => {
-        const nameEl = line.querySelector('strong'); //
-        const timeEl = line.querySelector('small'); //
-        let textNode = null; //
+        const nameEl = line.querySelector('strong');
+        const timeEl = line.querySelector('small');
+        let textNode = null;
         for (const n of line.childNodes) {
             if (n.nodeType === Node.TEXT_NODE && n.textContent.includes(':')) {
-                textNode = n; //
+                textNode = n;
                 break;
             }
         }
 
-        const name = nameEl ? nameEl.textContent.trim() : ''; //
-        const time = timeEl ? timeEl.textContent.trim() : ''; //
+        const name = nameEl ? nameEl.textContent.trim() : '';
+        const time = timeEl ? timeEl.textContent.trim() : '';
         const text = textNode
             ? textNode.textContent.replace(/^:\s*/, '').trim()
-            : line.textContent.replace(name, '').trim(); //
+            : line.textContent.replace(name, '').trim();
 
         return `
             <div class="ov-chat-line">
@@ -403,14 +404,9 @@ function renderHTMLLayout(htmlString) {
         </div>
     `;
 
-    // 5. Broadcaster Sync: Tell viewers to update their local overlays
-    if (iAmHost && isStreaming) {
-        socket.emit('public-chat', {
-            room: currentRoom,
-            name: "SYSTEM",
-            text: `COMMAND:update-overlay`
-        });
-    }
+    // 5. HOST-ONLY overlay:
+    //    Do NOT sync this layout to viewers here.
+    //    Viewers should only be affected when a GAME/TOOL is pushed via Arcade.
 }
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
