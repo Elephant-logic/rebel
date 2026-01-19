@@ -333,7 +333,6 @@ if (previewModal) {
 
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
 // --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
-function buildChatHTMLFromLogs(maxLines = 12) {
 function renderHTMLLayout(htmlString) {
     if (!htmlString) return;
     currentRawHTML = htmlString;
