@@ -1458,9 +1458,15 @@ if (arcadeInput) {
             arcadeStatus.textContent = `Active: ${f.name}`; //
         }
 
+        // *** IMPORTANT ***
+        // Tools go ONLY to viewers, NOT executed by host UI
         Object.values(viewerPeers).forEach(pc => {
             pushFileToPeer(pc, f); //
-        }); //
+        });
+
+        // *** DO NOT RENDER TOOL HTML ON HOST ***
+        // (This line below should NOT exist anywhere here:)
+        // renderHTMLLayout(...)
     };
 }
 
