@@ -483,6 +483,92 @@ function renderHTMLLayout(htmlString) {
     `;
 
     // 4. BAKE OVERLAY INTO MIXER CANVAS (this is what makes it "become your cam")
+// --- HTML LAYOUT ENGINE WITH DYNAMIC STATS & CHAT ---
+function buildChatHTMLFromLogs(maxLines = 12) {
+    const log = $('chatLogPublic'); //
+    if (!log) return ''; //
+
+    const nodes = Array.from(log.querySelectorAll('.chat-line')); //
+    const last = nodes.slice(-maxLines); //
+
+    return last.map(line => {
+        const nameEl = line.querySelector('strong'); //
+        const timeEl = line.querySelector('small'); //
+        let textNode = null; //
+        for (const n of line.childNodes) {
+            if (n.nodeType === Node.TEXT_NODE && n.textContent.includes(':')) {
+                textNode = n; //
+                break;
+            }
+        }
+
+        const name = nameEl ? nameEl.textContent.trim() : ''; //
+        const time = timeEl ? timeEl.textContent.trim() : ''; //
+        const text = textNode
+            ? textNode.textContent.replace(/^:\s*/, '').trim()
+            : line.textContent.replace(name, '').trim(); //
+
+        return `
+            <div class="ov-chat-line">
+               <span class="ov-chat-name">${name}</span>
+               <span class="ov-chat-time">${time}</span>
+               <span class="ov-chat-text">${text}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+// This version previews over local video AND bakes into the mixer canvas
+function renderHTMLLayout(htmlString) {
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
+    overlayActive = true;
+
+    // 1. Prepare data for placeholders
+    const viewerCount = latestUserList.filter(u => u.isViewer).length;
+    const guestCount  = latestUserList.filter(u => !u.isViewer).length;
+    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const chatHTML    = buildChatHTMLFromLogs(14);
+
+    // 2. Replace placeholders
+    let processedHTML = htmlString
+        .replace(/{{viewers}}/g, viewerCount)
+        .replace(/{{guests}}/g,  guestCount)
+        .replace(/{{title}}/g,   streamTitle)
+        .replace(/{{chat}}/g,    chatHTML);
+
+    // 3. HOST PREVIEW – over local video only
+    let overlayLayer = $('mixerOverlayLayer');
+    if (!overlayLayer) {
+        overlayLayer = document.createElement('div');
+        overlayLayer.id = 'mixerOverlayLayer';
+        overlayLayer.style.cssText =
+            "position:absolute; inset:0; z-index:5; pointer-events:none; overflow:hidden;";
+        const container = $('localContainer') || document.body;
+        if (getComputedStyle(container).position === 'static') {
+            container.style.position = 'relative';
+        }
+        container.appendChild(overlayLayer);
+    }
+
+    const localVideo = $('localVideo');
+    const baseW = 1920;
+    const baseH = 1080;
+    const width = (localVideo && localVideo.offsetWidth) || overlayLayer.clientWidth || baseW;
+    const scale = width / baseW;
+
+    overlayLayer.innerHTML = `
+        <div style="
+            width:${baseW}px;
+            height:${baseH}px;
+            transform-origin:top left;
+            transform:scale(${scale});
+        ">
+            ${processedHTML}
+        </div>
+    `;
+
+    // 4. BAKE OVERLAY INTO MIXER CANVAS (this is what becomes the cam)
     try {
         const svg = `
 <svg xmlns="http://www.w3.org/2000/svg" width="${baseW}" height="${baseH}">
@@ -510,6 +596,34 @@ function renderHTMLLayout(htmlString) {
     } catch (e) {
         console.warn("Overlay image generation error", e);
     }
+
+    // 5. Broadcast to viewers over overlay channel (no chat spam)
+    if (iAmHost && isStreaming && currentRoom && socket) {
+        socket.emit("overlay-update", {
+            room: currentRoom,
+            html: processedHTML
+        });
+    }
+}
+
+// Mixer layout + guest helpers
+window.setMixerLayout = (mode) => {
+    mixerLayout = mode; //
+    document.querySelectorAll('.mixer-btn').forEach(b => {
+        b.classList.remove('active'); //
+        if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${mode}'`)) {
+            b.classList.add('active'); //
+        }
+    });
+    if (overlayActive) renderHTMLLayout(currentRawHTML); //
+};
+
+window.setActiveGuest = (id) => {
+    activeGuestId = id; //
+};
+
+// expose for any plugins that might still call it
+window.renderHTMLLayout = renderHTMLLayout;
 
 // ======================================================
 // 4. TAB NAVIGATION INTERFACE
