@@ -86,6 +86,14 @@ const socket = io({
 }); //
 const $ = id => document.getElementById(id); //
 
+// STABILITY PATCH: Mobile height fix to prevent detachment
+function fixMobileViewport() {
+    let vh = window.innerHeight * 0.01; //
+    document.documentElement.style.setProperty('--vh', `${vh}px`); //
+}
+window.addEventListener('resize', fixMobileViewport); //
+fixMobileViewport(); //
+
 let currentRoom = null; //
 let userName = 'User'; //
 let myId = null; //
@@ -137,7 +145,7 @@ let lastDrawTime = 0;
 const fpsInterval = 1000 / 30; // NEW: Target 30 FPS Lock
 
 function drawMixer(timestamp) {
-    requestAnimationFrame(drawMixer);
+    requestAnimationFrame(drawMixer); //
 
     // NEW: Frame Throttling Logic
     const elapsed = timestamp - lastDrawTime;
@@ -379,9 +387,13 @@ function renderHTMLLayout(htmlString) {
     if (!overlayLayer) {
         overlayLayer = document.createElement('div'); //
         overlayLayer.id = 'mixerOverlayLayer'; //
-        overlayLayer.style.cssText = "position:absolute; inset:0; z-index:10; pointer-events:none; overflow:hidden;"; //
+        // STABILITY FIX: Absolute position stops UI from jumping
+        overlayLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; z-index:10; pointer-events:none; overflow:hidden;"; //
         const container = $('localContainer'); //
-        if (container) container.appendChild(overlayLayer); //
+        if (container) {
+            container.style.position = "relative"; // Ensure the parent is the anchor
+            container.appendChild(overlayLayer); //
+        }
     }
 
     // 2. Prepare Data for Placeholders
@@ -437,7 +449,7 @@ window.setActiveGuest = (id) => {
 };
 
 // ======================================================
-// 4. TAB NAVIGATION INTERFACE
+// 5. TAB NAVIGATION INTERFACE
 // ======================================================
 
 const tabs = { 
@@ -469,7 +481,7 @@ if (tabs.files)  tabs.files.onclick  = () => switchTab('files'); //
 if (tabs.users)  tabs.users.onclick  = () => switchTab('users'); //
 
 // ======================================================
-// 5. DEVICE SETTINGS
+// 6. DEVICE SETTINGS
 // ======================================================
 
 const settingsPanel = $('settingsPanel'); //
@@ -528,7 +540,7 @@ if (videoSource)  videoSource.onchange  = startLocalMedia; //
 if (videoQuality) videoQuality.onchange = startLocalMedia; //
 
 // ======================================================
-// 6. MEDIA CONTROLS (UPDATED: High-Stability Constraints)
+// 7. MEDIA CONTROLS (UPDATED: High-Stability Constraints)
 // ======================================================
 
 async function startLocalMedia() {
@@ -694,7 +706,7 @@ if (toggleCamBtn) {
 }
 
 // ======================================================
-// 7. SCREEN SHARING
+// 8. SCREEN SHARING
 // ======================================================
 
 const shareScreenBtn = $('shareScreenBtn'); //
@@ -755,53 +767,6 @@ function stopScreenShare() {
     }
 
     startLocalMedia(); //
-}
-
-// ======================================================
-// 8. BROADCAST STREAMING
-// ======================================================
-
-async function handleStartStream() {
-    if (!currentRoom || !iAmHost) return; //
-
-    if (!localStream) {
-        await startLocalMedia(); //
-    }
-
-    isStreaming = true; //
-    const startBtn = $('startStreamBtn'); //
-    if (startBtn) {
-        startBtn.textContent = "Stop Stream"; //
-        startBtn.classList.add('danger'); //
-    }
-
-    latestUserList.forEach(u => {
-        if (u.id !== myId) {
-            connectViewer(u.id); //
-        }
-    });
-}
-
-const startStreamBtn = $('startStreamBtn'); //
-if (startStreamBtn) {
-    startStreamBtn.onclick = async () => {
-        if (!currentRoom || !iAmHost) {
-            alert("Host only."); //
-            return;
-        }
-        if (isStreaming) {
-            isStreaming = false; //
-            startStreamBtn.textContent = "Start Stream"; //
-            startStreamBtn.classList.remove('danger'); //
-
-            Object.values(viewerPeers).forEach(pc => pc.close()); //
-            for (const k in viewerPeers) {
-                delete viewerPeers[k]; //
-            }
-        } else {
-            await handleStartStream(); //
-        }
-    };
 }
 // ======================================================
 // 9. P2P CALLING (1-to-1 Handshakes)
