@@ -11,8 +11,8 @@ const server = http.createServer(app);
 // FIX: Increased buffer to 50MB for large arcade transfers
 const io = new Server(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 5e7, 
-  pingTimeout: 10000,     
+  maxHttpBufferSize: 5e7,
+  pingTimeout: 10000,
   pingInterval: 25000
 });
 
@@ -26,7 +26,7 @@ function getRoomInfo(roomName) {
     rooms[roomName] = {
       ownerId: null,
       locked: false,
-      streamTitle: 'Untitled Stream', 
+      streamTitle: 'Untitled Stream',
       users: new Map()
     };
   }
@@ -39,11 +39,11 @@ function broadcastRoomUpdate(roomName) {
 
   const users = [];
   for (const [id, u] of room.users.entries()) {
-    users.push({ 
-        id, 
-        name: u.name, 
-        isViewer: u.isViewer, 
-        requestingCall: u.requestingCall 
+    users.push({
+      id,
+      name: u.name,
+      isViewer: u.isViewer,
+      requestingCall: u.requestingCall
     });
   }
 
@@ -65,9 +65,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const roomName = room.trim().slice(0, 50); 
+    const roomName = room.trim().slice(0, 50);
     const rawName = (name && String(name).trim()) || `User-${socket.id.slice(0, 4)}`;
-    const displayName = rawName.slice(0, 30); 
+    const displayName = rawName.slice(0, 30);
 
     const info = getRoomInfo(roomName);
 
@@ -86,13 +86,13 @@ io.on('connection', (socket) => {
       info.ownerId = socket.id;
     }
 
-    info.users.set(socket.id, { 
-        name: displayName, 
-        isViewer: !!isViewer,
-        requestingCall: false 
+    info.users.set(socket.id, {
+      name: displayName,
+      isViewer: !!isViewer,
+      requestingCall: false
     });
 
-    socket.emit('role', { 
+    socket.emit('role', {
       isHost: info.ownerId === socket.id,
       streamTitle: info.streamTitle
     });
@@ -106,16 +106,16 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     const user = info?.users.get(socket.id);
-    
+
     if (user) {
-        user.requestingCall = true;
-        if (info.ownerId) {
-            io.to(info.ownerId).emit('call-request-received', { 
-                id: socket.id, 
-                name: socket.data.name 
-            });
-        }
-        broadcastRoomUpdate(roomName);
+      user.requestingCall = true;
+      if (info.ownerId) {
+        io.to(info.ownerId).emit('call-request-received', {
+          id: socket.id,
+          name: socket.data.name
+        });
+      }
+      broadcastRoomUpdate(roomName);
     }
   });
 
@@ -124,13 +124,13 @@ io.on('connection', (socket) => {
     if (!roomName) return;
     const info = rooms[roomName];
     if (info && info.ownerId === socket.id) {
-        info.ownerId = targetId;
-        socket.emit('role', { isHost: false });
-        const nextSocket = io.sockets.sockets.get(targetId);
-        if (nextSocket) {
-            nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
-        }
-        broadcastRoomUpdate(roomName);
+      info.ownerId = targetId;
+      socket.emit('role', { isHost: false });
+      const nextSocket = io.sockets.sockets.get(targetId);
+      if (nextSocket) {
+        nextSocket.emit('role', { isHost: true, streamTitle: info.streamTitle });
+      }
+      broadcastRoomUpdate(roomName);
     }
   });
 
@@ -224,8 +224,16 @@ io.on('connection', (socket) => {
       name: (name || socket.data.name).slice(0,30),
       fileName: String(fileName).slice(0, 100),
       fileType: fileType || 'application/octet-stream',
-      fileData 
+      fileData
     });
+  });
+
+  // ====================================================
+  // NEW: OVERLAY SYNC (host → viewers)
+  // ====================================================
+  socket.on('overlay-update', ({ room, html }) => {
+    if (!room || !html) return;
+    socket.to(room).emit('overlay-update', { html });
   });
 
   socket.on('disconnect', () => {
