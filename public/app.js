@@ -1333,6 +1333,11 @@ socket.on('public-chat', d => {
     if (tabs.stream && !tabs.stream.classList.contains('active')) {
         tabs.stream.classList.add('has-new'); //
     }
+socket.on('overlay-update', ({ html }) => {
+    if (typeof renderHTMLLayout === "function" && html) {
+        renderHTMLLayout(html);
+    }
+});
 
     // When public chat updates & overlay is active, re-render layout
     if (overlayActive) {
