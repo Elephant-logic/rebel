@@ -459,20 +459,11 @@ if (tabs.files)  tabs.files.onclick  = () => switchTab('files'); //
 if (tabs.users)  tabs.users.onclick  = () => switchTab('users'); //
 
 // ======================================================
-// 5. DEVICE SETTINGS
-// ======================================================
-
-const settingsPanel = $('settingsPanel'); //
-const audioSource   = $('audioSource'); //
-const audioSource2  = $('audioSource2'); //
-const videoSource   = $('videoSource'); //
-const videoQuality  = $('videoQuality'); //
-
-if ($('settingsBtn')) {
-    $('settingsBtn').addEventListener('click', () => {
-        const isHidden = settingsPanel.style.display === 'none' || settingsPanel.style.display === ''; //
-        settingsPanel.style.display = isHidden ? 'block' : 'none'; //
-        if (isHidden) getDevices(); //
+// 5. Broadcaster Sync: push processed overlay HTML out to viewers
+if (iAmHost && isStreaming && currentRoom) {
+    socket.emit('overlay-html', {
+        room: currentRoom,
+        html: processedHTML
     });
 }
 
