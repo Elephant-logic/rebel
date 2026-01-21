@@ -233,8 +233,26 @@ function drawMixer(timestamp) {
         }
     }
 
-    if (overlayActive && overlayImage.complete) {
-        ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height); //
+    // Continuous overlay capture from hidden HTML container
+    if (overlayActive) {
+        const container = $('hiddenOverlayContainer'); //
+        if (container) {
+            const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
+                <foreignObject width="100%" height="100%">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%;">
+                        ${container.innerHTML}
+                    </div>
+                </foreignObject>
+            </svg>`;
+
+            const img = new Image(); //
+            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
+
+            if (img.complete) {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height); //
+            }
+        }
     }
 }
 
@@ -370,6 +388,9 @@ function renderHTMLLayout(htmlString) {
     if (!htmlString) return; //
     currentRawHTML = htmlString; //
 
+    const container = $('hiddenOverlayContainer'); //
+    if (!container) return; //
+
     // Separate Viewers from Guests for stats
     const viewerCount = latestUserList.filter(u => u.isViewer).length; //
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
@@ -378,29 +399,15 @@ function renderHTMLLayout(htmlString) {
     // Build chat HTML block from current public chat
     const chatHTML = buildChatHTMLFromLogs(14); //
 
-    let processedHTML = htmlString
+    // Inject into the hidden div so animations actually run
+    container.innerHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
         .replace(/{{chat}}/g, chatHTML); //
 
-    const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
-            <foreignObject width="100%" height="100%">
-                <div xmlns="http://www.w3.org/1999/xhtml" class="layout-${mixerLayout}" style="width:100%; height:100%; margin:0; padding:0;">
-                    ${processedHTML}
-                </div>
-            </foreignObject>
-        </svg>`; //
-
-    try {
-        overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
-        overlayActive = true; //
-    } catch (e) {
-        console.error("[Overlay] Failed to encode SVG", e); //
-    }
+    overlayActive = true; //
 }
-
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
     document.querySelectorAll('.mixer-btn').forEach(b => {
