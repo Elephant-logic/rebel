@@ -45,7 +45,7 @@
             <button id="updateTitleBtn" class="btn small secondary full-width">Update</button>
           </div>
 
-                    <div class="field" style="margin-top:15px; border-top:1px solid var(--border); padding-top:10px;">
+          <div class="field" style="margin-top:15px; border-top:1px solid var(--border); padding-top:10px;">
             <label style="color:var(--accent);">📢 Live Ticker</label>
             <input id="tickerInput" type="text" placeholder="Enter breaking news..." style="font-size:0.8rem; margin-bottom:5px;" />
             <div style="display:flex; gap:5px;">
@@ -53,8 +53,8 @@
               <button id="toggleTickerBtn" class="btn small secondary">ON</button>
             </div>
           </div>
-          <div id="hiddenOverlayContainer" style="position:fixed; top:-10000px; left:-10000px; width:1920px; height:1080px; pointer-events:none; visibility:hidden;"></div>
-<div class="field" style="margin-top:10px;">
+
+          <div class="field" style="margin-top:10px;">
             <label>Custom Link Name (Slug)</label>
             <div style="display:flex; gap:5px;">
               <input id="slugInput" class="stream-title-input" type="text" placeholder="e.g. my-show" />
@@ -258,5 +258,7 @@
       }
     });
   </script>
+  <div id="hiddenOverlayContainer"
+       style="position:fixed; top:-10000px; left:-10000px; width:1920px; height:1080px; pointer-events:none; visibility:hidden;"></div>
 </body>
 </html>
