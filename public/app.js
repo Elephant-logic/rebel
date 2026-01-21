@@ -118,6 +118,9 @@ let overlayActive = false; //
 let overlayImage = new Image(); //
 let currentRawHTML = ""; //
 
+let currentTickerText = "Welcome to the Rebel Stream!"; //
+let tickerEnabled = true; //
+
 const viewerPeers = {}; //
 const callPeers = {}; //
 
@@ -233,25 +236,23 @@ function drawMixer(timestamp) {
         }
     }
 
-    // Continuous overlay capture from hidden HTML container
+    // Live DOM overlay capture via hidden container
     if (overlayActive) {
         const container = $('hiddenOverlayContainer'); //
-        if (container) {
-            const svg = `
+        const svg = `
             <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
                 <foreignObject width="100%" height="100%">
                     <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%;">
-                        ${container.innerHTML}
+                        ${container ? container.innerHTML : ''}
                     </div>
                 </foreignObject>
-            </svg>`;
+            </svg>`; //
 
-            const img = new Image(); //
-            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
+        const img = new Image(); //
+        img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
 
-            if (img.complete) {
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height); //
-            }
+        if (img.complete || img.width > 0) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height); //
         }
     }
 }
@@ -391,23 +392,38 @@ function renderHTMLLayout(htmlString) {
     const container = $('hiddenOverlayContainer'); //
     if (!container) return; //
 
-    // Separate Viewers from Guests for stats
     const viewerCount = latestUserList.filter(u => u.isViewer).length; //
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
-
-    // Build chat HTML block from current public chat
     const chatHTML = buildChatHTMLFromLogs(14); //
 
-    // Inject into the hidden div so animations actually run
+    // Create the Animated Ticker HTML
+    const tickerHTML = tickerEnabled ? `
+        <div style="position:absolute; bottom:0; left:0; width:100%; background:rgba(0,0,0,0.8); color:#4af3a3; font-family:sans-serif; padding:10px; font-size:32px; white-space:nowrap; overflow:hidden;">
+            <div style="display:inline-block; padding-left:100%; animation: tickerMove 15s linear infinite;">
+                ${currentTickerText}
+            </div>
+            <style>
+                @keyframes tickerMove {
+                    0% { transform: translateX(0); }
+                    100% { transform: translateX(-100%); }
+                }
+            </style>
+        </div>
+    ` : ""; //
+
+    // Inject into the hidden layer to run animations
     container.innerHTML = htmlString
         .replace(/{{viewers}}/g, viewerCount)
         .replace(/{{guests}}/g, guestCount)
         .replace(/{{title}}/g, streamTitle)
-        .replace(/{{chat}}/g, chatHTML); //
+        .replace(/{{chat}}/g, chatHTML)
+        .replace(/{{ticker}}/g, tickerHTML); //
 
     overlayActive = true; //
 }
+
+
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
     document.querySelectorAll('.mixer-btn').forEach(b => {
@@ -1164,6 +1180,26 @@ if (streamTitleInput) {
                 if (overlayActive) renderHTMLLayout(currentRawHTML); //
             }
         }
+    };
+}
+
+// Ticker controls
+const updateTickerBtn = $('updateTickerBtn'); //
+if (updateTickerBtn) {
+    updateTickerBtn.onclick = () => {
+        const input = $('tickerInput'); //
+        if (!input) return; //
+        currentTickerText = input.value.trim() || currentTickerText; //
+        if (overlayActive) renderHTMLLayout(currentRawHTML); //
+    };
+}
+
+const toggleTickerBtn = $('toggleTickerBtn'); //
+if (toggleTickerBtn) {
+    toggleTickerBtn.onclick = () => {
+        tickerEnabled = !tickerEnabled; //
+        toggleTickerBtn.textContent = tickerEnabled ? "ON" : "OFF"; //
+        if (overlayActive) renderHTMLLayout(currentRawHTML); //
     };
 }
 
