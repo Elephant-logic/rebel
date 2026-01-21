@@ -392,9 +392,12 @@ function renderHTMLLayout(htmlString) {
     const container = $('hiddenOverlayContainer'); //
     if (!container) return; //
 
+    // Separate Viewers from Guests for stats
     const viewerCount = latestUserList.filter(u => u.isViewer).length; //
     const guestCount = latestUserList.filter(u => !u.isViewer).length; //
     const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream"; //
+
+    // Build chat HTML block from current public chat
     const chatHTML = buildChatHTMLFromLogs(14); //
 
     // Create the Animated Ticker HTML
@@ -422,7 +425,6 @@ function renderHTMLLayout(htmlString) {
 
     overlayActive = true; //
 }
-
 
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
@@ -1183,6 +1185,7 @@ if (streamTitleInput) {
     };
 }
 
+
 // Ticker controls
 const updateTickerBtn = $('updateTickerBtn'); //
 if (updateTickerBtn) {
@@ -1202,7 +1205,6 @@ if (toggleTickerBtn) {
         if (overlayActive) renderHTMLLayout(currentRawHTML); //
     };
 }
-
 const updateSlugBtn = $('updateSlugBtn'); //
 if (updateSlugBtn) {
     updateSlugBtn.onclick = () => {
