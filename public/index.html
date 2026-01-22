@@ -231,7 +231,10 @@
             <span>Stream Preview (What Viewers See)</span>
             <button id="closePreviewBtn" class="btn small">✕</button>
         </div>
-        <video id="streamPreviewVideo" autoplay playsinline muted></video>
+        <div style="position: relative; flex: 1;">
+            <video id="streamPreviewVideo" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>
+            <div id="hostOverlayRoot" style="position: absolute; inset: 0; pointer-events: none; z-index: 2;"></div>
+        </div>
     </div>
   </div>
   

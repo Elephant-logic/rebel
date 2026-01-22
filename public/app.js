@@ -81,6 +81,7 @@ console.log("Rebel Stream Host App Loaded"); //
 
 const socket = io({ autoConnect: false }); //
 const $ = id => document.getElementById(id); //
+const hostOverlayRoot = document.getElementById('hostOverlayRoot'); //
 
 let currentRoom = null; //
 let userName = 'User'; //
