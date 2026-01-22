@@ -114,11 +114,12 @@ let canvasStream = null; //
 let mixerLayout = 'SOLO'; //
 let activeGuestId = null; //
 
-let overlayActive = false; //
-let overlayImage = new Image(); //
-let currentRawHTML = ""; //
-let currentTickerText = ""; // ticker text from host sidebar
-let overlayHasTickerPlaceholder = false; // helper
+let overlayActive = false;
+let overlayImage = new Image(); // legacy image-based overlay (kept)
+let currentRawHTML = "";
+let currentTickerText = "";
+let overlayHasTickerPlaceholder = false; //
+let overlayFieldValues = {}; // dynamic fields populated from sidebar
 
 const viewerPeers = {}; //
 const callPeers = {}; //
@@ -237,6 +238,55 @@ function drawMixer(timestamp) {
 
     if (overlayActive && overlayImage.complete) {
         ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height); //
+    }
+
+    // Live HTML overlay + ticker compositing
+    if (overlayActive) {
+        const container = $('hiddenOverlayContainer');
+        if (container && container.innerHTML && container.innerHTML.trim().length > 0) {
+            const svg = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
+                    <foreignObject width="100%" height="100%">
+                        <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%;">
+                            ${container.innerHTML}
+                        </div>
+                    </foreignObject>
+                </svg>`;
+
+            const img = new Image();
+            try {
+                img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+            } catch (e) {
+                console.error("[Overlay] Failed to encode live SVG frame", e);
+            }
+
+            const drawImg = () => {
+                try {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                } catch (err) {
+                    console.error("[Overlay] Failed to draw overlay image", err);
+                }
+            };
+
+            if (img.complete) {
+                drawImg();
+            } else {
+                img.onload = drawImg;
+            }
+        }
+
+        if (!overlayHasTickerPlaceholder && currentTickerText) {
+            ctx.save();
+            const barHeight = 60;
+            ctx.fillStyle = "rgba(0,0,0,0.7)";
+            ctx.fillRect(0, canvas.height - barHeight, canvas.width, barHeight);
+            ctx.fillStyle = "#4af3a3";
+            ctx.font = "28px system-ui, Arial, sans-serif";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText(currentTickerText, 30, canvas.height - barHeight / 2);
+            ctx.restore();
+        }
     }
 }
 
@@ -368,82 +418,49 @@ function buildChatHTMLFromLogs(maxLines = 12) {
     }).join('');
 }
 
+
 function renderHTMLLayout(htmlString) {
-    if (!htmlString) return; //
-    currentRawHTML = htmlString; // remember last layout so we can re-render when ticker changes
+    if (!htmlString) return;
+    currentRawHTML = htmlString;
 
-    // Separate Viewers from Guests for stats
-    const viewerCount = Array.isArray(latestUserList)
-        ? latestUserList.filter(u => u.isViewer).length
-        : 0; //
-    const guestCount = Array.isArray(latestUserList)
-        ? latestUserList.filter(u => !u.isViewer).length
-        : 0; //
-    const streamTitle = $('streamTitleInput') && $('streamTitleInput').value.trim().length
-        ? $('streamTitleInput').value.trim()
-        : "Rebel Stream"; //
+    const container = $('hiddenOverlayContainer');
+    if (!container) return;
 
-    // Build chat HTML block from current public chat (if helper exists)
-    const chatHTML = (typeof buildChatHTMLFromLogs === "function")
-        ? buildChatHTMLFromLogs(14)
-        : ""; //
+    const viewerCount = latestUserList ? latestUserList.filter(u => u.isViewer).length : 0;
+    const guestCount = latestUserList ? latestUserList.filter(u => !u.isViewer).length : 0;
+    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
+    const chatHTML = typeof buildChatHTMLFromLogs === 'function' ? buildChatHTMLFromLogs(14) : "";
 
-    // Base placeholder replacement
     let processedHTML = String(htmlString)
         .replace(/{{viewers}}/gi, String(viewerCount))
         .replace(/{{guests}}/gi, String(guestCount))
         .replace(/{{title}}/gi, streamTitle)
-        .replace(/{{chat}}/gi, chatHTML); //
+        .replace(/{{chat}}/gi, chatHTML);
 
-    // Detect whether this template expects a ticker
     overlayHasTickerPlaceholder =
         /{{\s*TICKER\s*}}/i.test(processedHTML) ||
         processedHTML.includes('id="ticker"') ||
         processedHTML.includes("id='ticker'") ||
         processedHTML.includes('class="ticker"') ||
-        processedHTML.includes("class='ticker'"); //
+        processedHTML.includes("class='ticker'");
 
-    // Inject ticker text if present
-    if (overlayHasTickerPlaceholder && typeof currentTickerText === "string" && currentTickerText.length) {
-        processedHTML = processedHTML.replace(/{{\s*TICKER\s*}}/gi, currentTickerText); //
+    if (overlayHasTickerPlaceholder && currentTickerText) {
+        processedHTML = processedHTML.replace(/{{\s*TICKER\s*}}/gi, currentTickerText);
     }
 
-
-    // Apply any generic overlay fields (e.g. {{ROUND}}, {{SCORE}}) from sidebar
-    if (overlayFieldValues && typeof overlayFieldValues === "object") {
-        for (const [key, value] of Object.entries(overlayFieldValues)) {
-            if (!key) continue;
+    // Apply generic overlay fields e.g. {{ROUND}}, {{SCORE}} from sidebar
+    if (overlayFieldValues && typeof overlayFieldValues === 'object') {
+        Object.entries(overlayFieldValues).forEach(([key, value]) => {
+            if (!key) return;
             const safeKey = String(key).trim();
-            if (!safeKey.length) continue;
+            if (!safeKey.length) return;
             const re = new RegExp('{{\\s*' + safeKey + '\\s*}}', 'gi');
             processedHTML = processedHTML.replace(re, String(value));
-        }
+        });
     }
 
-    // Optional: push into hiddenOverlayContainer so CSS animations can run in DOM (even if we snapshot)
-    const hiddenContainer = $('hiddenOverlayContainer'); //
-    if (hiddenContainer) {
-        hiddenContainer.innerHTML = processedHTML; //
-    }
-
-    // Build SVG wrapper for canvas snapshot
-    const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
-            <foreignObject width="100%" height="100%">
-                <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%; margin:0; padding:0;">
-                    ${processedHTML}
-                </div>
-            </foreignObject>
-        </svg>`; //
-
-    try {
-        overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
-        overlayActive = true; //
-        const overlayStatus = $('overlayStatus'); //
-        if (overlayStatus) overlayStatus.textContent = "[Loaded]"; //
-    } catch (e) {
-        console.error("[Overlay] Failed to encode SVG", e); //
-    }
+    container.innerHTML = processedHTML;
+    overlayActive = true;
 }
 
 window.setMixerLayout = (mode) => {
@@ -1499,6 +1516,51 @@ if (arcadeInput) {
     };
 }
 
+// Build dynamic overlay fields in sidebar based on template placeholders {{FIELD}}
+function rebuildDynamicOverlayFields(rawHTML) {
+    const container = $('dynamicOverlayFields');
+    if (!container) return;
+
+    container.innerHTML = "";
+    overlayFieldValues = {};
+
+    if (!rawHTML) return;
+
+    const matches = String(rawHTML).match(/{{\s*([A-Z0-9_]+)\s*}}/gi) || [];
+    const seen = new Set();
+    const builtin = new Set(["VIEWERS","GUESTS","TITLE","CHAT","TICKER"]);
+
+    matches.forEach((m) => {
+        const name = m.replace(/[{}]/g, "").trim().toUpperCase();
+        if (!name) return;
+        if (builtin.has(name)) return;
+        if (seen.has(name)) return;
+        seen.add(name);
+
+        overlayFieldValues[name] = "";
+
+        const row = document.createElement('div');
+        row.className = 'field';
+        row.style.marginTop = "6px";
+        row.innerHTML = `
+            <label style="font-size:0.8rem;">${name}</label>
+            <input type="text" data-overlay-field="${name}" class="stream-title-input" placeholder="Set ${name}..." />
+        `;
+        container.appendChild(row);
+    });
+
+    const inputs = container.querySelectorAll('input[data-overlay-field]');
+    inputs.forEach((inp) => {
+        inp.addEventListener('input', () => {
+            const key = (inp.getAttribute('data-overlay-field') || "").toUpperCase();
+            overlayFieldValues[key] = inp.value || "";
+            if (overlayActive && currentRawHTML) {
+                renderHTMLLayout(currentRawHTML);
+            }
+        });
+    });
+}
+
 const htmlOverlayInput = $('htmlOverlayInput'); //
 if (htmlOverlayInput) {
     htmlOverlayInput.onchange = (e) => {
@@ -1507,9 +1569,11 @@ if (htmlOverlayInput) {
 
         const r = new FileReader(); //
         r.onload = (ev) => {
-            renderHTMLLayout(ev.target.result); //
+            const raw = ev.target.result;
+            rebuildDynamicOverlayFields(raw);
+            renderHTMLLayout(raw); //
             const overlayStatus = $('overlayStatus'); //
-            if (overlayStatus) overlayStatus.textContent = "[Loaded]"; //
+            if (overlayStatus) textContent = "[Loaded]"; //
         };
         r.readAsText(f); //
     };
@@ -1685,3 +1749,56 @@ if (openStreamBtn) {
         if (u) window.open(u, '_blank'); //
     };
 }
+
+
+// === Overlay & Ticker Controls (patched) ===
+(function(){
+    const htmlOverlayInput = $('htmlOverlayInput');
+    if (htmlOverlayInput) {
+        htmlOverlayInput.onchange = (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const r = new FileReader();
+            r.onload = (ev) => {
+                renderHTMLLayout(ev.target.result);
+                const overlayStatus = $('overlayStatus');
+                if (overlayStatus) overlayStatus.textContent = "[Loaded]";
+            };
+            r.readAsText(f);
+        };
+    }
+
+    const tickerInput = $('tickerInput');
+    const tickerUpdateBtn = $('tickerUpdateBtn');
+    if (tickerInput && tickerUpdateBtn) {
+        tickerUpdateBtn.onclick = () => {
+            currentTickerText = tickerInput.value || "";
+            if (overlayActive && currentRawHTML) {
+                renderHTMLLayout(currentRawHTML);
+            }
+        };
+    }
+
+    const overlayToggleBtn = $('overlayToggleBtn');
+    if (overlayToggleBtn) {
+        overlayToggleBtn.onclick = () => {
+            if (!currentRawHTML) {
+                alert("No overlay loaded yet.");
+                return;
+            }
+            overlayActive = !overlayActive;
+            overlayToggleBtn.textContent = overlayActive ? "Overlay: ON" : "Overlay: OFF";
+            const overlayStatus = $('overlayStatus');
+            if (overlayStatus) {
+                overlayStatus.textContent = overlayActive ? "[Overlay ON]" : "[Overlay OFF]";
+            }
+            if (!overlayActive) {
+                const container = $('hiddenOverlayContainer');
+                if (container) container.innerHTML = "";
+            } else {
+                renderHTMLLayout(currentRawHTML);
+            }
+        };
+    }
+})();
+// === End overlay & ticker controls ===
