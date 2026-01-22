@@ -114,11 +114,11 @@ let canvasStream = null; //
 let mixerLayout = 'SOLO'; //
 let activeGuestId = null; //
 
-let overlayActive = false;
-let overlayImage = new Image(); // legacy image-based overlay (kept)
-let currentRawHTML = "";
-let currentTickerText = "";
-let overlayHasTickerPlaceholder = false; //
+let overlayActive = false; //
+let overlayImage = new Image(); //
+let currentRawHTML = ""; //
+let currentTickerText = ""; // ticker text from host sidebar
+let overlayHasTickerPlaceholder = false; // helper
 
 const viewerPeers = {}; //
 const callPeers = {}; //
@@ -237,55 +237,6 @@ function drawMixer(timestamp) {
 
     if (overlayActive && overlayImage.complete) {
         ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height); //
-    }
-
-    // Live HTML overlay + ticker compositing
-    if (overlayActive) {
-        const container = $('hiddenOverlayContainer');
-        if (container && container.innerHTML && container.innerHTML.trim().length > 0) {
-            const svg = `
-                <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
-                    <foreignObject width="100%" height="100%">
-                        <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%;">
-                            ${container.innerHTML}
-                        </div>
-                    </foreignObject>
-                </svg>`;
-
-            const img = new Image();
-            try {
-                img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
-            } catch (e) {
-                console.error("[Overlay] Failed to encode live SVG frame", e);
-            }
-
-            const drawImg = () => {
-                try {
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                } catch (err) {
-                    console.error("[Overlay] Failed to draw overlay image", err);
-                }
-            };
-
-            if (img.complete) {
-                drawImg();
-            } else {
-                img.onload = drawImg;
-            }
-        }
-
-        if (!overlayHasTickerPlaceholder && currentTickerText) {
-            ctx.save();
-            const barHeight = 60;
-            ctx.fillStyle = "rgba(0,0,0,0.7)";
-            ctx.fillRect(0, canvas.height - barHeight, canvas.width, barHeight);
-            ctx.fillStyle = "#4af3a3";
-            ctx.font = "28px system-ui, Arial, sans-serif";
-            ctx.textAlign = "left";
-            ctx.textBaseline = "middle";
-            ctx.fillText(currentTickerText, 30, canvas.height - barHeight / 2);
-            ctx.restore();
-        }
     }
 }
 
@@ -417,43 +368,32 @@ function buildChatHTMLFromLogs(maxLines = 12) {
     }).join('');
 }
 
-
 function renderHTMLLayout(htmlString) {
-    if (!htmlString) return;
-    currentRawHTML = htmlString;
+    if (!htmlString) return; //
+    currentRawHTML = htmlString; // remember last layout so we can re-render when ticker changes
 
-    const container = $('hiddenOverlayContainer');
-    if (!container) {
-        console.warn("[Overlay] hiddenOverlayContainer not found in DOM");
-        overlayActive = false;
-        return;
-    }
-
-    // Viewer / guest stats
+    // Separate Viewers from Guests for stats
     const viewerCount = Array.isArray(latestUserList)
         ? latestUserList.filter(u => u.isViewer).length
-        : 0;
+        : 0; //
     const guestCount = Array.isArray(latestUserList)
         ? latestUserList.filter(u => !u.isViewer).length
-        : 0;
+        : 0; //
+    const streamTitle = $('streamTitleInput') && $('streamTitleInput').value.trim().length
+        ? $('streamTitleInput').value.trim()
+        : "Rebel Stream"; //
 
-    // Stream title
-    const titleEl = $('streamTitleInput');
-    const streamTitle = (titleEl && titleEl.value && titleEl.value.trim().length)
-        ? titleEl.value.trim()
-        : "Rebel Stream";
-
-    // Chat HTML (if helper exists)
+    // Build chat HTML block from current public chat (if helper exists)
     const chatHTML = (typeof buildChatHTMLFromLogs === "function")
         ? buildChatHTMLFromLogs(14)
-        : "";
+        : ""; //
 
     // Base placeholder replacement
-    let processedHTML = htmlString
+    let processedHTML = String(htmlString)
         .replace(/{{viewers}}/gi, String(viewerCount))
         .replace(/{{guests}}/gi, String(guestCount))
         .replace(/{{title}}/gi, streamTitle)
-        .replace(/{{chat}}/gi, chatHTML);
+        .replace(/{{chat}}/gi, chatHTML); //
 
     // Detect whether this template expects a ticker
     overlayHasTickerPlaceholder =
@@ -461,18 +401,49 @@ function renderHTMLLayout(htmlString) {
         processedHTML.includes('id="ticker"') ||
         processedHTML.includes("id='ticker'") ||
         processedHTML.includes('class="ticker"') ||
-        processedHTML.includes("class='ticker'");
+        processedHTML.includes("class='ticker'"); //
 
     // Inject ticker text if present
     if (overlayHasTickerPlaceholder && typeof currentTickerText === "string" && currentTickerText.length) {
-        processedHTML = processedHTML.replace(/{{\s*TICKER\s*}}/gi, currentTickerText);
+        processedHTML = processedHTML.replace(/{{\s*TICKER\s*}}/gi, currentTickerText); //
     }
 
-    // Push into the hidden container so any DOM-based layout / animation can run
-    container.innerHTML = processedHTML;
 
-    // Mark overlay as active so drawMixer will composite it
-    overlayActive = true;
+    // Apply any generic overlay fields (e.g. {{ROUND}}, {{SCORE}}) from sidebar
+    if (overlayFieldValues && typeof overlayFieldValues === "object") {
+        for (const [key, value] of Object.entries(overlayFieldValues)) {
+            if (!key) continue;
+            const safeKey = String(key).trim();
+            if (!safeKey.length) continue;
+            const re = new RegExp('{{\\s*' + safeKey + '\\s*}}', 'gi');
+            processedHTML = processedHTML.replace(re, String(value));
+        }
+    }
+
+    // Optional: push into hiddenOverlayContainer so CSS animations can run in DOM (even if we snapshot)
+    const hiddenContainer = $('hiddenOverlayContainer'); //
+    if (hiddenContainer) {
+        hiddenContainer.innerHTML = processedHTML; //
+    }
+
+    // Build SVG wrapper for canvas snapshot
+    const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">
+            <foreignObject width="100%" height="100%">
+                <div xmlns="http://www.w3.org/1999/xhtml" style="width:100%; height:100%; margin:0; padding:0;">
+                    ${processedHTML}
+                </div>
+            </foreignObject>
+        </svg>`; //
+
+    try {
+        overlayImage.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); //
+        overlayActive = true; //
+        const overlayStatus = $('overlayStatus'); //
+        if (overlayStatus) overlayStatus.textContent = "[Loaded]"; //
+    } catch (e) {
+        console.error("[Overlay] Failed to encode SVG", e); //
+    }
 }
 
 window.setMixerLayout = (mode) => {
@@ -1714,56 +1685,3 @@ if (openStreamBtn) {
         if (u) window.open(u, '_blank'); //
     };
 }
-
-
-// === Overlay & Ticker Controls (patched) ===
-(function(){
-    const htmlOverlayInput = $('htmlOverlayInput');
-    if (htmlOverlayInput) {
-        htmlOverlayInput.onchange = (e) => {
-            const f = e.target.files[0];
-            if (!f) return;
-            const r = new FileReader();
-            r.onload = (ev) => {
-                renderHTMLLayout(ev.target.result);
-                const overlayStatus = $('overlayStatus');
-                if (overlayStatus) overlayStatus.textContent = "[Loaded]";
-            };
-            r.readAsText(f);
-        };
-    }
-
-    const tickerInput = $('tickerInput');
-    const tickerUpdateBtn = $('tickerUpdateBtn');
-    if (tickerInput && tickerUpdateBtn) {
-        tickerUpdateBtn.onclick = () => {
-            currentTickerText = tickerInput.value || "";
-            if (overlayActive && currentRawHTML) {
-                renderHTMLLayout(currentRawHTML);
-            }
-        };
-    }
-
-    const overlayToggleBtn = $('overlayToggleBtn');
-    if (overlayToggleBtn) {
-        overlayToggleBtn.onclick = () => {
-            if (!currentRawHTML) {
-                alert("No overlay loaded yet.");
-                return;
-            }
-            overlayActive = !overlayActive;
-            overlayToggleBtn.textContent = overlayActive ? "Overlay: ON" : "Overlay: OFF";
-            const overlayStatus = $('overlayStatus');
-            if (overlayStatus) {
-                overlayStatus.textContent = overlayActive ? "[Overlay ON]" : "[Overlay OFF]";
-            }
-            if (!overlayActive) {
-                const container = $('hiddenOverlayContainer');
-                if (container) container.innerHTML = "";
-            } else {
-                renderHTMLLayout(currentRawHTML);
-            }
-        };
-    }
-})();
-// === End overlay & ticker controls ===
