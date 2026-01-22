@@ -44,19 +44,36 @@
             <input id="streamTitleInput" class="stream-title-input" type="text" />
             <button id="updateTitleBtn" class="btn small secondary full-width">Update</button>
           </div>
-        <!-- Overlay & Ticker Controls (patched) -->
-        <div class="field" style="margin-top:10px;">
-          <label>Ticker Text</label>
-          <div style="display:flex; gap:5px;">
-            <input type="text" id="tickerInput" class="stream-title-input" placeholder="Enter ticker text..." />
-            <button id="tickerUpdateBtn" class="btn small secondary">Update</button>
+
+          <!-- Overlay toggle + Live Injection (dynamic ticker) -->
+          <div class="field" style="margin-top:10px;">
+            <button id="overlayToggleBtn" class="btn small secondary full-width">Overlay: OFF</button>
           </div>
-        </div>
 
-        <div class="field" style="margin-top:10px;">
-          <button id="overlayToggleBtn" class="btn small secondary full-width">Overlay: OFF</button>
-        </div>
-
+          <div class="field" style="margin-top:15px; border-top:1px solid var(--border); padding-top:10px;">
+            <label style="color:var(--accent);">⚡ Live Injection</label>
+            <p style="font-size:0.7rem; color:var(--muted); margin-bottom:5px;">
+              Update specific IDs in your loaded HTML.
+            </p>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <select id="injectTargetSelect" class="stream-title-input">
+                <option value="">Detected zones will appear here...</option>
+              </select>
+              <input
+                type="text"
+                id="injectTargetId"
+                class="stream-title-input"
+                placeholder="HTML ID (e.g. 'ticker')"
+              />
+              <textarea
+                id="injectValue"
+                class="stream-title-input"
+                style="height:60px;"
+                placeholder="Text, HTML, or &lt;img&gt;..."
+              ></textarea>
+              <button id="btnInjectContent" class="btn small primary">Push</button>
+            </div>
+          </div>
 
           <div class="field" style="margin-top:10px;">
             <label>Custom Link Name (Slug)</label>
