@@ -1561,6 +1561,15 @@ function rebuildDynamicOverlayFields(rawHTML) {
     });
 }
 
+// Global helper so any loader (HTML upload, side-loader, arcade) can push overlay HTML
+window.loadOverlayHTML = (rawHTML) => {
+    if (!rawHTML) return;
+    rebuildDynamicOverlayFields(rawHTML);
+    renderHTMLLayout(rawHTML);
+    const overlayStatus = $('overlayStatus');
+    if (overlayStatus) overlayStatus.textContent = "[Loaded]";
+};
+
 const htmlOverlayInput = $('htmlOverlayInput'); //
 if (htmlOverlayInput) {
     htmlOverlayInput.onchange = (e) => {
@@ -1570,10 +1579,7 @@ if (htmlOverlayInput) {
         const r = new FileReader(); //
         r.onload = (ev) => {
             const raw = ev.target.result;
-            rebuildDynamicOverlayFields(raw);
-            renderHTMLLayout(raw); //
-            const overlayStatus = $('overlayStatus'); //
-            if (overlayStatus) textContent = "[Loaded]"; //
+            window.loadOverlayHTML(raw); //
         };
         r.readAsText(f); //
     };
