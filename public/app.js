@@ -423,19 +423,39 @@ function renderHTMLLayout(htmlString) {
     currentRawHTML = htmlString;
 
     const container = $('hiddenOverlayContainer');
-    if (!container) return;
+    if (!container) {
+        console.warn("[Overlay] hiddenOverlayContainer not found in DOM");
+        overlayActive = false;
+        return;
+    }
 
-    const viewerCount = latestUserList ? latestUserList.filter(u => u.isViewer).length : 0;
-    const guestCount = latestUserList ? latestUserList.filter(u => !u.isViewer).length : 0;
-    const streamTitle = $('streamTitleInput') ? $('streamTitleInput').value : "Rebel Stream";
-    const chatHTML = typeof buildChatHTMLFromLogs === 'function' ? buildChatHTMLFromLogs(14) : "";
+    // Viewer / guest stats
+    const viewerCount = Array.isArray(latestUserList)
+        ? latestUserList.filter(u => u.isViewer).length
+        : 0;
+    const guestCount = Array.isArray(latestUserList)
+        ? latestUserList.filter(u => !u.isViewer).length
+        : 0;
 
+    // Stream title
+    const titleEl = $('streamTitleInput');
+    const streamTitle = (titleEl && titleEl.value && titleEl.value.trim().length)
+        ? titleEl.value.trim()
+        : "Rebel Stream";
+
+    // Chat HTML (if helper exists)
+    const chatHTML = (typeof buildChatHTMLFromLogs === "function")
+        ? buildChatHTMLFromLogs(14)
+        : "";
+
+    // Base placeholder replacement
     let processedHTML = htmlString
-        .replace(/{{viewers}}/g, viewerCount)
-        .replace(/{{guests}}/g, guestCount)
-        .replace(/{{title}}/g, streamTitle)
-        .replace(/{{chat}}/g, chatHTML);
+        .replace(/{{viewers}}/gi, String(viewerCount))
+        .replace(/{{guests}}/gi, String(guestCount))
+        .replace(/{{title}}/gi, streamTitle)
+        .replace(/{{chat}}/gi, chatHTML);
 
+    // Detect whether this template expects a ticker
     overlayHasTickerPlaceholder =
         /{{\s*TICKER\s*}}/i.test(processedHTML) ||
         processedHTML.includes('id="ticker"') ||
@@ -443,15 +463,17 @@ function renderHTMLLayout(htmlString) {
         processedHTML.includes('class="ticker"') ||
         processedHTML.includes("class='ticker'");
 
-    if (overlayHasTickerPlaceholder && currentTickerText) {
+    // Inject ticker text if present
+    if (overlayHasTickerPlaceholder && typeof currentTickerText === "string" && currentTickerText.length) {
         processedHTML = processedHTML.replace(/{{\s*TICKER\s*}}/gi, currentTickerText);
     }
 
+    // Push into the hidden container so any DOM-based layout / animation can run
     container.innerHTML = processedHTML;
 
+    // Mark overlay as active so drawMixer will composite it
     overlayActive = true;
 }
-
 
 window.setMixerLayout = (mode) => {
     mixerLayout = mode; //
